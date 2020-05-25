@@ -6,6 +6,7 @@
 #include <readline/history.h>
 #include <algorithm>
 #include <unordered_map>
+#include <sstream>
 
 
 enum LISP_OBJ_TYPE {
@@ -56,6 +57,7 @@ lisp_obj *LISP_SETQ;
 lisp_obj *LISP_BASE_ENVIRONMENT;
 
 std::string pretty_print(const lisp_obj *obj);
+std::string repr(const lisp_obj *obj);
 
 
 lisp_obj *intern_symbol(const std::string &symbol_name) 
@@ -186,7 +188,7 @@ lisp_obj *parse(const std::string &data, int &i)
                         if (data[i] == '\\') {
                                 i++;
                                 const int start_index = i;
-                                while (i < data.size() && !is_whitespace(data[i])) {
+                                while (i < data.size() && is_symbol_char(data[i])) {
                                         i++;
                                 }
                                 const int end_index = i;
@@ -277,6 +279,7 @@ lisp_obj *cadr(lisp_obj *obj) {return car(cdr(obj));}
 lisp_obj *caddr(lisp_obj *obj) {return car(cdr(cdr(obj)));}
 lisp_obj *cadddr(lisp_obj *obj) {return car(cdr(cdr(cdr(obj))));}
 lisp_obj *caar(lisp_obj *obj) { return car(car(obj)); }
+lisp_obj *cdar(lisp_obj *obj) { return cdr(car(obj)); }
 lisp_obj *first(lisp_obj *obj) {return car(obj);}
 lisp_obj *rest(lisp_obj *obj) {return cdr(obj);}
 lisp_obj *second(lisp_obj *obj) {return cadr(obj);}
@@ -377,11 +380,12 @@ lisp_obj *lisp_prim_multiply(lisp_obj *env, lisp_obj *args)
 
 lisp_obj *lisp_prim_print(lisp_obj *env, lisp_obj *args) 
 {
-        while (args != LISP_NIL) {
-                auto tmp = car(args);
-                pretty_print(tmp);
-                args = cdr(args);
-        }
+        printf("%s", repr(car(args)).c_str());
+        //while (args != LISP_NIL) {
+        //        auto tmp = car(args);
+        //        pretty_print(tmp);
+        //        args = cdr(args);
+        //}
         return LISP_NIL;
 }
 
@@ -409,6 +413,46 @@ lisp_obj *lisp_prim_num_less(lisp_obj *env, lisp_obj *args)
                 }
         }
         return result ? LISP_T : LISP_NIL;
+}
+lisp_obj *lisp_prim_car(lisp_obj *env, lisp_obj *args) 
+{
+        return caar(args);
+}
+
+lisp_obj *lisp_prim_cdr(lisp_obj *env, lisp_obj *args) 
+{
+        return cdar(args);
+}
+
+lisp_obj *lisp_prim_eq(lisp_obj *env, lisp_obj *args) 
+{
+        if (cdr(args) == LISP_NIL) {
+                return LISP_T;
+        }
+
+        auto a = first(args);
+        auto b = second(args);
+        bool result = a == b;
+        if (result) {
+                args = cddr(args);
+                a = b;
+                while (args != LISP_NIL) {
+                        b = car(args);
+                        result = a == b;
+                        if (result == false) {
+                                break;
+                        }
+                        a = b;
+                        args = cdr(args);
+                }
+        }
+        return result ? LISP_T : LISP_NIL;
+}
+
+lisp_obj *lisp_prim_putchar(lisp_obj *env, lisp_obj *args) 
+{
+        putchar(car(args)->character);
+        return LISP_NIL;
 }
 
 
@@ -472,6 +516,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
 {
         switch (obj->type) {
                 case SYM_TYPE: {
+                        if (obj == LISP_T) return obj;
                         auto val = symbol_lookup(env, obj); 
                         if (val == nullptr) {
                                 printf("UNBOUND VARIABLE: %s\n", obj->symbol->c_str()); // @TODO: POOPER ERROR HANDLING
@@ -485,7 +530,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                 case CONS_TYPE: {
                         auto car = first(obj);
                         if (car == LISP_QUOTE) {
-                                return second(obj);
+                                return second(obj); // intentionally not evaluated.
                         }
                         else if (car == LISP_IF) {
                                 auto condition = evaluate(env, second(obj));
@@ -519,21 +564,23 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                                         return function->primitive(env, evaluate_list(env, rest(obj)));
                                 }
                                 else if (function->type == LAMBDA_TYPE) {
-                                        auto args = evaluate_list(env, rest(obj));
+                                        auto args = rest(obj);
                                         auto params = function->lambda.args;
                                         // THERE IS A PROBLEM WHEN LEN(ARGS) != LEN(PARAMS)
                                         auto shadowed_env = env;
                                         while (params != LISP_NIL) {
-                                                shadowed_env = shadow(shadowed_env, first(params), evaluate(env, first(args)));
-                                                params = cdr(params);
-                                                args = cdr(args);
+                                                auto sym = first(params);
+                                                auto arg = evaluate(env, first(args));
+                                                shadowed_env = shadow(shadowed_env, sym, arg);
+                                                params = rest(params);
+                                                args = rest(args);
                                         }
                                         
                                         auto body = function->lambda.body;
                                         auto result = LISP_NIL;
                                         while (body != LISP_NIL) {
                                                 result = evaluate(shadowed_env, first(body));
-                                                body = cdr(body);
+                                                body = rest(body);
                                         }
                                         return result;
                                 }
@@ -546,6 +593,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
 std::string repr(const lisp_obj *obj)
 {
         std::string result;
+        std::stringstream ss;
         switch (obj->type) {
         case SYM_TYPE:
                 result = *obj->symbol;
@@ -595,6 +643,12 @@ std::string repr(const lisp_obj *obj)
         case NIL_TYPE:
                 result = "NIL";
                 break;
+        case PRIMITIVE_FUNCTION_TYPE:
+                ss << "#<PRIMITIVE 0x";
+                ss << std::hex << reinterpret_cast<uintptr_t>(obj->primitive);
+                ss << ">";
+                result = ss.str();
+                break;
         case LAMBDA_TYPE:
                 result += "(LAMBDA ";
                 if (obj->lambda.args == LISP_NIL) {
@@ -639,6 +693,10 @@ int main(int argc, char *argv[])
         bind_primitive(&LISP_BASE_ENVIRONMENT, "-", lisp_prim_minus);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "<", lisp_prim_num_less);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "*", lisp_prim_multiply);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "CAR", lisp_prim_car);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "CDR", lisp_prim_cdr);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "EQ", lisp_prim_eq);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "PUTCHAR", lisp_prim_putchar);
 
         while (1) {
                 int curr_index = 0;
