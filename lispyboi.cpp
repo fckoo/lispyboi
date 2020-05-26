@@ -9,6 +9,69 @@
 #include <sstream>
 
 
+struct lisp_stream {
+        static const int end_of_file = -1;
+        virtual int getc() = 0;
+        virtual int peekc(int n=0) const = 0;
+};
+
+struct lisp_string_stream : lisp_stream {
+        lisp_string_stream()
+                : m_index(0) {}
+
+        lisp_string_stream(const std::string &data)
+                : m_index(0)
+                , m_data(data) {}
+
+        lisp_string_stream(const char *data)
+                : m_index(0)
+                , m_data(data) {}
+
+        int getc() {
+                if (m_index >= m_data.size()) {
+                        return end_of_file;
+                }
+                return m_data[m_index++];
+        }
+
+        int peekc(int n = 0) const {
+                const size_t idx = m_index + n;
+                if (idx >= m_data.size()) {
+                        return end_of_file;
+                }
+                return m_data[idx];
+        }
+
+        void clear() {
+                m_index = 0;
+                m_data = "";
+        }
+
+        void append(const std::string &data) {
+                m_data.append(data);
+        }
+
+        void append(const char *data) {
+                m_data.append(data);
+        }
+
+        void append(char c) {
+                m_data.push_back(c);
+        }
+
+        void puts() const {
+                printf("%s\n", m_data.c_str() + m_index);
+        }
+
+        size_t index() const { return m_index; };
+        void index(size_t idx) { m_index = idx; };
+
+private:
+        size_t m_index;
+        std::string m_data;
+};
+
+
 enum LISP_OBJ_TYPE {
         SYM_TYPE = 0,
         CHAR_TYPE,
@@ -123,18 +186,20 @@ lisp_obj *create_lisp_obj_primitive_function(primitive_function primitive)
 }
 
 
-bool is_whitespace(char c)
+bool is_whitespace(int c)
 {
         return (c == ' ' || c == '\n' || c == '\t');
 }
 
-bool is_digit(char c)
+bool is_digit(int c)
 {
         return (c >= '0' && c <= '9');
 }
 
-bool is_symbol_start_char(char c)
+bool is_symbol_start_char(int c)
 {
+        if (c == lisp_stream::end_of_file)
+                return false;
         if (c == '(' || c == ')' || c == '\''
             || is_whitespace(c) 
             || is_digit(c))
@@ -143,7 +208,7 @@ bool is_symbol_start_char(char c)
                 return true;
 }
 
-bool is_symbol_char(char c)
+bool is_symbol_char(int c)
 {
         return is_symbol_start_char(c) || is_digit(c);
 }
@@ -160,42 +225,40 @@ std::string str_upper(std::string in)
         return in;
 }
 
-void consume_whitespace(const std::string &data, int &i)
+void consume_whitespace(lisp_stream &stream)
 {
-        while (i < data.size() && is_whitespace(data[i]))
-               i++;
+        while (is_whitespace(stream.peekc()))
+                stream.getc();
 }
 
-lisp_obj *parse(const std::string &data, int &i)
+lisp_obj *parse(lisp_stream &stream)
 {
         // symbols, ints, a char
         // symbol = anything not (), is not whitespace, doesnt start with int
         // an int = series of numbas :^) basically
         // a char: #\<anything>
-        while (i < data.size()) { 
-                consume_whitespace(data, i);
-                if (is_digit(data[i])) {
-                        const int start_index = i;
-                        i++;
-                        while (i < data.size() && is_digit(data[i])) {
-                                i++;
+        while (stream.peekc() != stream.end_of_file) { 
+                consume_whitespace(stream);
+                if (is_digit(stream.peekc())) {
+                        std::string number_str;
+                        number_str += stream.getc();
+                        while (is_digit(stream.peekc())) {
+                                number_str += stream.getc();
                         }
-                        const int end_index = i;
-                        const int count = end_index - start_index;
-                        int integer = std::stoi(data.substr(start_index, count));
+                        int integer = std::stoi(number_str);
                         return create_lisp_obj_integer(integer);
                 }
-                else if (data[i] == '#') {
-                        i++;
-                        if (data[i] == '\\') {
-                                i++;
-                                const int start_index = i;
-                                while (i < data.size() && is_symbol_char(data[i])) {
-                                        i++;
+                else if (stream.peekc() == '#') {
+                        stream.getc();
+                        if (stream.peekc() == '\\') {
+                                stream.getc();
+                                std::string character;
+                                while (is_symbol_char(stream.peekc())) {
+                                        character += stream.getc();
                                 }
-                                const int end_index = i;
-                                const int count = end_index - start_index;
-                                std::string character = data.substr(start_index, count);
+                                if (character.size() == 0) {
+                                        // error
+                                }
                                 if (character.size() == 1) {
                                         return create_lisp_obj_character(character[0]);
                                 }
@@ -221,20 +284,19 @@ lisp_obj *parse(const std::string &data, int &i)
                                 }
                         }
                 }
-                else if (data[i] == '\'') {
-                        i++;
-                        auto quoted_val = parse(data, i);
+                else if (stream.peekc() == '\'') {
+                        stream.getc();
+                        auto quoted_val = parse(stream);
+                        if (quoted_val == nullptr)
+                                return nullptr;
                         return create_lisp_obj_cons(LISP_QUOTE, create_lisp_obj_cons(quoted_val, LISP_NIL));
                 }
-                else if (is_symbol_start_char(data[i])) {
-                        const int start_index = i;
-                        i++;
-                        while (i < data.size() && is_symbol_char(data[i])) {
-                                i++;
+                else if (is_symbol_start_char(stream.peekc())) {
+                        std::string symbol;
+                        symbol += stream.getc();
+                        while (is_symbol_char(stream.peekc())) {
+                                symbol += stream.getc();
                         }
-                        const int end_index = i;
-                        const int count = end_index - start_index;
-                        std::string symbol = data.substr(start_index, count);
                         symbol = str_upper(symbol);
                         if (symbol == "NIL")
                                 return LISP_NIL;
@@ -242,32 +304,38 @@ lisp_obj *parse(const std::string &data, int &i)
                                 return LISP_T;
                         return create_lisp_obj_symbol(symbol);
                 }
-                else if (data[i] == '(') {
-                        i++;
-                        consume_whitespace(data, i);
-                        if (data[i] == ')') {
-                                i++;
+                else if (stream.peekc() == '(') {
+                        stream.getc();
+                        consume_whitespace(stream);
+                        if (stream.peekc() == ')') {
+                                stream.getc();
                                 return LISP_NIL;
                         }
-                        auto car = parse(data, i);
-                        consume_whitespace(data, i);
-                        if (data[i] == '.') {
-                                i++;
-                                auto cdr = parse(data, i);
-                                if (data[i] == ')')
-                                        i++;
+                        auto car = parse(stream);
+                        if (car == nullptr)
+                                return nullptr;
+                        consume_whitespace(stream);
+                        if (stream.peekc() == '.') {
+                                stream.getc();
+                                auto cdr = parse(stream);
+                                if (cdr == nullptr)
+                                        return nullptr;
+                                if (stream.peekc() == ')')
+                                        stream.getc();
                                 return create_lisp_obj_cons(car, cdr);
                         }
                         auto head = create_lisp_obj_cons(car, LISP_NIL);
                         car = head;
-                        while (data[i] != ')') {
-                                auto elem = parse(data, i);
+                        while (stream.peekc() != ')') {
+                                auto elem = parse(stream);
+                                if (elem == nullptr)
+                                        return nullptr;
                                 car->cons.cdr = create_lisp_obj_cons(elem, LISP_NIL);
                                 car = car->cons.cdr;
-                                consume_whitespace(data, i);
+                                consume_whitespace(stream);
                         }
-                        if (data[i] == ')')
-                                i++;
+                        if (stream.peekc() == ')')
+                                stream.getc();
                         return head;
                 }
         }
@@ -700,27 +768,38 @@ int main(int argc, char *argv[])
         bind_primitive(&LISP_BASE_ENVIRONMENT, "EQ", lisp_prim_eq);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "PUTCHAR", lisp_prim_putchar);
 
+        lisp_string_stream stream;
+        static const char *prompt_lisp = "lisp_nasa> ";
+        static const char *prompt_ws   = ".......... ";
         while (1) {
-                int curr_index = 0;
-                char *input = readline("lisp_nasa> ");
+                char *input = readline(prompt_lisp);
                 if (!input) break;
-                std::string data(input);
+                stream.clear();
+                stream.append(input);
+                stream.append('\n');
+
                 add_history(input);
-                while (curr_index < data.size()) {
-                        //printf("[DEBUG] curr_index %d\n", curr_index);
-                        lisp_obj *obj = parse(input, curr_index);
-                        //if (obj != nullptr) {
-                        //        printf("[DEBUG] lisp_obj @ %p\n", obj);
-                        //        pretty_print(obj);
-                        //}
-                        if (obj != nullptr) {
-                                lisp_obj *result = evaluate(LISP_BASE_ENVIRONMENT, obj);
-                                if (result != nullptr) {
-                                        pretty_print(result);
-                                }
+                free(input);
+                while (stream.peekc() != stream.end_of_file) {
+                        auto idx = stream.index();
+                        lisp_obj *obj = parse(stream);
+                        while (obj == nullptr) {
+                                char *continued = readline(prompt_ws);
+                                if (!continued) break;
+                                stream.append(continued);
+                                stream.append('\n');
+                                add_history(continued);
+                                free(continued);
+                                stream.index(idx);
+                                obj = parse(stream);
+                        }
+                        consume_whitespace(stream);
+                        if (obj == nullptr) break;
+                        lisp_obj *result = evaluate(LISP_BASE_ENVIRONMENT, obj);
+                        if (result != nullptr) {
+                                pretty_print(result);
                         }
                 }
-                free(input);
         }
         return 0;
 }
