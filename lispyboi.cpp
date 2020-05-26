@@ -38,6 +38,7 @@ struct lisp_obj {
                         lisp_obj *cdr;
                 } cons;
                 struct {
+                        lisp_obj *env;
                         lisp_obj *args;
                         lisp_obj *body;
                 } lambda;
@@ -103,10 +104,11 @@ lisp_obj *create_lisp_obj_cons(lisp_obj *car, lisp_obj *cdr)
         return ret;
 }
 
-lisp_obj *create_lisp_obj_lambda(lisp_obj *args, lisp_obj *body)
+lisp_obj *create_lisp_obj_lambda(lisp_obj *env, lisp_obj *args, lisp_obj *body)
 {
         lisp_obj *ret = new lisp_obj();
         ret->type = LAMBDA_TYPE;
+        ret->lambda.env = env;
         ret->lambda.args = args;
         ret->lambda.body = body;
         return ret;
@@ -550,7 +552,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                         else if (car == LISP_LAMBDA) {
                                 auto args = second(obj);
                                 auto body = cddr(obj);
-                                auto tmp = create_lisp_obj_lambda(args, body);
+                                auto tmp = create_lisp_obj_lambda(env, args, body);
                                 return tmp;
                         }
                         else if (car == LISP_SETQ) {
@@ -567,7 +569,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                                         auto args = rest(obj);
                                         auto params = function->lambda.args;
                                         // THERE IS A PROBLEM WHEN LEN(ARGS) != LEN(PARAMS)
-                                        auto shadowed_env = env;
+                                        auto shadowed_env = function->lambda.env;
                                         while (params != LISP_NIL) {
                                                 auto sym = first(params);
                                                 auto arg = evaluate(env, first(args));
