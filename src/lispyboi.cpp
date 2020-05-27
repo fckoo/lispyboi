@@ -257,6 +257,7 @@ void consume_whitespace(lisp_stream &stream)
                 stream.getc();
 }
 
+static
 lisp_value parse(lisp_stream &stream)
 {
         // symbols, ints, a char
@@ -374,6 +375,7 @@ lisp_value parse(lisp_stream &stream)
         return nullptr;
 }
 
+static inline
 lisp_value push(lisp_value item, lisp_value place) 
 {
         if (place == LISP_NIL) {
@@ -385,6 +387,7 @@ lisp_value push(lisp_value item, lisp_value place)
         return place;
 }
 
+static
 lisp_value symbol_lookup(lisp_value env, lisp_value symbol) 
 {
         /* env is a list of pairs mapping symbols to their corresponding value in the form of 
@@ -403,6 +406,7 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
         return nullptr;
 }
 
+static
 lisp_value assoc(lisp_value item, lisp_value alist)
 {
         if (alist == LISP_NIL)
