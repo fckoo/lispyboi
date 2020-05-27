@@ -424,7 +424,6 @@ lisp_value assoc(lisp_value item, lisp_value alist)
                 return assoc(item, cdr(alist));
 }
 
-static lisp_value evaluate(lisp_value env, lisp_value obj);
 lisp_value evaluate_list(lisp_value env, lisp_value list) 
 {
         if (list == LISP_NIL)
@@ -476,8 +475,7 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
         return shadow_env;
 }
 
-static
-lisp_value evaluate(lisp_value env, lisp_value obj) 
+lisp_value lisp::evaluate(lisp_value env, lisp_value obj) 
 {
         if (obj.is_fixnum()) {
                 return obj;
@@ -602,8 +600,7 @@ int length(lisp_value obj)
         return i;
 }
 
-static
-lisp_value macro_expand(lisp_value obj)
+lisp_value lisp::macro_expand(lisp_value obj)
 {
         if (obj.is_fixnum()) {
                 return obj;
