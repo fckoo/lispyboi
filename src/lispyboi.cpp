@@ -155,14 +155,20 @@ namespace lisp {
                                         result += "(";
                                         result += repr(car(obj));
                                         if (cdr(obj) == LISP_NIL) {
+                                                /* List with one element */
                                                 ;
                                         }
-                                        else if (cdr(obj).as_object()->type == CONS_TYPE) {
+                                        else if (cdr(obj).is_type(CONS_TYPE)) {
                                                 lisp_value current = cdr(obj);
                                                 while (current != LISP_NIL) {
                                                         result += " ";
                                                         result += repr(car(current));
                                                         current = cdr(current);
+                                                        if (!current.is_nil() && !current.is_type(CONS_TYPE)) {
+                                                                result += " . ";
+                                                                result += repr(current);
+                                                                break;
+                                                        }
                                                 }
                                         }
                                         else {
@@ -704,7 +710,7 @@ int main(int argc, char *argv[])
                         consume_whitespace(stream);
                         if (obj == nullptr) break;
                         obj = macro_expand(obj);
-                        pretty_print(obj);
+                        //pretty_print(obj);
                         lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, obj);
                         if (result != nullptr) {
                                 pretty_print(result);

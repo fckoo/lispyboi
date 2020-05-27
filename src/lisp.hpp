@@ -87,6 +87,8 @@ namespace lisp {
                         assert(is_object());
                         return u.obj;
                 }
+                
+                inline const bool is_type(LISP_OBJ_TYPE type) const;
         
                 inline bool operator==(lisp_value other) const 
                 {
@@ -139,6 +141,11 @@ namespace lisp {
                         primitive_function primitive;
                 };
         };
+
+        inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
+        {
+                return is_object() && as_object()->type == type;
+        }
 
         extern lisp_value LISP_T;
         extern lisp_value LISP_NIL;
