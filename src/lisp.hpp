@@ -18,23 +18,33 @@ namespace lisp {
 
         struct lisp_value {
                 /*
-                  on 64-bit arch a pointer is 8 bytes so word-aligned addresses have the LSB(3) bits
-                  set to 0. We can exploit this by giving meaning to those bits.
+                  Do not be fooled into thinking this is another layer of indirection.
+                  This struct, or rather _value_, is a mere 8-bytes and allows us to
+                  represent several primitive data-types alongside a more general object 
+                  structure. On 64-bit arch a pointer is 8 bytes so word-aligned 
+                  addresses have the LSB(3) bits set to 0. We can exploit this and give 
+                  meaning to those bits.
 
-                  bits 210
-                  001 -> integer
-                  010 -> NIL
-                  110 -> TBD
-                  100 -> TBD
-                  000 -> pointer
+                  bits 2 1 0
+                  ----------
+                       0 0 1 -> FIXNUM
+                       0 1 0 -> NIL
+                       1 1 0 -> TBD
+                       1 0 0 -> TBD
+                       0 0 0 -> POINTER/OBJECT
+                       
+                  You'll notice we don't reuse LSB(0) and that is because we want to
+                  maximize the range of fixnums. This means when there is a 1 at LSB(0)
+                  then the other 63 bits must represent the fixnum.
                 */
-                static constexpr uint64_t BITS_MASK = 0b111;
+                static constexpr uint64_t BITS_MASK = 0b111ULL;
 
-                static constexpr uint64_t NIL_TAG     = 0b010;
-                static constexpr uint64_t TBD1_TAG    = 0b110;
-                static constexpr uint64_t TBD2_TAG    = 0b100;
-                static constexpr uint64_t POINTER_TAG = 0b000;
+                static constexpr uint64_t NIL_TAG     = 0b010ULL;
+                static constexpr uint64_t TBD1_TAG    = 0b110ULL;
+                static constexpr uint64_t TBD2_TAG    = 0b100ULL;
+                static constexpr uint64_t POINTER_TAG = 0b000ULL;
 
+                // An uninitialized lisp_value will be defaulted to NIL
                 inline lisp_value() { u.bits = NIL_TAG; }
 
                 inline lisp_value(int64_t integer) 
@@ -47,9 +57,9 @@ namespace lisp {
 
                 inline bool is_fixnum() const { return u.integer_layout.tag != 0; }
         
-                inline bool is_nil() const { return (u.bits & BITS_MASK) == NIL_TAG; }
+                inline bool is_nil() const { return tag_bits() == NIL_TAG; }
         
-                inline bool is_object() const { return (u.bits & BITS_MASK) == POINTER_TAG; }
+                inline bool is_object() const { return tag_bits() == POINTER_TAG; }
         
                 inline int64_t as_fixnum() const
                 {
@@ -86,10 +96,13 @@ namespace lisp {
                 }
                 
                 inline uint64_t bits() const { return u.bits(); }
+                inline uint64_t tag_bits() const
+                {
+                        return bits() & 0b111ULL;
+                }
         private:
         
-                union 
-                {
+                union {
                         uint64_t bits;
                         struct {
                                 int64_t tag : 1; // bit 0 == integer tag
