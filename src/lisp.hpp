@@ -35,70 +35,58 @@ namespace lisp {
                 static constexpr uint64_t TBD2_TAG    = 0b100;
                 static constexpr uint64_t POINTER_TAG = 0b000;
 
-                lisp_value()
-                        {
-                                u.bits = 0b010;
-                        }
+                inline lisp_value() { u.bits = NIL_TAG; }
 
-                lisp_value(int64_t integer) 
-                        {
-                                u.integer_layout.tag = 1;
-                                u.integer_layout.number = integer;
-                        }
+                inline lisp_value(int64_t integer) 
+                {
+                        u.integer_layout.tag = 1;
+                        u.integer_layout.number = integer;
+                }
 
-                lisp_value(lisp_obj *pointer) 
-                        {
-                                u.obj = pointer;
-                        }
+                inline lisp_value(lisp_obj *pointer) { u.obj = pointer; }
 
-                bool is_fixnum() const 
-                        {
-                                return u.integer_layout.tag != 0;
-                        }
+                inline bool is_fixnum() const { return u.integer_layout.tag != 0; }
         
-                bool is_nil() const
-                        {
-                                return (u.bits & BITS_MASK) == NIL_TAG;
-                        }
+                inline bool is_nil() const { return (u.bits & BITS_MASK) == NIL_TAG; }
         
-                bool is_object() const 
-                        {
-                                return (u.bits & BITS_MASK) == POINTER_TAG;
-                        }
+                inline bool is_object() const { return (u.bits & BITS_MASK) == POINTER_TAG; }
         
-                int64_t as_fixnum() const
-                        {
-                                assert(is_fixnum());
-                                return u.integer_layout.number;
-                        }
+                inline int64_t as_fixnum() const
+                {
+                        assert(is_fixnum());
+                        return u.integer_layout.number;
+                }
         
-                lisp_value as_nil() const
-                        {
-                                assert(is_nil());
-                                return *this;
-                        }
+                inline lisp_value as_nil() const
+                {
+                        assert(is_nil());
+                        return *this;
+                }
         
-                lisp_obj *as_object() const 
-                        {
-                                assert(is_object());
-                                return u.obj;
-                        }
+                inline lisp_obj *as_object() const 
+                {
+                        assert(is_object());
+                        return u.obj;
+                }
 
-                const lisp_obj *as_cobject() const 
-                        {
-                                assert(is_object());
-                                return u.obj;
-                        }
+                inline const lisp_obj *as_cobject() const 
+                {
+                        assert(is_object());
+                        return u.obj;
+                }
         
-                bool operator==(lisp_value other) const 
-                        {
-                                return other.u.bits == u.bits;
-                        }
+                inline bool operator==(lisp_value other) const 
+                {
+                        return other.u.bits == u.bits;
+                }
 
-                bool operator!=(lisp_value other) const 
-                        {
-                                return other.u.bits != u.bits;
-                        }
+                inline bool operator!=(lisp_value other) const 
+                {
+                        return other.u.bits != u.bits;
+                }
+                
+                inline uint64_t bits() const { return u.bits(); }
+        private:
         
                 union 
                 {
@@ -166,23 +154,25 @@ namespace lisp {
                 if (obj == LISP_NIL) return LISP_NIL; 
                 return obj.as_object()->cons.car;
         }
+
         static inline lisp_value cdr(lisp_value obj) 
         {
                 if (obj == LISP_NIL) return LISP_NIL; 
                 return obj.as_object()->cons.cdr;
         }
-        static inline lisp_value cddr(lisp_value obj) { return cdr(cdr(obj)); }
-        static inline lisp_value cdddr(lisp_value obj) { return cdr(cdr(cdr(obj))); }
-        static inline lisp_value cadr(lisp_value obj) {return car(cdr(obj));}
-        static inline lisp_value caddr(lisp_value obj) {return car(cdr(cdr(obj)));}
-        static inline lisp_value cadddr(lisp_value obj) {return car(cdr(cdr(cdr(obj))));}
-        static inline lisp_value caar(lisp_value obj) { return car(car(obj)); }
-        static inline lisp_value cdar(lisp_value obj) { return cdr(car(obj)); }
-        static inline lisp_value first(lisp_value obj) {return car(obj);}
-        static inline lisp_value rest(lisp_value obj) {return cdr(obj);}
-        static inline lisp_value second(lisp_value obj) {return cadr(obj);}
-        static inline lisp_value third(lisp_value obj) {return caddr(obj);}
-        static inline lisp_value fourth(lisp_value obj) {return cadddr(obj);}
+
+        static inline lisp_value cddr(lisp_value obj)    { return cdr(cdr(obj)); }
+        static inline lisp_value cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
+        static inline lisp_value cadr(lisp_value obj)    { return car(cdr(obj)); }
+        static inline lisp_value caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
+        static inline lisp_value cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
+        static inline lisp_value caar(lisp_value obj)    { return car(car(obj)); }
+        static inline lisp_value cdar(lisp_value obj)    { return cdr(car(obj)); }
+        static inline lisp_value first(lisp_value obj)   { return car(obj); }
+        static inline lisp_value rest(lisp_value obj)    { return cdr(obj); }
+        static inline lisp_value second(lisp_value obj)  { return cadr(obj); }
+        static inline lisp_value third(lisp_value obj)   { return caddr(obj); }
+        static inline lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
         
         static inline lisp_value cons(lisp_value car, lisp_value cdr)
         {
