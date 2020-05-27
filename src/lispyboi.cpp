@@ -9,6 +9,10 @@
 #include <sstream>
 #include <cassert>
 
+#include "lisp.hpp"
+#include "primitives.hpp"
+
+using namespace lisp;
 
 struct lisp_stream {
         static const int end_of_file = -1;
@@ -72,221 +76,124 @@ private:
         std::string m_data;
 };
 
-
-enum LISP_OBJ_TYPE {
-        SYM_TYPE = 0,
-        CHAR_TYPE,
-        CONS_TYPE,
-        LAMBDA_TYPE,
-        PRIMITIVE_FUNCTION_TYPE,
-};
-
-struct lisp_obj;
-
-struct lisp_value {
-        /*
-          on 64-bit arch a pointer is 8 bytes so word-aligned addresses have the LSB(3) bits
-          set to 0. We can exploit this by giving meaning to those bits.
-
-          bits 210
-          001 -> integer
-          010 -> NIL
-          110 -> TBD
-          100 -> TBD
-          000 -> pointer
-        */
-        static constexpr uint64_t BITS_MASK = 0b111;
-
-        static constexpr uint64_t NIL_TAG     = 0b010;
-        static constexpr uint64_t TBD1_TAG    = 0b110;
-        static constexpr uint64_t TBD2_TAG    = 0b100;
-        static constexpr uint64_t POINTER_TAG = 0b000;
-
-        lisp_value()
-        {
-                u.bits = 0b010;
-        }
-
-        lisp_value(int64_t integer) 
-        {
-                u.integer_layout.tag = 1;
-                u.integer_layout.number = integer;
-        }
-
-        lisp_value(lisp_obj *pointer) 
-        {
-                u.obj = pointer;
-        }
-
-        bool is_fixnum() const 
-        {
-                return u.integer_layout.tag != 0;
-        }
-        
-        bool is_nil() const
-        {
-                return (u.bits & BITS_MASK) == NIL_TAG;
-        }
-        
-        bool is_object() const 
-        {
-                return (u.bits & BITS_MASK) == POINTER_TAG;
-        }
-        
-        int64_t as_fixnum() const
-        {
-                assert(is_fixnum());
-                return u.integer_layout.number;
-        }
-        
-        lisp_value as_nil() const
-        {
-                assert(is_nil());
-                return *this;
-        }
-        
-        lisp_obj *as_object() const 
-        {
-                assert(is_object());
-                return u.obj;
-        }
-
-        const lisp_obj *as_cobject() const 
-        {
-                assert(is_object());
-                return u.obj;
-        }
-        
-        bool operator==(lisp_value other) const 
-        {
-                return other.u.bits == u.bits;
-        }
-
-        bool operator!=(lisp_value other) const 
-        {
-                return other.u.bits != u.bits;
-        }
-        
-        union 
-        {
-                uint64_t bits;
-                struct {
-                        int64_t tag : 1; // bit 0 == integer tag
-                        int64_t number : 63;
-                } integer_layout;
-                lisp_obj *obj;
-        } u;
-};
-
-typedef lisp_value (*primitive_function)(lisp_value env, lisp_value args);
-
-struct lisp_obj {
-        lisp_obj() {}
-        ~lisp_obj() {}
-        
-        // a symbol of integers or characters
-        LISP_OBJ_TYPE type;
-        union {
-                std::string *symbol;
-                char character;
-                int integer;
-                struct {
-                        lisp_value car;
-                        lisp_value cdr;
-                } cons;
-                struct {
-                        lisp_value env;
-                        lisp_value args;
-                        lisp_value body;
-                } lambda;
-                primitive_function primitive;
-        };
-};
-
-
-lisp_value LISP_T;
-lisp_value LISP_NIL;
-
-/* Commonly used symbols for easier access without having to call intern */
-lisp_value LISP_SYM_QUOTE;
-lisp_value LISP_SYM_IF;
-lisp_value LISP_SYM_LAMBDA;
-lisp_value LISP_SYM_SETQ;
-lisp_value LISP_SYM_DEFMACRO;
-lisp_value LISP_SYM_FIXNUM;
-lisp_value LISP_SYM_CONS;
-lisp_value LISP_SYM_CHARACTER;
-lisp_value LISP_SYM_FUNCTION;
-lisp_value LISP_SYM_SYMBOL;
-lisp_value LISP_SYM_NULL;
-lisp_value LISP_SYM_BOOLEAN;
-
-
-lisp_value LISP_BASE_ENVIRONMENT;
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
+lisp_value LISP_BASE_ENVIRONMENT;
+namespace lisp {
+        lisp_value LISP_T;
+        lisp_value LISP_NIL;
+        lisp_value LISP_SYM_QUOTE;
+        lisp_value LISP_SYM_IF;
+        lisp_value LISP_SYM_LAMBDA;
+        lisp_value LISP_SYM_SETQ;
+        lisp_value LISP_SYM_DEFMACRO;
+        lisp_value LISP_SYM_FIXNUM;
+        lisp_value LISP_SYM_CONS;
+        lisp_value LISP_SYM_CHARACTER;
+        lisp_value LISP_SYM_FUNCTION;
+        lisp_value LISP_SYM_SYMBOL;
+        lisp_value LISP_SYM_NULL;
+        lisp_value LISP_SYM_BOOLEAN;
 
-std::string pretty_print(lisp_value obj);
-std::string repr(lisp_value obj);
+        lisp_value intern_symbol(const std::string &symbol_name) 
+        {
+                static std::unordered_map<std::string, lisp_value> interned_symbols;
+                auto it = interned_symbols.find(symbol_name);
+                if (it != interned_symbols.end())
+                        return it->second;
+                auto symbol = new lisp_obj();
+                symbol->type = SYM_TYPE;
+                symbol->symbol = new std::string(symbol_name);
+                interned_symbols[symbol_name] = lisp_value(symbol);
+                return symbol;
+        }
 
+        std::string repr(const lisp_value obj)
+        {
+                std::string result;
+                std::stringstream ss;
+                if (obj.is_fixnum()) {
+                        result = std::to_string(obj.as_fixnum());
+                }
+                else if (obj.is_nil()) {
+                        result = "NIL";
+                }
+                else if (obj.is_object()) {
+                        switch (obj.as_object()->type) {
+                                case SYM_TYPE:
+                                        result = *(obj.as_object()->symbol);
+                                        break;
+                                case CHAR_TYPE:
+                                        switch (obj.as_object()->character) {
+                                                default: 
+                                                        result = std::string("#\\") + obj.as_object()->character; 
+                                                        break;
+                                                case ' ':
+                                                        result = "#\\Space";
+                                                        break;
+                                                case '\t':
+                                                        result = "#\\Tab";
+                                                        break;
+                                                case '\n':
+                                                        result = "#\\Newline";
+                                                        break;
+                                                case '\r':
+                                                        result = "#\\Return";
+                                                        break;
+                                        }
+                                        break;
+                                case CONS_TYPE:
+                                        result += "(";
+                                        result += repr(obj.as_object()->cons.car);
+                                        if (obj.as_object()->cons.cdr == LISP_NIL) {
+                                                ; /* poo flower */
+                                        }
+                                        else if (cdr(obj).as_object()->type) {
+                                                lisp_value current = cdr(obj);
+                                                while (current != LISP_NIL) {
+                                                        result += " ";
+                                                        result += repr(car(current));
+                                                        current = cdr(current);
+                                                }
+                                        }
+                                        else {
+                                                result += " . ";
+                                                result += repr(obj.as_object()->cons.cdr);
+                                        }
+                                        result += ")";
+                                        break;
+                                case PRIMITIVE_FUNCTION_TYPE:
+                                        ss << "#<PRIMITIVE 0x";
+                                        ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
+                                        ss << ">";
+                                        result = ss.str();
+                                        break;
+                                case LAMBDA_TYPE:
+                                        result += "(LAMBDA ";
+                                        if (obj.as_object()->lambda.args == LISP_NIL) {
+                                                result += "() ";
+                                        }
+                                        else {
+                                                result += repr(obj.as_object()->lambda.args);
+                                                result += " ";
+                                        }
+                                        auto body = obj.as_object()->lambda.body;
+                                        while (body != LISP_NIL) {
+                                                result += repr(car(body));
+                                                body = cdr(body);
+                                        }
+                                        result += ")";
+                        }
+                }
+                return result;
+        }
 
-lisp_value intern_symbol(const std::string &symbol_name) 
-{
-        static std::unordered_map<std::string, lisp_value> interned_symbols;
-        auto it = interned_symbols.find(symbol_name);
-        if (it != interned_symbols.end())
-                return it->second;
-        auto symbol = new lisp_obj();
-        symbol->type = SYM_TYPE;
-        symbol->symbol = new std::string(symbol_name);
-        interned_symbols[symbol_name] = lisp_value(symbol);
-        return symbol;
+        std::string pretty_print(const lisp_value obj)
+        {
+                std::string result  = repr(obj);
+                printf("%s\n", result.c_str());
+                return result;
+        }
 }
-
-lisp_value create_lisp_obj_character(char in)
-{
-        lisp_obj *ret = new lisp_obj();
-        ret->type = CHAR_TYPE;
-        ret->character = in;
-        return lisp_value(ret);
-}
-
-lisp_value create_lisp_obj_integer(int64_t in)
-{
-        return lisp_value(in);
-}
-
-lisp_value create_lisp_obj_cons(lisp_value car, lisp_value cdr)
-{
-        lisp_obj *ret = new lisp_obj();
-        ret->type = CONS_TYPE;
-        ret->cons.car = car;
-        ret->cons.cdr = cdr;
-        return lisp_value(ret);
-}
-
-lisp_value cons(lisp_value car, lisp_value cdr)
-{
-        return create_lisp_obj_cons(car, cdr);
-}
-
-lisp_value create_lisp_obj_lambda(lisp_value env, lisp_value args, lisp_value body)
-{
-        lisp_obj *ret = new lisp_obj();
-        ret->type = LAMBDA_TYPE;
-        ret->lambda.env = env;
-        ret->lambda.args = args;
-        ret->lambda.body = body;
-        return lisp_value(ret);
-}
-
-lisp_value create_lisp_obj_primitive_function(primitive_function primitive) 
-{
-        lisp_obj *ret = new lisp_obj();
-        ret->type = PRIMITIVE_FUNCTION_TYPE;
-        ret->primitive = primitive;
-        return lisp_value(ret);
-}
-
 
 bool is_whitespace(int c)
 {
@@ -450,21 +357,6 @@ lisp_value parse(lisp_stream &stream)
         return nullptr;
 }
 
-lisp_value car(lisp_value obj) {if (obj == LISP_NIL) return LISP_NIL; return obj.as_object()->cons.car;}
-lisp_value cdr(lisp_value obj) {if (obj == LISP_NIL) return LISP_NIL; return obj.as_object()->cons.cdr;}
-lisp_value cddr(lisp_value obj) { return cdr(cdr(obj)); }
-lisp_value cdddr(lisp_value obj) { return cdr(cdr(cdr(obj))); }
-lisp_value cadr(lisp_value obj) {return car(cdr(obj));}
-lisp_value caddr(lisp_value obj) {return car(cdr(cdr(obj)));}
-lisp_value cadddr(lisp_value obj) {return car(cdr(cdr(cdr(obj))));}
-lisp_value caar(lisp_value obj) { return car(car(obj)); }
-lisp_value cdar(lisp_value obj) { return cdr(car(obj)); }
-lisp_value first(lisp_value obj) {return car(obj);}
-lisp_value rest(lisp_value obj) {return cdr(obj);}
-lisp_value second(lisp_value obj) {return cadr(obj);}
-lisp_value third(lisp_value obj) {return caddr(obj);}
-lisp_value fourth(lisp_value obj) {return cadddr(obj);}
-
 lisp_value push(lisp_value item, lisp_value place) 
 {
         if (place == LISP_NIL) {
@@ -474,15 +366,6 @@ lisp_value push(lisp_value item, lisp_value place)
         place.as_object()->cons.car = item;
         place.as_object()->cons.cdr = cons(original, cdr(place));
         return place;
-}
-
-lisp_value bind_primitive(lisp_value *env, const std::string &symbol_name, primitive_function primitive) 
-{
-        auto prim_object = create_lisp_obj_primitive_function(primitive);
-        auto symbol = intern_symbol(symbol_name);
-        auto binding = cons(symbol, prim_object);
-        *env = push(binding, *env);
-        return binding;
 }
 
 lisp_value symbol_lookup(lisp_value env, lisp_value symbol) 
@@ -511,172 +394,6 @@ lisp_value assoc(lisp_value item, lisp_value alist)
                 return car(alist);
         else
                 return assoc(item, cdr(alist));
-}
-
-lisp_value lisp_prim_plus(lisp_value env, lisp_value args) 
-{
-        int64_t result = 0;
-        while (args != LISP_NIL) {
-                // @TODO: Type validation, (+ 1 2 3) OK
-                //                         (+ 1 #\a) BAD
-                auto tmp = car(args);
-                result += tmp.as_fixnum();
-                args = cdr(args);
-        }
-        return create_lisp_obj_integer(result);
-}
-
-lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
-{
-        int64_t result = 0;
-        // @TODO: Type validation
-        if (cdr(args) == LISP_NIL) {
-                result = -car(args).as_fixnum();
-        }
-        else {
-                result = car(args).as_fixnum();
-                args = cdr(args);
-                while (args != LISP_NIL) {
-                        result -= car(args).as_fixnum();
-                        args = cdr(args);
-                }
-        }
-        return create_lisp_obj_integer(result);
-}
-
-
-lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
-{
-        int result = 1;
-        while (args != LISP_NIL) {
-                // @TODO: Type validation
-                auto tmp = car(args);
-                result *= tmp.as_fixnum();
-                args = cdr(args);
-        }
-        return create_lisp_obj_integer(result);
-}
-
-lisp_value lisp_prim_print(lisp_value env, lisp_value args) 
-{
-        printf("%s", repr(car(args)).c_str());
-        //while (args != LISP_NIL) {
-        //        auto tmp = car(args);
-        //        pretty_print(tmp);
-        //        args = cdr(args);
-        //}
-        return LISP_NIL;
-}
-
-lisp_value lisp_prim_num_less(lisp_value env, lisp_value args) 
-{
-        // (< 1)
-        if (cdr(args) == LISP_NIL) {
-                return LISP_T;
-        }
-
-        auto a = first(args);
-        auto b = second(args);
-        bool result = a.as_fixnum() < b.as_fixnum();
-        if (result) {
-                args = cddr(args);
-                a = b;
-                while (args != LISP_NIL) {
-                        b = car(args);
-                        result = a.as_fixnum() < b.as_fixnum();
-                        if (result == false) {
-                                break;
-                        }
-                        a = b;
-                        args = cdr(args);
-                }
-        }
-        return result ? LISP_T : LISP_NIL;
-}
-lisp_value lisp_prim_car(lisp_value env, lisp_value args) 
-{
-        return caar(args);
-}
-
-lisp_value lisp_prim_cdr(lisp_value env, lisp_value args) 
-{
-        return cdar(args);
-}
-
-lisp_value lisp_prim_cons(lisp_value env, lisp_value args) 
-{
-        return cons(first(args), second(args));
-}
-
-
-lisp_value lisp_prim_eq(lisp_value env, lisp_value args) 
-{
-        if (cdr(args) == LISP_NIL) {
-                return LISP_T;
-        }
-
-        auto a = first(args);
-        auto b = second(args);
-        bool result = a == b;
-        if (result) {
-                args = cddr(args);
-                a = b;
-                while (args != LISP_NIL) {
-                        b = car(args);
-                        result = a == b;
-                        if (result == false) {
-                                break;
-                        }
-                        a = b;
-                        args = cdr(args);
-                }
-        }
-        return result ? LISP_T : LISP_NIL;
-}
-
-lisp_value lisp_prim_putchar(lisp_value env, lisp_value args) 
-{
-        putchar(car(args).as_object()->character);
-        return LISP_NIL;
-}
-
-
-lisp_value lisp_prim_dump_env(lisp_value env, lisp_value) 
-{
-        pretty_print(env);
-        return LISP_NIL;
-}
-
-lisp_value lisp_prim_dump_macros(lisp_value, lisp_value)
-{
-        for (auto &[k,v] : LISP_MACROS) {
-                printf("%s -> %s\n", k.c_str(), repr(v).c_str());
-        }
-        return LISP_NIL;
-}
-
-lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
-{
-        auto it = car(args);
-        if (it.is_fixnum()) {
-                return LISP_SYM_FIXNUM;
-        }
-        if (it.is_nil()) {
-                return LISP_SYM_NULL;
-        }
-        if (it == LISP_T) {
-                return LISP_SYM_BOOLEAN;
-        }
-        if (it.is_object()) {
-                switch (it.as_object()->type) {
-                        case SYM_TYPE: return LISP_SYM_SYMBOL;
-                        case CHAR_TYPE: return LISP_SYM_CHARACTER;
-                        case CONS_TYPE: return LISP_SYM_CONS;
-                        case LAMBDA_TYPE: return LISP_SYM_FUNCTION;
-                        case PRIMITIVE_FUNCTION_TYPE: return LISP_SYM_FUNCTION;
-                }
-        }
-        return LISP_NIL;
 }
 
 lisp_value evaluate(lisp_value env, lisp_value obj);
@@ -822,92 +539,6 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
         return nullptr;
 }
 
-std::string repr(const lisp_value obj)
-{
-        std::string result;
-        std::stringstream ss;
-        if (obj.is_fixnum()) {
-                result = std::to_string(obj.as_fixnum());
-        }
-        else if (obj.is_nil()) {
-                result = "NIL";
-        }
-        else if (obj.is_object()) {
-                switch (obj.as_object()->type) {
-                        case SYM_TYPE:
-                                result = *(obj.as_object()->symbol);
-                                break;
-                        case CHAR_TYPE:
-                                switch (obj.as_object()->character) {
-                                        default: 
-                                                result = std::string("#\\") + obj.as_object()->character; 
-                                                break;
-                                        case ' ':
-                                                result = "#\\Space";
-                                                break;
-                                        case '\t':
-                                                result = "#\\Tab";
-                                                break;
-                                        case '\n':
-                                                result = "#\\Newline";
-                                                break;
-                                        case '\r':
-                                                result = "#\\Return";
-                                                break;
-                                }
-                                break;
-                        case CONS_TYPE:
-                                result += "(";
-                                result += repr(obj.as_object()->cons.car);
-                                if (obj.as_object()->cons.cdr == LISP_NIL) {
-                                        ; /* poo flower */
-                                }
-                                else if (cdr(obj).as_object()->type) {
-                                        lisp_value current = cdr(obj);
-                                        while (current != LISP_NIL) {
-                                                result += " ";
-                                                result += repr(car(current));
-                                                current = cdr(current);
-                                        }
-                                }
-                                else {
-                                        result += " . ";
-                                        result += repr(obj.as_object()->cons.cdr);
-                                }
-                                result += ")";
-                                break;
-                        case PRIMITIVE_FUNCTION_TYPE:
-                                ss << "#<PRIMITIVE 0x";
-                                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
-                                ss << ">";
-                                result = ss.str();
-                                break;
-                        case LAMBDA_TYPE:
-                                result += "(LAMBDA ";
-                                if (obj.as_object()->lambda.args == LISP_NIL) {
-                                        result += "() ";
-                                }
-                                else {
-                                        result += repr(obj.as_object()->lambda.args);
-                                        result += " ";
-                                }
-                                auto body = obj.as_object()->lambda.body;
-                                while (body != LISP_NIL) {
-                                        result += repr(car(body));
-                                        body = cdr(body);
-                                }
-                                result += ")";
-                }
-        }
-        return result;
-}
-
-std::string pretty_print(const lisp_value obj)
-{
-        std::string result  = repr(obj);
-        printf("%s\n", result.c_str());
-        return result;
-}
 
 lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 {
@@ -985,7 +616,8 @@ lisp_value macro_expand(lisp_value obj)
         return map(obj, macro_expand);
 }
 
-int main(int argc, char *argv[])
+static
+void initialize_globals()
 {
         LISP_T = intern_symbol("T");
 
@@ -1004,21 +636,12 @@ int main(int argc, char *argv[])
         INTERN_GLOBAL(BOOLEAN);
         
         LISP_BASE_ENVIRONMENT = LISP_NIL;
-        
-#define BIND_PRIM(lisp_name, function) bind_primitive(&LISP_BASE_ENVIRONMENT, lisp_name, function)
-        BIND_PRIM("+", lisp_prim_plus);
-        BIND_PRIM("PRINT", lisp_prim_print);
-        BIND_PRIM("DUMP-ENV", lisp_prim_dump_env);
-        BIND_PRIM("-", lisp_prim_minus);
-        BIND_PRIM("<", lisp_prim_num_less);
-        BIND_PRIM("*", lisp_prim_multiply);
-        BIND_PRIM("CAR", lisp_prim_car);
-        BIND_PRIM("CDR", lisp_prim_cdr);
-        BIND_PRIM("CONS", lisp_prim_cons);
-        BIND_PRIM("EQ", lisp_prim_eq);
-        BIND_PRIM("PUTCHAR", lisp_prim_putchar);
-        BIND_PRIM("DUMP-MACROS", lisp_prim_dump_macros);
-        BIND_PRIM("TYPE-OF", lisp_prim_type_of);
+        primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
+}
+
+int main(int argc, char *argv[])
+{
+        initialize_globals();
 
         lisp_string_stream stream;
         static const char *prompt_lisp = "lisp_nasa> ";

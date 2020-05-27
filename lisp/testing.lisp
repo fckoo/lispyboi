@@ -5,3 +5,7 @@
 (setq nth (lambda (n list) (if (< n 1) (car list) (nth (- n 1) (cdr list)))))
 (setq nth-cdr (lambda (n list) (if (< n 1) list (nth-cdr (- n 1) (cdr list)))))
 (setq looper (lambda (n) (if (not (< n 15)) (setq n 0)) (print-line (nth-cdr n '(#\L #\I #\S #\P #\Space #\i #\s #\Space #\G #\R #\E #\A #\T #\!))) (looper (+ n 1))))
+
+
+
+
