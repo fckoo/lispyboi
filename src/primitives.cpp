@@ -14,7 +14,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
                 result += tmp.as_fixnum();
                 args = cdr(args);
         }
-        return create_lisp_obj_integer(result);
+        return create_lisp_obj_fixnum(result);
 }
 
 static
@@ -33,7 +33,7 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
                         args = cdr(args);
                 }
         }
-        return create_lisp_obj_integer(result);
+        return create_lisp_obj_fixnum(result);
 }
 
 
@@ -47,7 +47,7 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
                 result *= tmp.as_fixnum();
                 args = cdr(args);
         }
-        return create_lisp_obj_integer(result);
+        return create_lisp_obj_fixnum(result);
 }
 
 static

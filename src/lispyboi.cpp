@@ -155,9 +155,9 @@ namespace lisp {
                                         result += "(";
                                         result += repr(car(obj));
                                         if (cdr(obj) == LISP_NIL) {
-                                                ; /* poo flower */
+                                                ;
                                         }
-                                        else if (cdr(obj).as_object()->type) {
+                                        else if (cdr(obj).as_object()->type == CONS_TYPE) {
                                                 lisp_value current = cdr(obj);
                                                 while (current != LISP_NIL) {
                                                         result += " ";

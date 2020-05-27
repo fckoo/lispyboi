@@ -28,7 +28,7 @@ namespace lisp {
                   bits 2 1 0
                   ----------
                        0 0 1 -> FIXNUM
-                       0 1 0 -> NIL
+                       0 1 0 -> TBD
                        1 1 0 -> TBD
                        1 0 0 -> TBD
                        0 0 0 -> POINTER/OBJECT
@@ -36,16 +36,19 @@ namespace lisp {
                   You'll notice we don't reuse LSB(0) and that is because we want to
                   maximize the range of fixnums. This means when there is a 1 at LSB(0)
                   then the other 63 bits must represent the fixnum.
+                  
+                  Another side-effect of this decision is that we may represent NIL as
+                  all bits set to 0 which allows for more optimized NIL tests.
                 */
                 static constexpr uint64_t BITS_MASK = 0b111ULL;
 
-                static constexpr uint64_t NIL_TAG     = 0b010ULL;
+                static constexpr uint64_t TBD0_TAG    = 0b010ULL;
                 static constexpr uint64_t TBD1_TAG    = 0b110ULL;
                 static constexpr uint64_t TBD2_TAG    = 0b100ULL;
                 static constexpr uint64_t POINTER_TAG = 0b000ULL;
 
                 // An uninitialized lisp_value will be defaulted to NIL
-                inline lisp_value() { u.bits = NIL_TAG; }
+                inline lisp_value() { u.bits = 0; }
 
                 inline lisp_value(int64_t fixnum) 
                 {
@@ -57,7 +60,7 @@ namespace lisp {
 
                 inline bool is_fixnum() const { return u.fixnum_layout.tag != 0; }
         
-                inline bool is_nil() const { return tag_bits() == NIL_TAG; }
+                inline bool is_nil() const { return bits() == 0; }
         
                 inline bool is_object() const { return tag_bits() == POINTER_TAG; }
         
@@ -175,14 +178,14 @@ namespace lisp {
         static inline lisp_value car(lisp_value obj) 
         {
                 // @TODO: Throw error if not nil or cons.
-                if (obj == LISP_NIL) return obj;
+                if (obj.is_nil()) return obj;
                 return obj.as_object()->cons.car;
         }
 
         static inline lisp_value cdr(lisp_value obj) 
         {
                 // @TODO: Throw error if not nil or cons.
-                if (obj == LISP_NIL) return obj;
+                if (obj.is_nil()) return obj;
                 return obj.as_object()->cons.cdr;
         }
 
