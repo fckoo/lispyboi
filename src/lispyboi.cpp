@@ -14,12 +14,6 @@
 
 using namespace lisp;
 
-struct lisp_stream {
-        static const int end_of_file = -1;
-        virtual int getc() = 0;
-        virtual int peekc(int n=0) const = 0;
-};
-
 struct lisp_string_stream : lisp_stream {
         inline
         lisp_string_stream()
@@ -104,111 +98,112 @@ namespace lisp {
         lisp_value LISP_SYM_NULL;
         lisp_value LISP_SYM_BOOLEAN;
 
-        lisp_value intern_symbol(const std::string &symbol_name) 
-        {
-                static std::unordered_map<std::string, lisp_value> interned_symbols;
-                auto it = interned_symbols.find(symbol_name);
-                if (it != interned_symbols.end())
-                        return it->second;
-                auto symbol = new lisp_obj();
-                symbol->type = SYM_TYPE;
-                symbol->symbol = new std::string(symbol_name);
-                interned_symbols[symbol_name] = lisp_value(symbol);
-                return symbol;
-        }
+}
 
-        std::string repr(const lisp_value obj)
-        {
-                std::string result;
-                std::stringstream ss;
-                if (obj.is_fixnum()) {
-                        result = std::to_string(obj.as_fixnum());
-                }
-                else if (obj.is_nil()) {
-                        result = "NIL";
-                }
-                else if (obj.is_object()) {
-                        switch (obj.as_object()->type) {
-                                case SYM_TYPE:
-                                        result = *(obj.as_object()->symbol);
-                                        break;
-                                case CHAR_TYPE:
-                                        switch (obj.as_object()->character) {
-                                                default: 
-                                                        result = std::string("#\\") + obj.as_object()->character; 
+lisp_value lisp::intern_symbol(const std::string &symbol_name) 
+{
+        static std::unordered_map<std::string, lisp_value> interned_symbols;
+        auto it = interned_symbols.find(symbol_name);
+        if (it != interned_symbols.end())
+                return it->second;
+        auto symbol = new lisp_obj();
+        symbol->type = SYM_TYPE;
+        symbol->symbol = new std::string(symbol_name);
+        interned_symbols[symbol_name] = lisp_value(symbol);
+        return symbol;
+}
+
+std::string lisp::repr(const lisp_value obj)
+{
+        std::string result;
+        std::stringstream ss;
+        if (obj.is_fixnum()) {
+                result = std::to_string(obj.as_fixnum());
+        }
+        else if (obj.is_nil()) {
+                result = "NIL";
+        }
+        else if (obj.is_object()) {
+                switch (obj.as_object()->type) {
+                        case SYM_TYPE:
+                                result = *(obj.as_object()->symbol);
+                                break;
+                        case CHAR_TYPE:
+                                switch (obj.as_object()->character) {
+                                        default: 
+                                                result = std::string("#\\") + obj.as_object()->character; 
+                                                break;
+                                        case ' ':
+                                                result = "#\\Space";
+                                                break;
+                                        case '\t':
+                                                result = "#\\Tab";
+                                                break;
+                                        case '\n':
+                                                result = "#\\Newline";
+                                                break;
+                                        case '\r':
+                                                result = "#\\Return";
+                                                break;
+                                }
+                                break;
+                        case CONS_TYPE:
+                                result += "(";
+                                result += repr(car(obj));
+                                if (cdr(obj) == LISP_NIL) {
+                                        /* List with one element */
+                                        ;
+                                }
+                                else if (cdr(obj).is_type(CONS_TYPE)) {
+                                        lisp_value current = cdr(obj);
+                                        while (current != LISP_NIL) {
+                                                result += " ";
+                                                result += repr(car(current));
+                                                current = cdr(current);
+                                                if (!current.is_nil() && !current.is_type(CONS_TYPE)) {
+                                                        result += " . ";
+                                                        result += repr(current);
                                                         break;
-                                                case ' ':
-                                                        result = "#\\Space";
-                                                        break;
-                                                case '\t':
-                                                        result = "#\\Tab";
-                                                        break;
-                                                case '\n':
-                                                        result = "#\\Newline";
-                                                        break;
-                                                case '\r':
-                                                        result = "#\\Return";
-                                                        break;
-                                        }
-                                        break;
-                                case CONS_TYPE:
-                                        result += "(";
-                                        result += repr(car(obj));
-                                        if (cdr(obj) == LISP_NIL) {
-                                                /* List with one element */
-                                                ;
-                                        }
-                                        else if (cdr(obj).is_type(CONS_TYPE)) {
-                                                lisp_value current = cdr(obj);
-                                                while (current != LISP_NIL) {
-                                                        result += " ";
-                                                        result += repr(car(current));
-                                                        current = cdr(current);
-                                                        if (!current.is_nil() && !current.is_type(CONS_TYPE)) {
-                                                                result += " . ";
-                                                                result += repr(current);
-                                                                break;
-                                                        }
                                                 }
                                         }
-                                        else {
-                                                result += " . ";
-                                                result += repr(cdr(obj));
-                                        }
-                                        result += ")";
-                                        break;
-                                case PRIMITIVE_FUNCTION_TYPE:
-                                        ss << "#<PRIMITIVE 0x";
-                                        ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
-                                        ss << ">";
-                                        result = ss.str();
-                                        break;
-                                case LAMBDA_TYPE:
-                                        result += "(LAMBDA ";
-                                        if (obj.as_object()->lambda.args == LISP_NIL) {
-                                                result += "() ";
-                                        }
-                                        else {
-                                                result += repr(obj.as_object()->lambda.args);
-                                                result += " ";
-                                        }
-                                        auto body = obj.as_object()->lambda.body;
-                                        while (body != LISP_NIL) {
-                                                result += repr(car(body));
-                                                body = cdr(body);
-                                        }
-                                        result += ")";
-                        }
+                                }
+                                else {
+                                        result += " . ";
+                                        result += repr(cdr(obj));
+                                }
+                                result += ")";
+                                break;
+                        case PRIMITIVE_FUNCTION_TYPE:
+                                ss << "#<PRIMITIVE 0x";
+                                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
+                                ss << ">";
+                                result = ss.str();
+                                break;
+                        case LAMBDA_TYPE:
+                                result += "(LAMBDA ";
+                                if (obj.as_object()->lambda.args == LISP_NIL) {
+                                        result += "() ";
+                                }
+                                else {
+                                        result += repr(obj.as_object()->lambda.args);
+                                        result += " ";
+                                }
+                                auto body = obj.as_object()->lambda.body;
+                                while (body != LISP_NIL) {
+                                        result += repr(car(body));
+                                        body = cdr(body);
+                                }
+                                result += ")";
                 }
-                return result;
         }
+        return result;
+}
 
-        std::string pretty_print(const lisp_value obj)
-        {
-                std::string result  = repr(obj);
-                printf("%s\n", result.c_str());
-                return result;
-        }
+std::string lisp::pretty_print(const lisp_value obj)
+{
+        std::string result  = repr(obj);
+        printf("%s\n", result.c_str());
+        return result;
 }
 
 static inline
@@ -263,8 +258,7 @@ void consume_whitespace(lisp_stream &stream)
                 stream.getc();
 }
 
-static
-lisp_value parse(lisp_stream &stream)
+lisp_value lisp::parse(lisp_stream &stream)
 {
         // symbols, ints, a char
         // symbol = anything not (), is not whitespace, doesnt start with int
@@ -332,8 +326,8 @@ lisp_value parse(lisp_stream &stream)
                 else if (stream.peekc() == '\'') {
                         stream.getc();
                         auto quoted_val = parse(stream);
-                        if (quoted_val == nullptr)
-                                return nullptr;
+                        if (quoted_val.is_invalid())
+                                return quoted_val;
                         return cons(LISP_SYM_QUOTE, cons(quoted_val, LISP_NIL));
                 }
                 else if (is_symbol_start_char(stream.peekc())) {
@@ -357,14 +351,14 @@ lisp_value parse(lisp_stream &stream)
                                 return LISP_NIL;
                         }
                         auto car_obj = parse(stream);
-                        if (car_obj == nullptr)
-                                return nullptr;
+                        if (car_obj.is_invalid())
+                                return car_obj;
                         consume_whitespace(stream);
                         if (stream.peekc() == '.') {
                                 stream.getc();
                                 auto cdr_obj = parse(stream);
-                                if (cdr_obj == nullptr)
-                                        return nullptr;
+                                if (cdr_obj.is_invalid())
+                                        return cdr_obj;
                                 if (stream.peekc() == ')')
                                         stream.getc();
                                 return cons(car_obj, cdr_obj);
@@ -373,8 +367,8 @@ lisp_value parse(lisp_stream &stream)
                         car_obj = head;
                         while (stream.peekc() != ')') {
                                 auto elem = parse(stream);
-                                if (elem == nullptr)
-                                        return nullptr;
+                                if (elem.is_invalid())
+                                        return elem;
                                 
                                 set_cdr(car_obj, cons(elem, LISP_NIL));
                                 car_obj = cdr(car_obj);
@@ -385,7 +379,7 @@ lisp_value parse(lisp_stream &stream)
                         return head;
                 }
         }
-        return nullptr;
+        return lisp_value::invalid_object();
 }
 
 static inline
@@ -678,44 +672,85 @@ void initialize_globals()
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
 }
 
+bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value)
+{
+        char *input = readline(prompt_top_level);
+        if (!input) return false;
+        lisp_string_stream stream;
+        stream.append(input);
+        stream.append('\n');
+
+        add_history(input);
+        free(input);
+        while (stream.peekc() != stream.end_of_file) {
+                auto idx = stream.index();
+                lisp_value obj = parse(stream);
+                while (obj.is_invalid()) {
+                        char *continued = readline(prompt_continued);
+                        if (!continued) break;
+                        stream.append(continued);
+                        stream.append('\n');
+                        add_history(continued);
+                        free(continued);
+                        stream.index(idx);
+                        obj = parse(stream);
+                }
+                consume_whitespace(stream);
+                if (obj.is_invalid()) break;
+                out_value = macro_expand(obj);
+                return true;
+        }
+        return false;
+}
+
 int main(int argc, char *argv[])
 {
         initialize_globals();
 
-        lisp_string_stream stream;
         static const char *prompt_lisp = "lisp_nasa> ";
         static const char *prompt_ws   = ".......... ";
         while (1) {
-                char *input = readline(prompt_lisp);
-                if (!input) break;
-                stream.clear();
-                stream.append(input);
-                stream.append('\n');
-
-                add_history(input);
-                free(input);
-                while (stream.peekc() != stream.end_of_file) {
-                        auto idx = stream.index();
-                        lisp_value obj = parse(stream);
-                        while (obj == nullptr) {
-                                char *continued = readline(prompt_ws);
-                                if (!continued) break;
-                                stream.append(continued);
-                                stream.append('\n');
-                                add_history(continued);
-                                free(continued);
-                                stream.index(idx);
-                                obj = parse(stream);
-                        }
-                        consume_whitespace(stream);
-                        if (obj == nullptr) break;
-                        obj = macro_expand(obj);
-                        //pretty_print(obj);
-                        lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, obj);
-                        if (result != nullptr) {
-                                pretty_print(result);
-                        }
+                lisp_value parsed;
+                if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
+                        break;
+                }
+                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, parsed);
+                if (!result.is_invalid()) {
+                        pretty_print(result);
                 }
         }
+        //lisp_string_stream stream;
+        //while (1) {
+        //        char *input = readline(prompt_lisp);
+        //        if (!input) break;
+        //        stream.clear();
+        //        stream.append(input);
+        //        stream.append('\n');
+
+        //        add_history(input);
+        //        free(input);
+        //        while (stream.peekc() != stream.end_of_file) {
+        //                auto idx = stream.index();
+        //                lisp_value obj = parse(stream);
+        //                while (obj == nullptr) {
+        //                        char *continued = readline(prompt_ws);
+        //                        if (!continued) break;
+        //                        stream.append(continued);
+        //                        stream.append('\n');
+        //                        add_history(continued);
+        //                        free(continued);
+        //                        stream.index(idx);
+        //                        obj = parse(stream);
+        //                }
+        //                consume_whitespace(stream);
+        //                if (obj == nullptr) break;
+        //                obj = macro_expand(obj);
+        //                //pretty_print(obj);
+        //                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, obj);
+        //                if (result != nullptr) {
+        //                        pretty_print(result);
+        //                }
+        //        }
+        //}
         return 0;
 }

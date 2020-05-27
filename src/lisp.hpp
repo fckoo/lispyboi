@@ -42,10 +42,14 @@ namespace lisp {
                 */
                 static constexpr uint64_t BITS_MASK = 0b111ULL;
 
-                static constexpr uint64_t TBD0_TAG    = 0b010ULL;
-                static constexpr uint64_t TBD1_TAG    = 0b110ULL;
-                static constexpr uint64_t TBD2_TAG    = 0b100ULL;
-                static constexpr uint64_t POINTER_TAG = 0b000ULL;
+                // "invalid" pointer, used by the reader to signify an unfinised parse.
+                static constexpr uint64_t TAG_INVALID = 0b010ULL; 
+                // TBD
+                static constexpr uint64_t TAG_TBD1    = 0b110ULL; 
+                // TBD
+                static constexpr uint64_t TAG_TBD2    = 0b100ULL;
+                // Pointer to general object
+                static constexpr uint64_t TAG_POINTER = 0b000ULL; 
 
                 // An uninitialized lisp_value will be defaulted to NIL
                 inline lisp_value() { u.bits = 0; }
@@ -62,7 +66,7 @@ namespace lisp {
         
                 inline bool is_nil() const { return bits() == 0; }
         
-                inline bool is_object() const { return tag_bits() == POINTER_TAG; }
+                inline bool is_object() const { return tag_bits() == TAG_POINTER; }
         
                 inline int64_t as_fixnum() const
                 {
@@ -105,6 +109,18 @@ namespace lisp {
                 {
                         return bits() & 0b111ULL;
                 }
+                
+                static inline lisp_value invalid_object()
+                {
+                        lisp_value invalid;
+                        invalid.u.bits = TAG_INVALID;
+                        return invalid;
+                }
+                
+                inline bool is_invalid() const
+                {
+                        return tag_bits() == TAG_INVALID;
+                }
         private:
         
                 union {
@@ -146,6 +162,12 @@ namespace lisp {
         {
                 return is_object() && as_object()->type == type;
         }
+        
+        struct lisp_stream {
+                static const int end_of_file = -1;
+                virtual int getc() = 0;
+                virtual int peekc(int n=0) const = 0;
+        };
 
         extern lisp_value LISP_T;
         extern lisp_value LISP_NIL;
@@ -168,6 +190,7 @@ namespace lisp {
         lisp_value intern_symbol(const std::string &symbol_name);
         std::string pretty_print(lisp_value obj);
         std::string repr(lisp_value obj);
+        lisp_value parse(lisp_stream &stream);
         
 
         static inline void set_car(lisp_value cons, lisp_value val)

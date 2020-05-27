@@ -1,6 +1,15 @@
+#include <stdio.h>
 #include "primitives.hpp"
 
 using namespace lisp;
+
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
+#define NYI(fmt, ...) do {                                              \
+                fprintf(stderr, "NYI: " __FILE__ ":" STR(__LINE__) "\n\tin %s\n", __PRETTY_FUNCTION__); \
+                fprintf(stderr, fmt "\n", ##__VA_ARGS__);                     \
+                abort();                                                \
+        } while (0)
 
 
 static
@@ -160,6 +169,17 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
+static
+lisp_value lisp_prim_read(lisp_value, lisp_value args)
+{
+        if (args.is_nil()) {
+        }
+        else {
+                NYI("yer a boot.");
+        }
+        return LISP_NIL;
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
 {
@@ -183,4 +203,5 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("EQ", lisp_prim_eq);
         BIND_PRIM("PUTCHAR", lisp_prim_putchar);
         BIND_PRIM("TYPE-OF", lisp_prim_type_of);
+        BIND_PRIM("READ", lisp_prim_read);
 }
