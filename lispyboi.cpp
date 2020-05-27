@@ -243,7 +243,13 @@ lisp_obj *parse(lisp_stream &stream)
         // a char: #\<anything>
         while (stream.peekc() != stream.end_of_file) { 
                 consume_whitespace(stream);
-                if (is_digit(stream.peekc())) {
+                if (stream.peekc() == ';') {
+                        stream.getc();
+                        while (stream.peekc() != '\n') {
+                                stream.getc();
+                        }
+                }
+                else if (is_digit(stream.peekc())) {
                         std::string number_str;
                         number_str += stream.getc();
                         while (is_digit(stream.peekc())) {
@@ -629,6 +635,7 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                                 auto body = cdddr(obj);
                                 auto macro = create_lisp_obj_lambda(env, params_list, body);
                                 LISP_MACROS[*macro_name->symbol] = macro;
+                                return bind(env, macro_name, macro);
                                 return macro_name;
                         }
                         else if (car == LISP_LAMBDA) {
@@ -747,7 +754,11 @@ std::string repr(const lisp_obj *obj)
                         result += repr(obj->lambda.args);
                         result += " ";
                 }
-                result += repr(obj->lambda.body);
+                auto body = obj->lambda.body;
+                while (body != LISP_NIL) {
+                        result += repr(car(body));
+                        body = cdr(body);
+                }
                 result += ")";
         }
         return result;
@@ -782,6 +793,20 @@ lisp_obj *map(lisp_obj *list, lisp_obj *(func)(lisp_obj *))
                 list = cdr(list);
         }
         return head;
+}
+
+int length(lisp_obj *obj) 
+{
+        if (obj == LISP_NIL)
+                return 0;
+        int i = 0;
+        if (obj->type == CONS_TYPE) {
+                while (obj != LISP_NIL) {
+                        i += 1;
+                        obj = cdr(obj);
+                }
+        }
+        return i;
 }
 
 lisp_obj *macro_expand(lisp_obj *obj)
@@ -879,7 +904,7 @@ int main(int argc, char *argv[])
                         consume_whitespace(stream);
                         if (obj == nullptr) break;
                         obj = macro_expand(obj);
-                        //pretty_print(obj);
+                        pretty_print(obj);
                         lisp_obj *result = evaluate(LISP_BASE_ENVIRONMENT, obj);
                         if (result != nullptr) {
                                 pretty_print(result);
