@@ -21,13 +21,16 @@ struct lisp_stream {
 };
 
 struct lisp_string_stream : lisp_stream {
+        inline
         lisp_string_stream()
                 : m_index(0) {}
 
+        inline
         lisp_string_stream(const std::string &data)
                 : m_index(0)
                 , m_data(data) {}
 
+        inline
         lisp_string_stream(const char *data)
                 : m_index(0)
                 , m_data(data) {}
@@ -47,28 +50,35 @@ struct lisp_string_stream : lisp_stream {
                 return m_data[idx];
         }
 
+        inline
         void clear() {
                 m_index = 0;
                 m_data = "";
         }
 
+        inline
         void append(const std::string &data) {
                 m_data.append(data);
         }
 
+        inline
         void append(const char *data) {
                 m_data.append(data);
         }
 
+        inline
         void append(char c) {
                 m_data.push_back(c);
         }
 
+        inline
         void puts() const {
                 printf("%s\n", m_data.c_str() + m_index);
         }
 
+        inline
         size_t index() const { return m_index; };
+        inline
         void index(size_t idx) { m_index = idx; };
 
 private:
@@ -195,16 +205,19 @@ namespace lisp {
         }
 }
 
+static inline
 bool is_whitespace(int c)
 {
         return (c == ' ' || c == '\n' || c == '\t');
 }
 
+static inline
 bool is_digit(int c)
 {
         return (c >= '0' && c <= '9');
 }
 
+static inline
 bool is_symbol_start_char(int c)
 {
         if (c == lisp_stream::end_of_file)
@@ -217,23 +230,27 @@ bool is_symbol_start_char(int c)
                 return true;
 }
 
+static inline
 bool is_symbol_char(int c)
 {
         return is_symbol_start_char(c) || is_digit(c);
 }
 
+static inline
 std::string str_lower(std::string in)
 {
         std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::tolower(c) ; } );
         return in;
 }
 
+static inline
 std::string str_upper(std::string in)
 {
         std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::toupper(c) ; } );
         return in;
 }
 
+static inline
 void consume_whitespace(lisp_stream &stream)
 {
         while (is_whitespace(stream.peekc()))
@@ -396,7 +413,7 @@ lisp_value assoc(lisp_value item, lisp_value alist)
                 return assoc(item, cdr(alist));
 }
 
-lisp_value evaluate(lisp_value env, lisp_value obj);
+static lisp_value evaluate(lisp_value env, lisp_value obj);
 lisp_value evaluate_list(lisp_value env, lisp_value list) 
 {
         if (list == LISP_NIL)
@@ -426,6 +443,7 @@ lisp_value for_each(lisp_value head, T function)
         return head;
 }
 
+static inline
 lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value) 
 {
         auto tmp = symbol_lookup(env, symbol);
@@ -439,6 +457,7 @@ lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
         return cdr(tmp);
 }
 
+static inline
 lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value) 
 {
         auto binding = cons(symbol, value);
@@ -446,6 +465,7 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
         return shadow_env;
 }
 
+static
 lisp_value evaluate(lisp_value env, lisp_value obj) 
 {
         if (obj.is_fixnum()) {
@@ -539,7 +559,7 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
         return nullptr;
 }
 
-
+static
 lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 {
         if (list == LISP_NIL)
@@ -556,6 +576,7 @@ lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
         return head;
 }
 
+static
 int length(lisp_value obj) 
 {
         if (obj == LISP_NIL)
@@ -570,6 +591,7 @@ int length(lisp_value obj)
         return i;
 }
 
+static
 lisp_value macro_expand(lisp_value obj)
 {
         if (obj.is_fixnum()) {

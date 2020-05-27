@@ -162,30 +162,30 @@ namespace lisp {
         std::string repr(lisp_value obj);
         
 
-        static inline lisp_value car(lisp_value obj) 
+        static inline lisp_value &car(lisp_value obj) 
         {
                 if (obj == LISP_NIL) return LISP_NIL; 
                 return obj.as_object()->cons.car;
         }
 
-        static inline lisp_value cdr(lisp_value obj) 
+        static inline lisp_value &cdr(lisp_value obj) 
         {
                 if (obj == LISP_NIL) return LISP_NIL; 
                 return obj.as_object()->cons.cdr;
         }
 
-        static inline lisp_value cddr(lisp_value obj)    { return cdr(cdr(obj)); }
-        static inline lisp_value cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
-        static inline lisp_value cadr(lisp_value obj)    { return car(cdr(obj)); }
-        static inline lisp_value caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
-        static inline lisp_value cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
-        static inline lisp_value caar(lisp_value obj)    { return car(car(obj)); }
-        static inline lisp_value cdar(lisp_value obj)    { return cdr(car(obj)); }
-        static inline lisp_value first(lisp_value obj)   { return car(obj); }
-        static inline lisp_value rest(lisp_value obj)    { return cdr(obj); }
-        static inline lisp_value second(lisp_value obj)  { return cadr(obj); }
-        static inline lisp_value third(lisp_value obj)   { return caddr(obj); }
-        static inline lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
+        static inline lisp_value &cddr(lisp_value obj)    { return cdr(cdr(obj)); }
+        static inline lisp_value &cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
+        static inline lisp_value &cadr(lisp_value obj)    { return car(cdr(obj)); }
+        static inline lisp_value &caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
+        static inline lisp_value &cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
+        static inline lisp_value &caar(lisp_value obj)    { return car(car(obj)); }
+        static inline lisp_value &cdar(lisp_value obj)    { return cdr(car(obj)); }
+        static inline lisp_value &first(lisp_value obj)   { return car(obj); }
+        static inline lisp_value &rest(lisp_value obj)    { return cdr(obj); }
+        static inline lisp_value &second(lisp_value obj)  { return cadr(obj); }
+        static inline lisp_value &third(lisp_value obj)   { return caddr(obj); }
+        static inline lisp_value &fourth(lisp_value obj)  { return cadddr(obj); }
         
         static inline lisp_value cons(lisp_value car, lisp_value cdr)
         {
