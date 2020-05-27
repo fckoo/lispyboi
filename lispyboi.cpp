@@ -113,12 +113,11 @@ lisp_obj *LISP_T;
 lisp_obj *LISP_NIL;
 lisp_obj *LISP_QUOTE;
 lisp_obj *LISP_IF;
-lisp_obj *LISP_OR;
-lisp_obj *LISP_AND;
-lisp_obj *LISP_PROGN;
 lisp_obj *LISP_LAMBDA;
 lisp_obj *LISP_SETQ;
+lisp_obj *LISP_DEFMACRO;
 lisp_obj *LISP_BASE_ENVIRONMENT;
+std::unordered_map<std::string, lisp_obj*> LISP_MACROS;
 
 std::string pretty_print(const lisp_obj *obj);
 std::string repr(const lisp_obj *obj);
@@ -165,6 +164,11 @@ lisp_obj *create_lisp_obj_cons(lisp_obj *car, lisp_obj *cdr)
         ret->cons.car = car;
         ret->cons.cdr = cdr;
         return ret;
+}
+
+lisp_obj *cons(lisp_obj *car, lisp_obj *cdr)
+{
+        return create_lisp_obj_cons(car, cdr);
 }
 
 lisp_obj *create_lisp_obj_lambda(lisp_obj *env, lisp_obj *args, lisp_obj *body)
@@ -289,7 +293,7 @@ lisp_obj *parse(lisp_stream &stream)
                         auto quoted_val = parse(stream);
                         if (quoted_val == nullptr)
                                 return nullptr;
-                        return create_lisp_obj_cons(LISP_QUOTE, create_lisp_obj_cons(quoted_val, LISP_NIL));
+                        return cons(LISP_QUOTE, cons(quoted_val, LISP_NIL));
                 }
                 else if (is_symbol_start_char(stream.peekc())) {
                         std::string symbol;
@@ -322,15 +326,15 @@ lisp_obj *parse(lisp_stream &stream)
                                         return nullptr;
                                 if (stream.peekc() == ')')
                                         stream.getc();
-                                return create_lisp_obj_cons(car, cdr);
+                                return cons(car, cdr);
                         }
-                        auto head = create_lisp_obj_cons(car, LISP_NIL);
+                        auto head = cons(car, LISP_NIL);
                         car = head;
                         while (stream.peekc() != ')') {
                                 auto elem = parse(stream);
                                 if (elem == nullptr)
                                         return nullptr;
-                                car->cons.cdr = create_lisp_obj_cons(elem, LISP_NIL);
+                                car->cons.cdr = cons(elem, LISP_NIL);
                                 car = car->cons.cdr;
                                 consume_whitespace(stream);
                         }
@@ -345,6 +349,7 @@ lisp_obj *parse(lisp_stream &stream)
 lisp_obj *car(lisp_obj *obj) {if (obj == LISP_NIL) return LISP_NIL; return obj->cons.car;}
 lisp_obj *cdr(lisp_obj *obj) {if (obj == LISP_NIL) return LISP_NIL; return obj->cons.cdr;}
 lisp_obj *cddr(lisp_obj *obj) { return cdr(cdr(obj)); }
+lisp_obj *cdddr(lisp_obj *obj) { return cdr(cdr(cdr(obj))); }
 lisp_obj *cadr(lisp_obj *obj) {return car(cdr(obj));}
 lisp_obj *caddr(lisp_obj *obj) {return car(cdr(cdr(obj)));}
 lisp_obj *cadddr(lisp_obj *obj) {return car(cdr(cdr(cdr(obj))));}
@@ -359,11 +364,11 @@ lisp_obj *fourth(lisp_obj *obj) {return cadddr(obj);}
 lisp_obj *push(lisp_obj *item, lisp_obj *place) 
 {
         if (place == LISP_NIL) {
-                return create_lisp_obj_cons(item, LISP_NIL);
+                return cons(item, LISP_NIL);
         }
         auto original = car(place);
         place->cons.car = item;
-        place->cons.cdr = create_lisp_obj_cons(original, cdr(place));
+        place->cons.cdr = cons(original, cdr(place));
         return place;
 }
 
@@ -371,7 +376,7 @@ lisp_obj *bind_primitive(lisp_obj **env, const std::string &symbol_name, primiti
 {
         auto prim_object = create_lisp_obj_primitive_function(primitive);
         auto symbol = create_lisp_obj_symbol(symbol_name);
-        auto binding = create_lisp_obj_cons(symbol, prim_object);
+        auto binding = cons(symbol, prim_object);
         *env = push(binding, *env);
         return binding;
 }
@@ -494,6 +499,12 @@ lisp_obj *lisp_prim_cdr(lisp_obj *env, lisp_obj *args)
         return cdar(args);
 }
 
+lisp_obj *lisp_prim_cons(lisp_obj *env, lisp_obj *args) 
+{
+        return cons(first(args), second(args));
+}
+
+
 lisp_obj *lisp_prim_eq(lisp_obj *env, lisp_obj *args) 
 {
         if (cdr(args) == LISP_NIL) {
@@ -538,12 +549,12 @@ lisp_obj *evaluate_list(lisp_obj *env, lisp_obj *list)
         if (list == LISP_NIL)
                 return list;
         auto expr = evaluate(env, car(list));
-        auto head = create_lisp_obj_cons(expr, LISP_NIL);
+        auto head = cons(expr, LISP_NIL);
         list = cdr(list);
         expr = head;
         while (list != LISP_NIL) {
                 auto next_val = evaluate(env, car(list));
-                expr->cons.cdr = create_lisp_obj_cons(next_val, LISP_NIL);
+                expr->cons.cdr = cons(next_val, LISP_NIL);
                 expr = cdr(expr);
                 list = cdr(list);
         }
@@ -566,7 +577,7 @@ lisp_obj *bind(lisp_obj *env, lisp_obj *symbol, lisp_obj *value)
 {
         auto tmp = symbol_lookup(env, symbol);
         if (tmp == nullptr) {
-                tmp = create_lisp_obj_cons(symbol, value);
+                tmp = cons(symbol, value);
                 push(tmp, env);
         }
         else {
@@ -577,8 +588,8 @@ lisp_obj *bind(lisp_obj *env, lisp_obj *symbol, lisp_obj *value)
 
 lisp_obj *shadow(lisp_obj *env, lisp_obj *symbol, lisp_obj *value) 
 {
-        auto binding = create_lisp_obj_cons(symbol, value);
-        auto shadow_env = create_lisp_obj_cons(binding, env);
+        auto binding = cons(symbol, value);
+        auto shadow_env = cons(binding, env);
         return shadow_env;
 }
 
@@ -611,11 +622,14 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                                         return evaluate(env, fourth(obj));
                                 }
                         }
-                        else if (car == LISP_OR) {
-                        }
-                        else if (car == LISP_AND) {
-                        }
-                        else if (car == LISP_PROGN) {
+                        else if (car == LISP_DEFMACRO) {
+                                // (defmacro NAME (PARAMS-LIST) &body BODY...)
+                                auto macro_name = second(obj);
+                                auto params_list = third(obj);
+                                auto body = cdddr(obj);
+                                auto macro = create_lisp_obj_lambda(env, params_list, body);
+                                LISP_MACROS[*macro_name->symbol] = macro;
+                                return macro_name;
                         }
                         else if (car == LISP_LAMBDA) {
                                 auto args = second(obj);
@@ -640,6 +654,11 @@ lisp_obj *evaluate(lisp_obj *env, lisp_obj *obj)
                                         auto shadowed_env = function->lambda.env;
                                         while (params != LISP_NIL) {
                                                 auto sym = first(params);
+                                                if (*sym->symbol == "&REST") {
+                                                        sym = second(params);
+                                                        shadowed_env = shadow(shadowed_env, sym, evaluate_list(env, args));
+                                                        break;
+                                                }
                                                 auto arg = evaluate(env, first(args));
                                                 shadowed_env = shadow(shadowed_env, sym, arg);
                                                 params = rest(params);
@@ -741,19 +760,81 @@ std::string pretty_print(const lisp_obj *obj)
         return result;
 }
 
+lisp_obj *lisp_prim_dump_macros(lisp_obj *, lisp_obj *)
+{
+        for (auto &[k,v] : LISP_MACROS) {
+                printf("%s -> %s\n", k.c_str(), repr(v).c_str());
+        }
+        return LISP_NIL;
+}
+
+lisp_obj *map(lisp_obj *list, lisp_obj *(func)(lisp_obj *))
+{
+        if (list == LISP_NIL)
+                return list;
+        
+        auto head = cons(func(car(list)), LISP_NIL);
+        auto current = head;
+        list = cdr(list);
+        while (list != LISP_NIL) {
+                current->cons.cdr = cons(func(car(list)), LISP_NIL);
+                current = cdr(current);
+                list = cdr(list);
+        }
+        return head;
+}
+
+lisp_obj *macro_expand(lisp_obj *obj)
+{
+        if (obj->type != CONS_TYPE) {
+                return obj;
+        }
+        auto car = first(obj);
+        if (car->type == SYM_TYPE) {
+                auto &sym_name = *car->symbol;
+                auto it = LISP_MACROS.find(sym_name);
+                if (it != LISP_MACROS.end()) {
+                        auto macro = it->second;
+                        auto args = rest(obj);
+                        auto params = macro->lambda.args;
+                        // THERE IS A PROBLEM WHEN LEN(ARGS) != LEN(PARAMS)
+                        auto shadowed_env = macro->lambda.env;
+                        while (params != LISP_NIL) {
+                                auto sym = first(params);
+                                if (*sym->symbol == "&REST") {
+                                        sym = second(params);
+                                        shadowed_env = shadow(shadowed_env, sym, args);
+                                        break;
+                                }
+                                auto arg = first(args);
+                                shadowed_env = shadow(shadowed_env, sym, arg);
+                                params = rest(params);
+                                args = rest(args);
+                        }
+                                        
+                        auto body = macro->lambda.body;
+                        auto result = LISP_NIL;
+                        while (body != LISP_NIL) {
+                                result = evaluate(shadowed_env, first(body));
+                                body = rest(body);
+                        }
+                        return result;
+                }
+        }
+        return map(obj, macro_expand);
+}
+
 int main(int argc, char *argv[])
 {
         LISP_NIL = new lisp_obj();
         LISP_NIL->type = NIL_TYPE;
         
-        LISP_QUOTE  = create_lisp_obj_symbol("QUOTE");
-        LISP_T      = create_lisp_obj_symbol("T");
-        LISP_IF     = create_lisp_obj_symbol("IF");
-        LISP_OR     = create_lisp_obj_symbol("OR");
-        LISP_AND    = create_lisp_obj_symbol("AND");
-        LISP_PROGN  = create_lisp_obj_symbol("PROGN");
-        LISP_LAMBDA = create_lisp_obj_symbol("LAMBDA");
-        LISP_SETQ   = create_lisp_obj_symbol("SETQ");
+        LISP_QUOTE    = create_lisp_obj_symbol("QUOTE");
+        LISP_T        = create_lisp_obj_symbol("T");
+        LISP_IF       = create_lisp_obj_symbol("IF");
+        LISP_LAMBDA   = create_lisp_obj_symbol("LAMBDA");
+        LISP_SETQ     = create_lisp_obj_symbol("SETQ");
+        LISP_DEFMACRO = create_lisp_obj_symbol("DEFMACRO");
         
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         
@@ -765,8 +846,10 @@ int main(int argc, char *argv[])
         bind_primitive(&LISP_BASE_ENVIRONMENT, "*", lisp_prim_multiply);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "CAR", lisp_prim_car);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "CDR", lisp_prim_cdr);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "CONS", lisp_prim_cons);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "EQ", lisp_prim_eq);
         bind_primitive(&LISP_BASE_ENVIRONMENT, "PUTCHAR", lisp_prim_putchar);
+        bind_primitive(&LISP_BASE_ENVIRONMENT, "DUMP-MACROS", lisp_prim_dump_macros);
 
         lisp_string_stream stream;
         static const char *prompt_lisp = "lisp_nasa> ";
@@ -795,6 +878,8 @@ int main(int argc, char *argv[])
                         }
                         consume_whitespace(stream);
                         if (obj == nullptr) break;
+                        obj = macro_expand(obj);
+                        //pretty_print(obj);
                         lisp_obj *result = evaluate(LISP_BASE_ENVIRONMENT, obj);
                         if (result != nullptr) {
                                 pretty_print(result);
