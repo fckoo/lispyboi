@@ -95,7 +95,7 @@ namespace lisp {
                         return other.u.bits != u.bits;
                 }
                 
-                inline uint64_t bits() const { return u.bits(); }
+                inline uint64_t bits() const { return u.bits; }
                 inline uint64_t tag_bits() const
                 {
                         return bits() & 0b111ULL;
