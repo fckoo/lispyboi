@@ -153,8 +153,8 @@ namespace lisp {
                                         break;
                                 case CONS_TYPE:
                                         result += "(";
-                                        result += repr(obj.as_object()->cons.car);
-                                        if (obj.as_object()->cons.cdr == LISP_NIL) {
+                                        result += repr(car(obj));
+                                        if (cdr(obj) == LISP_NIL) {
                                                 ; /* poo flower */
                                         }
                                         else if (cdr(obj).as_object()->type) {
@@ -167,7 +167,7 @@ namespace lisp {
                                         }
                                         else {
                                                 result += " . ";
-                                                result += repr(obj.as_object()->cons.cdr);
+                                                result += repr(cdr(obj));
                                         }
                                         result += ")";
                                         break;
@@ -344,27 +344,28 @@ lisp_value parse(lisp_stream &stream)
                                 stream.getc();
                                 return LISP_NIL;
                         }
-                        auto car = parse(stream);
-                        if (car == nullptr)
+                        auto car_obj = parse(stream);
+                        if (car_obj == nullptr)
                                 return nullptr;
                         consume_whitespace(stream);
                         if (stream.peekc() == '.') {
                                 stream.getc();
-                                auto cdr = parse(stream);
-                                if (cdr == nullptr)
+                                auto cdr_obj = parse(stream);
+                                if (cdr_obj == nullptr)
                                         return nullptr;
                                 if (stream.peekc() == ')')
                                         stream.getc();
-                                return cons(car, cdr);
+                                return cons(car_obj, cdr_obj);
                         }
-                        auto head = cons(car, LISP_NIL);
-                        car = head;
+                        auto head = cons(car_obj, LISP_NIL);
+                        car_obj = head;
                         while (stream.peekc() != ')') {
                                 auto elem = parse(stream);
                                 if (elem == nullptr)
                                         return nullptr;
-                                car.as_object()->cons.cdr = cons(elem, LISP_NIL);
-                                car = car.as_object()->cons.cdr;
+                                
+                                set_cdr(car_obj, cons(elem, LISP_NIL));
+                                car_obj = cdr(car_obj);
                                 consume_whitespace(stream);
                         }
                         if (stream.peekc() == ')')
@@ -382,8 +383,8 @@ lisp_value push(lisp_value item, lisp_value place)
                 return cons(item, LISP_NIL);
         }
         auto original = car(place);
-        place.as_object()->cons.car = item;
-        place.as_object()->cons.cdr = cons(original, cdr(place));
+        set_car(place, item);
+        set_cdr(place, cons(original, cdr(place)));
         return place;
 }
 
@@ -428,7 +429,7 @@ lisp_value evaluate_list(lisp_value env, lisp_value list)
         expr = head;
         while (list != LISP_NIL) {
                 auto next_val = evaluate(env, car(list));
-                expr.as_object()->cons.cdr = cons(next_val, LISP_NIL);
+                set_cdr(expr, cons(next_val, LISP_NIL));
                 expr = cdr(expr);
                 list = cdr(list);
         }
@@ -456,7 +457,7 @@ lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
                 push(tmp, env);
         }
         else {
-                tmp.as_object()->cons.cdr = value;
+                set_cdr(tmp, value);
         }
         return cdr(tmp);
 }
@@ -573,7 +574,7 @@ lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
         auto current = head;
         list = cdr(list);
         while (list != LISP_NIL) {
-                current.as_object()->cons.cdr = cons(func(car(list)), LISP_NIL);
+                set_cdr(current, cons(func(car(list)), LISP_NIL));
                 current = cdr(current);
                 list = cdr(list);
         }
