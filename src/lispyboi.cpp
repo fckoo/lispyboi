@@ -410,7 +410,7 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
                         env = cdr(env);
                 }
         }
-        return nullptr;
+        return lisp_value::invalid_object();
 }
 
 static
@@ -458,7 +458,7 @@ static inline
 lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value) 
 {
         auto tmp = symbol_lookup(env, symbol);
-        if (tmp == nullptr) {
+        if (tmp.is_invalid()) {
                 tmp = cons(symbol, value);
                 push(tmp, env);
         }
@@ -490,7 +490,7 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                         case SYM_TYPE: {
                                 if (obj == LISP_T) return obj;
                                 auto val = symbol_lookup(env, obj); 
-                                if (val == nullptr) {
+                                if (val.is_invalid()) {
                                         printf("UNBOUND VARIABLE: %s\n", obj.as_object()->symbol->c_str()); // @TODO: POOPER ERROR HANDLING
                                         abort();
                                 }
@@ -518,7 +518,7 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                                         auto body = cdddr(obj);
                                         auto macro = create_lisp_obj_lambda(env, params_list, body);
                                         LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
-                                        return bind(env, macro_name, macro);
+                                        bind(env, macro_name, macro);
                                         return macro_name;
                                 }
                                 else if (car == LISP_SYM_LAMBDA) {
@@ -567,7 +567,7 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                         } break;
                 }
         }
-        return nullptr;
+        return lisp_value::invalid_object();
 }
 
 static
@@ -672,35 +672,43 @@ void initialize_globals()
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
 }
 
-bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value)
+bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value)
 {
-        char *input = readline(prompt_top_level);
-        if (!input) return false;
-        lisp_string_stream stream;
-        stream.append(input);
-        stream.append('\n');
-
-        add_history(input);
-        free(input);
-        while (stream.peekc() != stream.end_of_file) {
-                auto idx = stream.index();
-                lisp_value obj = parse(stream);
-                while (obj.is_invalid()) {
-                        char *continued = readline(prompt_continued);
-                        if (!continued) break;
-                        stream.append(continued);
-                        stream.append('\n');
-                        add_history(continued);
-                        free(continued);
-                        stream.index(idx);
-                        obj = parse(stream);
-                }
-                consume_whitespace(stream);
-                if (obj.is_invalid()) break;
-                out_value = macro_expand(obj);
-                return true;
+        static lisp_string_stream stream;
+        if (stream.peekc() == stream.end_of_file) {
+                char *input = readline(prompt_top_level);
+                if (!input) return false;
+                stream.clear();
+                stream.append(input);
+                stream.append('\n');
+                add_history(input);
+                free(input);
         }
-        return false;
+        auto idx = stream.index();
+        lisp_value obj = parse(stream);
+        while (obj.is_invalid()) {
+                char *continued = readline(prompt_continued);
+                if (!continued) break;
+                stream.append(continued);
+                stream.append('\n');
+                add_history(continued);
+                free(continued);
+                stream.index(idx);
+                obj = parse(stream);
+        }
+        if (obj.is_invalid()) {
+                stream.clear();
+                return false;
+        }
+        /* readline doesn't return a string with a line terminator so we end up 
+           appending one ourselves, this makes it so (+\n1\n2\n) isn't parsed as 
+           (+12). This means upon a successful parse there should be some form of
+           trailing whitespace and we need to discard that whitespace to future 
+           calls to this function will display prompt_top_level correctly.
+        */
+        consume_whitespace(stream);
+        out_value = obj;
+        return true;
 }
 
 int main(int argc, char *argv[])
@@ -709,48 +717,20 @@ int main(int argc, char *argv[])
 
         static const char *prompt_lisp = "lisp_nasa> ";
         static const char *prompt_ws   = ".......... ";
+        int result_counter = 0;
+        auto last_result_sym = intern_symbol("$$");
         while (1) {
                 lisp_value parsed;
                 if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
                         break;
                 }
-                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, parsed);
-                if (!result.is_invalid()) {
-                        pretty_print(result);
-                }
+                lisp_value expanded = macro_expand(parsed);
+                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
+                std::string result_sym_name = "$$" + std::to_string(result_counter++);
+                bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
+                bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
+                printf("%5s => ", result_sym_name.c_str());
+                pretty_print(result);
         }
-        //lisp_string_stream stream;
-        //while (1) {
-        //        char *input = readline(prompt_lisp);
-        //        if (!input) break;
-        //        stream.clear();
-        //        stream.append(input);
-        //        stream.append('\n');
-
-        //        add_history(input);
-        //        free(input);
-        //        while (stream.peekc() != stream.end_of_file) {
-        //                auto idx = stream.index();
-        //                lisp_value obj = parse(stream);
-        //                while (obj == nullptr) {
-        //                        char *continued = readline(prompt_ws);
-        //                        if (!continued) break;
-        //                        stream.append(continued);
-        //                        stream.append('\n');
-        //                        add_history(continued);
-        //                        free(continued);
-        //                        stream.index(idx);
-        //                        obj = parse(stream);
-        //                }
-        //                consume_whitespace(stream);
-        //                if (obj == nullptr) break;
-        //                obj = macro_expand(obj);
-        //                //pretty_print(obj);
-        //                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, obj);
-        //                if (result != nullptr) {
-        //                        pretty_print(result);
-        //                }
-        //        }
-        //}
         return 0;
 }

@@ -173,6 +173,10 @@ static
 lisp_value lisp_prim_read(lisp_value, lisp_value args)
 {
         if (args.is_nil()) {
+                lisp_value result;
+                if (!read_stdin(">>> ", "... ", result))
+                        return LISP_NIL;
+                return result;
         }
         else {
                 NYI("yer a boot.");
