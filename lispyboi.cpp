@@ -79,7 +79,6 @@ enum LISP_OBJ_TYPE {
         CONS_TYPE,
         LAMBDA_TYPE,
         PRIMITIVE_FUNCTION_TYPE,
-        USER_FUNCTION_TYPE,
 };
 
 struct lisp_obj;
@@ -205,14 +204,24 @@ struct lisp_obj {
 };
 
 
-
 lisp_value LISP_T;
 lisp_value LISP_NIL;
-lisp_value LISP_QUOTE;
-lisp_value LISP_IF;
-lisp_value LISP_LAMBDA;
-lisp_value LISP_SETQ;
-lisp_value LISP_DEFMACRO;
+
+/* Commonly used symbols for easier access without having to call intern */
+lisp_value LISP_SYM_QUOTE;
+lisp_value LISP_SYM_IF;
+lisp_value LISP_SYM_LAMBDA;
+lisp_value LISP_SYM_SETQ;
+lisp_value LISP_SYM_DEFMACRO;
+lisp_value LISP_SYM_FIXNUM;
+lisp_value LISP_SYM_CONS;
+lisp_value LISP_SYM_CHARACTER;
+lisp_value LISP_SYM_FUNCTION;
+lisp_value LISP_SYM_SYMBOL;
+lisp_value LISP_SYM_NULL;
+lisp_value LISP_SYM_BOOLEAN;
+
+
 lisp_value LISP_BASE_ENVIRONMENT;
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
 
@@ -231,11 +240,6 @@ lisp_value intern_symbol(const std::string &symbol_name)
         symbol->symbol = new std::string(symbol_name);
         interned_symbols[symbol_name] = lisp_value(symbol);
         return symbol;
-}
-
-lisp_value create_lisp_obj_symbol(const std::string &in)
-{
-        return intern_symbol(in);
 }
 
 lisp_value create_lisp_obj_character(char in)
@@ -393,7 +397,7 @@ lisp_value parse(lisp_stream &stream)
                         auto quoted_val = parse(stream);
                         if (quoted_val == nullptr)
                                 return nullptr;
-                        return cons(LISP_QUOTE, cons(quoted_val, LISP_NIL));
+                        return cons(LISP_SYM_QUOTE, cons(quoted_val, LISP_NIL));
                 }
                 else if (is_symbol_start_char(stream.peekc())) {
                         std::string symbol;
@@ -406,7 +410,7 @@ lisp_value parse(lisp_stream &stream)
                                 return LISP_NIL;
                         if (symbol == "T")
                                 return LISP_T;
-                        return create_lisp_obj_symbol(symbol);
+                        return intern_symbol(symbol);
                 }
                 else if (stream.peekc() == '(') {
                         stream.getc();
@@ -475,7 +479,7 @@ lisp_value push(lisp_value item, lisp_value place)
 lisp_value bind_primitive(lisp_value *env, const std::string &symbol_name, primitive_function primitive) 
 {
         auto prim_object = create_lisp_obj_primitive_function(primitive);
-        auto symbol = create_lisp_obj_symbol(symbol_name);
+        auto symbol = intern_symbol(symbol_name);
         auto binding = cons(symbol, prim_object);
         *env = push(binding, *env);
         return binding;
@@ -643,6 +647,38 @@ lisp_value lisp_prim_dump_env(lisp_value env, lisp_value)
         return LISP_NIL;
 }
 
+lisp_value lisp_prim_dump_macros(lisp_value, lisp_value)
+{
+        for (auto &[k,v] : LISP_MACROS) {
+                printf("%s -> %s\n", k.c_str(), repr(v).c_str());
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
+{
+        auto it = car(args);
+        if (it.is_fixnum()) {
+                return LISP_SYM_FIXNUM;
+        }
+        if (it.is_nil()) {
+                return LISP_SYM_NULL;
+        }
+        if (it == LISP_T) {
+                return LISP_SYM_BOOLEAN;
+        }
+        if (it.is_object()) {
+                switch (it.as_object()->type) {
+                        case SYM_TYPE: return LISP_SYM_SYMBOL;
+                        case CHAR_TYPE: return LISP_SYM_CHARACTER;
+                        case CONS_TYPE: return LISP_SYM_CONS;
+                        case LAMBDA_TYPE: return LISP_SYM_FUNCTION;
+                        case PRIMITIVE_FUNCTION_TYPE: return LISP_SYM_FUNCTION;
+                }
+        }
+        return LISP_NIL;
+}
+
 lisp_value evaluate(lisp_value env, lisp_value obj);
 lisp_value evaluate_list(lisp_value env, lisp_value list) 
 {
@@ -715,10 +751,10 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                         case CHAR_TYPE: return obj;
                         case CONS_TYPE: {
                                 auto car = first(obj);
-                                if (car == LISP_QUOTE) {
+                                if (car == LISP_SYM_QUOTE) {
                                         return second(obj); // intentionally not evaluated.
                                 }
-                                else if (car == LISP_IF) {
+                                else if (car == LISP_SYM_IF) {
                                         auto condition = evaluate(env, second(obj));
                                         if (condition != LISP_NIL) {
                                                 return evaluate(env, third(obj));
@@ -727,7 +763,7 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                                                 return evaluate(env, fourth(obj));
                                         }
                                 }
-                                else if (car == LISP_DEFMACRO) {
+                                else if (car == LISP_SYM_DEFMACRO) {
                                         // (defmacro NAME (PARAMS-LIST) &body BODY...)
                                         auto macro_name = second(obj);
                                         auto params_list = third(obj);
@@ -737,13 +773,13 @@ lisp_value evaluate(lisp_value env, lisp_value obj)
                                         return bind(env, macro_name, macro);
                                         return macro_name;
                                 }
-                                else if (car == LISP_LAMBDA) {
+                                else if (car == LISP_SYM_LAMBDA) {
                                         auto args = second(obj);
                                         auto body = cddr(obj);
                                         auto tmp = create_lisp_obj_lambda(env, args, body);
                                         return tmp;
                                 }
-                                else if (car == LISP_SETQ) {
+                                else if (car == LISP_SYM_SETQ) {
                                         auto variable_name = second(obj);
                                         auto value = evaluate(env, third(obj));
                                         return bind(env, variable_name, value);
@@ -873,14 +909,6 @@ std::string pretty_print(const lisp_value obj)
         return result;
 }
 
-lisp_value lisp_prim_dump_macros(lisp_value, lisp_value)
-{
-        for (auto &[k,v] : LISP_MACROS) {
-                printf("%s -> %s\n", k.c_str(), repr(v).c_str());
-        }
-        return LISP_NIL;
-}
-
 lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 {
         if (list == LISP_NIL)
@@ -959,27 +987,38 @@ lisp_value macro_expand(lisp_value obj)
 
 int main(int argc, char *argv[])
 {
-        LISP_QUOTE    = create_lisp_obj_symbol("QUOTE");
-        LISP_T        = create_lisp_obj_symbol("T");
-        LISP_IF       = create_lisp_obj_symbol("IF");
-        LISP_LAMBDA   = create_lisp_obj_symbol("LAMBDA");
-        LISP_SETQ     = create_lisp_obj_symbol("SETQ");
-        LISP_DEFMACRO = create_lisp_obj_symbol("DEFMACRO");
+        LISP_T = intern_symbol("T");
+
+#define INTERN_GLOBAL(name) LISP_SYM_##name = intern_symbol(#name)
+        INTERN_GLOBAL(QUOTE);
+        INTERN_GLOBAL(IF);
+        INTERN_GLOBAL(LAMBDA);
+        INTERN_GLOBAL(SETQ);
+        INTERN_GLOBAL(DEFMACRO);
+        INTERN_GLOBAL(FIXNUM);
+        INTERN_GLOBAL(CONS);
+        INTERN_GLOBAL(CHARACTER);
+        INTERN_GLOBAL(FUNCTION);
+        INTERN_GLOBAL(SYMBOL);
+        INTERN_GLOBAL(NULL);
+        INTERN_GLOBAL(BOOLEAN);
         
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "+", lisp_prim_plus);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "PRINT", lisp_prim_print);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "DUMP-ENV", lisp_prim_dump_env);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "-", lisp_prim_minus);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "<", lisp_prim_num_less);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "*", lisp_prim_multiply);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "CAR", lisp_prim_car);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "CDR", lisp_prim_cdr);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "CONS", lisp_prim_cons);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "EQ", lisp_prim_eq);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "PUTCHAR", lisp_prim_putchar);
-        bind_primitive(&LISP_BASE_ENVIRONMENT, "DUMP-MACROS", lisp_prim_dump_macros);
+#define BIND_PRIM(lisp_name, function) bind_primitive(&LISP_BASE_ENVIRONMENT, lisp_name, function)
+        BIND_PRIM("+", lisp_prim_plus);
+        BIND_PRIM("PRINT", lisp_prim_print);
+        BIND_PRIM("DUMP-ENV", lisp_prim_dump_env);
+        BIND_PRIM("-", lisp_prim_minus);
+        BIND_PRIM("<", lisp_prim_num_less);
+        BIND_PRIM("*", lisp_prim_multiply);
+        BIND_PRIM("CAR", lisp_prim_car);
+        BIND_PRIM("CDR", lisp_prim_cdr);
+        BIND_PRIM("CONS", lisp_prim_cons);
+        BIND_PRIM("EQ", lisp_prim_eq);
+        BIND_PRIM("PUTCHAR", lisp_prim_putchar);
+        BIND_PRIM("DUMP-MACROS", lisp_prim_dump_macros);
+        BIND_PRIM("TYPE-OF", lisp_prim_type_of);
 
         lisp_string_stream stream;
         static const char *prompt_lisp = "lisp_nasa> ";
