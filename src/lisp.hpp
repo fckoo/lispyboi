@@ -47,15 +47,15 @@ namespace lisp {
                 // An uninitialized lisp_value will be defaulted to NIL
                 inline lisp_value() { u.bits = NIL_TAG; }
 
-                inline lisp_value(int64_t integer) 
+                inline lisp_value(int64_t fixnum) 
                 {
-                        u.integer_layout.tag = 1;
-                        u.integer_layout.number = integer;
+                        u.fixnum_layout.tag = 1;
+                        u.fixnum_layout.fixnum = fixnum;
                 }
 
                 inline lisp_value(lisp_obj *pointer) { u.obj = pointer; }
 
-                inline bool is_fixnum() const { return u.integer_layout.tag != 0; }
+                inline bool is_fixnum() const { return u.fixnum_layout.tag != 0; }
         
                 inline bool is_nil() const { return tag_bits() == NIL_TAG; }
         
@@ -64,7 +64,7 @@ namespace lisp {
                 inline int64_t as_fixnum() const
                 {
                         assert(is_fixnum());
-                        return u.integer_layout.number;
+                        return u.fixnum_layout.fixnum;
                 }
         
                 inline lisp_value as_nil() const
@@ -105,9 +105,9 @@ namespace lisp {
                 union {
                         uint64_t bits;
                         struct {
-                                int64_t tag : 1; // bit 0 == integer tag
-                                int64_t number : 63;
-                        } integer_layout;
+                                int64_t tag : 1; // bit 0 == fixnum tag
+                                int64_t fixnum : 63;
+                        } fixnum_layout;
                         lisp_obj *obj;
                 } u;
         
@@ -120,12 +120,10 @@ namespace lisp {
                 lisp_obj() {}
                 ~lisp_obj() {}
         
-                // a symbol of integers or characters
                 LISP_OBJ_TYPE type;
                 union {
                         std::string *symbol;
                         char character;
-                        int integer;
                         struct {
                                 lisp_value car;
                                 lisp_value cdr;
@@ -218,9 +216,9 @@ namespace lisp {
                 return lisp_value(ret);
         }
 
-        static inline lisp_value create_lisp_obj_integer(int64_t in)
+        static inline lisp_value create_lisp_obj_fixnum(int64_t fixnum)
         {
-                return lisp_value(in);
+                return lisp_value(fixnum);
         }
 
         static inline lisp_value create_lisp_obj_lambda(lisp_value env, lisp_value args, lisp_value body)

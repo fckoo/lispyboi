@@ -278,8 +278,14 @@ lisp_value parse(lisp_stream &stream)
                         while (is_digit(stream.peekc())) {
                                 number_str += stream.getc();
                         }
-                        int64_t integer = std::stoll(number_str);
-                        return create_lisp_obj_integer(integer);
+
+                        int64_t result = 0;
+                        for (char digit : number_str)
+                        {
+                                result *= 10;
+                                result += digit - '0';
+                        }
+                        return create_lisp_obj_fixnum(result);
                 }
                 else if (stream.peekc() == '#') {
                         stream.getc();
