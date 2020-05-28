@@ -199,7 +199,7 @@ std::string lisp::repr(const lisp_value obj)
         return result;
 }
 
-std::string lisp::pretty_print(const lisp_value obj)
+std::string lisp::pretty_print(lisp_value obj)
 {
         std::string result  = repr(obj);
         printf("%s\n", result.c_str());
@@ -328,7 +328,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                         auto quoted_val = parse(stream);
                         if (quoted_val.is_invalid())
                                 return quoted_val;
-                        return cons(LISP_SYM_QUOTE, cons(quoted_val, LISP_NIL));
+                        return list(LISP_SYM_QUOTE, quoted_val);
                 }
                 else if (is_symbol_start_char(stream.peekc())) {
                         std::string symbol;
@@ -400,7 +400,7 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
         /* env is a list of pairs mapping symbols to their corresponding value in the form of 
          * ((symbol . value) (symbol . value) (symbol . value))
          */
-        if (env.as_object()->type == CONS_TYPE) {
+        if (env.is_type(CONS_TYPE)) {
                 while (env != LISP_NIL) {
                         auto pair = car(env);
                         auto s = car(pair);
@@ -516,7 +516,7 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                         auto body = cdddr(obj);
                                         auto macro = create_lisp_obj_lambda(env, params_list, body);
                                         LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
-                                        bind(env, macro_name, macro);
+                                        //bind(env, macro_name, macro);
                                         return macro_name;
                                 }
                                 else if (car == LISP_SYM_LAMBDA) {
@@ -542,7 +542,8 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                                 auto shadowed_env = function.as_object()->lambda.env;
                                                 while (params != LISP_NIL) {
                                                         auto sym = first(params);
-                                                        if (*(sym.as_object()->symbol) == "&REST") {
+                                                        if (*(sym.as_object()->symbol) == "&REST" ||
+                                                            *(sym.as_object()->symbol) == "&BODY") {
                                                                 sym = second(params);
                                                                 shadowed_env = shadow(shadowed_env, sym, evaluate_list(env, args));
                                                                 break;
@@ -591,7 +592,7 @@ int length(lisp_value obj)
         if (obj == LISP_NIL)
                 return 0;
         int i = 0;
-        if (obj.as_object()->type == CONS_TYPE) {
+        if (obj.is_type(CONS_TYPE)) {
                 while (obj != LISP_NIL) {
                         i += 1;
                         obj = cdr(obj);
@@ -608,11 +609,36 @@ lisp_value lisp::macro_expand(lisp_value obj)
         if (obj.is_nil()) {
                 return obj;
         }
-        if (obj.as_object()->type != CONS_TYPE) {
+        if (!obj.is_type(CONS_TYPE)) {
                 return obj;
         }
         auto car = first(obj);
-        if (car.as_object()->type == SYM_TYPE) {
+        if (car.is_type(SYM_TYPE)) {
+                if (car == LISP_SYM_QUOTE) {
+                        return obj;
+                }
+                if (car == LISP_SYM_IF) {
+                        auto condition = macro_expand(second(obj));
+                        auto consequence = macro_expand(third(obj));
+                        auto alternative = macro_expand(fourth(obj));
+                        return list(LISP_SYM_IF, condition, consequence, alternative);
+                }
+                if (car == LISP_SYM_DEFMACRO) {
+                        auto macro_name = second(obj);
+                        auto params_list = third(obj);
+                        auto body = map(cdddr(obj), macro_expand);
+                        return cons(LISP_SYM_DEFMACRO, cons(macro_name, cons(params_list, body)));
+                }
+                if (car == LISP_SYM_LAMBDA) {
+                        auto args = second(obj);
+                        auto body = map(cddr(obj), macro_expand);
+                        return cons(LISP_SYM_LAMBDA, cons(args, body));
+                }
+                if (car == LISP_SYM_SETQ) {
+                        auto variable_name = second(obj);
+                        auto value = macro_expand(third(obj));
+                        return list(LISP_SYM_SETQ, variable_name, value);
+                }
                 auto &sym_name = *car.as_object()->symbol;
                 auto it = LISP_MACROS.find(sym_name);
                 if (it != LISP_MACROS.end()) {
@@ -623,7 +649,8 @@ lisp_value lisp::macro_expand(lisp_value obj)
                         auto shadowed_env = macro.as_object()->lambda.env;
                         while (params != LISP_NIL) {
                                 auto sym = first(params);
-                                if (*(sym.as_object()->symbol) == "&REST") {
+                                if (*(sym.as_object()->symbol) == "&REST" ||
+                                    *(sym.as_object()->symbol) == "&BODY") {
                                         sym = second(params);
                                         shadowed_env = shadow(shadowed_env, sym, args);
                                         break;
@@ -640,7 +667,7 @@ lisp_value lisp::macro_expand(lisp_value obj)
                                 result = evaluate(shadowed_env, first(body));
                                 body = rest(body);
                         }
-                        return result;
+                        return macro_expand(result);
                 }
         }
         return map(obj, macro_expand);
@@ -722,6 +749,7 @@ int main(int argc, char *argv[])
                         break;
                 }
                 lisp_value expanded = macro_expand(parsed);
+                pretty_print(expanded);
                 lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
                 std::string result_sym_name = "$$" + std::to_string(result_counter++);
                 bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
