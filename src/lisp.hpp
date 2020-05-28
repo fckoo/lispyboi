@@ -160,7 +160,9 @@ namespace lisp {
 
         inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
         {
-                return is_object() && as_object()->type == type;
+                return !is_nil() && 
+                        is_object() && 
+                        as_object()->type == type;
         }
         
         struct lisp_stream {
@@ -170,8 +172,8 @@ namespace lisp {
                 virtual bool eof() = 0;
         };
 
+        extern const lisp_value LISP_NIL;
         extern lisp_value LISP_T;
-        extern lisp_value LISP_NIL;
 
         /* Commonly used symbols for easier access without having to call intern */
         extern lisp_value LISP_SYM_QUOTE;

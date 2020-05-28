@@ -199,7 +199,32 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
 static
 lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
 {
-        return lisp::apply(env, first(args), rest(args));
+        auto function = first(args);
+        args = rest(args);
+        if (args == LISP_NIL)
+                return lisp::apply(env, function, LISP_NIL);
+
+        auto head = LISP_NIL;
+        auto current = head;
+        while (args != LISP_NIL) {
+                if (rest(args) == LISP_NIL) break;
+                if (head == LISP_NIL) {
+                        head = list(first(args));
+                        current = head;
+                }
+                else {
+                        set_cdr(current, cons(first(args), LISP_NIL));
+                        current = rest(current);
+                }
+                args = rest(args);
+        }
+        if (head == LISP_NIL) {
+                head = first(args);
+        }
+        else {
+                set_cdr(current, first(args));
+        }
+        return lisp::apply(env, function, head);
 }
 
 static inline
