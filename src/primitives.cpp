@@ -196,6 +196,12 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
         return lisp::evaluate(env, car(args));
 }
 
+static
+lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
+{
+        return lisp::apply(env, first(args), rest(args));
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
 {
@@ -222,4 +228,5 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("READ", lisp_prim_read);
         BIND_PRIM("MACRO-EXPAND", lisp_prim_macro_expand);
         BIND_PRIM("EVAL", lisp_prim_eval);
+        BIND_PRIM("APPLY", lisp_prim_apply);
 }

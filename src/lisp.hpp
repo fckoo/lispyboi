@@ -199,6 +199,7 @@ namespace lisp {
         bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value);
         lisp_value macro_expand(lisp_value obj);
         lisp_value evaluate(lisp_value env, lisp_value obj);
+        lisp_value apply(lisp_value env, lisp_value function, lisp_value obj);
 
         static inline void set_car(lisp_value cons, lisp_value val)
         {

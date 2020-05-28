@@ -550,6 +550,38 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
         return shadow_env;
 }
 
+lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
+{
+        if (function.as_object()->type == PRIMITIVE_FUNCTION_TYPE) {
+                return function.as_object()->primitive(env, args);
+        }
+        else if (function.as_object()->type == LAMBDA_TYPE) {
+                auto params = function.as_object()->lambda.args;
+                auto shadowed_env = function.as_object()->lambda.env;
+                while (params != LISP_NIL) {
+                        auto sym = first(params);
+                        if (*(sym.as_object()->symbol) == "&REST" ||
+                            *(sym.as_object()->symbol) == "&BODY") {
+                                sym = second(params);
+                                shadowed_env = shadow(shadowed_env, sym, args);
+                                break;
+                        }
+                        shadowed_env = shadow(shadowed_env, sym, first(args));
+                        params = rest(params);
+                        args = rest(args);
+                }
+                auto body = function.as_object()->lambda.body;
+                auto result = LISP_NIL;
+                while (body != LISP_NIL) {
+                        result = evaluate(shadowed_env, first(body));
+                        body = rest(body);
+                }
+                return result;
+        }
+        fprintf(stderr, "not a function: %s\n", repr(function).c_str());
+        abort();
+}
+
 lisp_value lisp::evaluate(lisp_value env, lisp_value obj) 
 {
         if (obj.is_fixnum()) {
@@ -607,36 +639,8 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                 }
                                 else {
                                         auto function = evaluate(env, car);
-                                        if (function.as_object()->type == PRIMITIVE_FUNCTION_TYPE) {
-                                                return function.as_object()->primitive(env, evaluate_list(env, rest(obj)));
-                                        }
-                                        else if (function.as_object()->type == LAMBDA_TYPE) {
-                                                auto args = rest(obj);
-                                                auto params = function.as_object()->lambda.args;
-                                                // THERE IS A PROBLEM WHEN LEN(ARGS) != LEN(PARAMS)
-                                                auto shadowed_env = function.as_object()->lambda.env;
-                                                while (params != LISP_NIL) {
-                                                        auto sym = first(params);
-                                                        if (*(sym.as_object()->symbol) == "&REST" ||
-                                                            *(sym.as_object()->symbol) == "&BODY") {
-                                                                sym = second(params);
-                                                                shadowed_env = shadow(shadowed_env, sym, evaluate_list(env, args));
-                                                                break;
-                                                        }
-                                                        auto arg = evaluate(env, first(args));
-                                                        shadowed_env = shadow(shadowed_env, sym, arg);
-                                                        params = rest(params);
-                                                        args = rest(args);
-                                                }
-                                        
-                                                auto body = function.as_object()->lambda.body;
-                                                auto result = LISP_NIL;
-                                                while (body != LISP_NIL) {
-                                                        result = evaluate(shadowed_env, first(body));
-                                                        body = rest(body);
-                                                }
-                                                return result;
-                                        }
+                                        auto args = evaluate_list(env, rest(obj));
+                                        return apply(env, function, args);
                                 }
                         } break;
                 }
@@ -717,32 +721,9 @@ lisp_value lisp::macro_expand(lisp_value obj)
                 auto &sym_name = *car.as_object()->symbol;
                 auto it = LISP_MACROS.find(sym_name);
                 if (it != LISP_MACROS.end()) {
-                        auto macro = it->second;
+                        auto function = it->second;
                         auto args = rest(obj);
-                        auto params = macro.as_object()->lambda.args;
-                        // THERE IS A PROBLEM WHEN LEN(ARGS) != LEN(PARAMS)
-                        auto shadowed_env = macro.as_object()->lambda.env;
-                        while (params != LISP_NIL) {
-                                auto sym = first(params);
-                                if (*(sym.as_object()->symbol) == "&REST" ||
-                                    *(sym.as_object()->symbol) == "&BODY") {
-                                        sym = second(params);
-                                        shadowed_env = shadow(shadowed_env, sym, args);
-                                        break;
-                                }
-                                auto arg = first(args);
-                                shadowed_env = shadow(shadowed_env, sym, arg);
-                                params = rest(params);
-                                args = rest(args);
-                        }
-                                        
-                        auto body = macro.as_object()->lambda.body;
-                        auto result = LISP_NIL;
-                        while (body != LISP_NIL) {
-                                result = evaluate(shadowed_env, first(body));
-                                body = rest(body);
-                        }
-                        return macro_expand(result);
+                        return macro_expand(apply(LISP_BASE_ENVIRONMENT, function, args));
                 }
         }
         return map(obj, macro_expand);
@@ -876,7 +857,6 @@ int main(int argc, char *argv[])
                                 break;
                         }
                         lisp_value expanded = macro_expand(parsed);
-                        pretty_print(expanded);
                         lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
                         std::string result_sym_name = "$$" + std::to_string(result_counter++);
                         bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
