@@ -78,7 +78,9 @@
         (list 'quote object)))
   (qq-object exp))
 
-(setq foo 123)
-(setq bar '(a b c))
-(quasiquote ((unquote foo) 4 5 h i j (unquote-splicing bar) x y z))
+;;(setq foo 123)
+;;(setq bar '(a b c))
+;;(quasiquote ((unquote foo) 4 5 h i j (unquote-splicing bar) x y z))
+;;`(,foo 4 5 h i j ,@bar x y z)
+;;
 

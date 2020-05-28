@@ -1,11 +1,2 @@
-(setq null (lambda (obj) (eq nil obj)))
-(setq not (lambda (obj) (if obj nil t)))
-(setq print-line-helper (lambda (chars) (if (not (null chars)) ((lambda () (putchar (car chars)) (print-line-helper (cdr chars)))) nil)))
-(setq print-line (lambda (chars) (print-line-helper chars) (putchar #\Newline)))
-(setq nth (lambda (n list) (if (< n 1) (car list) (nth (- n 1) (cdr list)))))
-(setq nth-cdr (lambda (n list) (if (< n 1) list (nth-cdr (- n 1) (cdr list)))))
-(setq looper (lambda (n) (if (not (< n 15)) (setq n 0)) (print-line (nth-cdr n '(#\L #\I #\S #\P #\Space #\i #\s #\Space #\G #\R #\E #\A #\T #\!))) (looper (+ n 1))))
 
-
-
-
+(print '(hello world))

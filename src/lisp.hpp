@@ -166,7 +166,8 @@ namespace lisp {
         struct lisp_stream {
                 static const int end_of_file = -1;
                 virtual int getc() = 0;
-                virtual int peekc(int n=0) const = 0;
+                virtual int peekc() = 0;
+                virtual bool eof() = 0;
         };
 
         extern lisp_value LISP_T;

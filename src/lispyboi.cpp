@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <cassert>
+#include <fstream>
 
 #include "lisp.hpp"
 #include "primitives.hpp"
@@ -29,55 +30,107 @@ struct lisp_string_stream : lisp_stream {
                 : m_index(0)
                 , m_data(data) {}
 
-        int getc() {
+        int getc() 
+        {
                 if (m_index >= m_data.size()) {
                         return end_of_file;
                 }
                 return m_data[m_index++];
         }
 
-        int peekc(int n = 0) const {
-                const size_t idx = m_index + n;
-                if (idx >= m_data.size()) {
+        int peekc()
+        {
+                if (m_index >= m_data.size()) {
                         return end_of_file;
                 }
-                return m_data[idx];
+                return m_data[m_index];
+        }
+        
+        bool eof()
+        {
+                return m_index >= m_data.size();
         }
 
         inline
-        void clear() {
+        void clear() 
+        {
                 m_index = 0;
                 m_data = "";
         }
 
         inline
-        void append(const std::string &data) {
+        void append(const std::string &data) 
+        {
                 m_data.append(data);
         }
 
         inline
-        void append(const char *data) {
+        void append(const char *data) 
+        {
                 m_data.append(data);
         }
 
         inline
-        void append(char c) {
+        void append(char c) 
+        {
                 m_data.push_back(c);
         }
 
         inline
-        void puts() const {
+        void puts() const 
+        {
                 printf("%s\n", m_data.c_str() + m_index);
         }
 
         inline
-        size_t index() const { return m_index; };
+        size_t index() const 
+        { 
+                return m_index; 
+        };
+
         inline
-        void index(size_t idx) { m_index = idx; };
+        void index(size_t idx) 
+        { 
+                m_index = idx; 
+        };
 
 private:
         size_t m_index;
         std::string m_data;
+};
+
+struct lisp_ifstream : lisp_stream {
+        
+        inline
+        lisp_ifstream(std::ifstream &&ifstream)
+                : m_ifs(std::move(ifstream)) {}
+
+        int peekc()
+        {
+                auto c = m_ifs.peek();
+                if (c == m_ifs.eof()) {
+                        return end_of_file;
+                }
+                return c;
+        }
+
+        int getc()  
+        {
+                auto c = m_ifs.get();
+                if (c == m_ifs.eof()) {
+                        return end_of_file;
+                }
+                return c;
+        }
+        
+        bool eof()
+        {
+                return peekc() == end_of_file;
+        }
+
+        
+private:
+        std::ifstream m_ifs;
 };
 
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
@@ -275,7 +328,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 stream.getc();
                         }
                 }
-                else if (is_digit(stream.peekc())) {
+                if (is_digit(stream.peekc())) {
                         std::string number_str;
                         number_str += stream.getc();
                         while (is_digit(stream.peekc())) {
@@ -761,27 +814,76 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
         return true;
 }
 
+void eval_fstream(std::ifstream &fs)
+{
+        lisp_ifstream ifs(std::move(fs));
+        while (ifs.peekc() != ifs.end_of_file) {
+                lisp_value obj = parse(ifs);
+                if (obj.is_invalid()) {
+                        consume_whitespace(ifs);
+                        if (ifs.eof()) return;
+                        abort();
+                }
+                lisp_value expanded = macro_expand(obj);
+                evaluate(LISP_BASE_ENVIRONMENT, expanded);
+                consume_whitespace(ifs);
+        }
+}
+
 int main(int argc, char *argv[])
 {
-        initialize_globals();
-
-        static const char *prompt_lisp = "lisp_nasa> ";
-        static const char *prompt_ws   = ".......... ";
-        int result_counter = 0;
-        auto last_result_sym = intern_symbol("$$");
-        while (1) {
-                lisp_value parsed;
-                if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
-                        break;
+        bool repl = false;
+        std::vector<std::string> file_paths;
+        
+        for (int i = 1; i < argc; ++i) {
+                const char *arg = argv[i];
+                if (strcmp("-i", arg) == 0) {
+                        repl = true;
                 }
-                lisp_value expanded = macro_expand(parsed);
-                pretty_print(expanded);
-                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
-                std::string result_sym_name = "$$" + std::to_string(result_counter++);
-                bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
-                bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
-                printf("%5s => ", result_sym_name.c_str());
-                pretty_print(result);
+                else {
+                        file_paths.push_back(arg);
+                }
+        }
+        
+        if (!repl && file_paths.size() == 0)
+                repl = true;
+        
+        std::vector<std::ifstream> fstreams;
+        for (auto &path : file_paths) {
+                std::ifstream f(path, std::ios::binary);
+                if (f.is_open()) {
+                        fstreams.push_back(std::move(f));
+                }
+                else {
+                        fprintf(stderr, "File not accessible: %s\n", path.c_str());
+                        return -1;
+                }
+        }
+        
+        initialize_globals();
+        for (auto &fs : fstreams) {
+                eval_fstream(fs);
+        }
+        
+        if (repl) {
+                static const char *prompt_lisp = "lisp_nasa> ";
+                static const char *prompt_ws   = ".......... ";
+                int result_counter = 0;
+                auto last_result_sym = intern_symbol("$$");
+                while (1) {
+                        lisp_value parsed;
+                        if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
+                                break;
+                        }
+                        lisp_value expanded = macro_expand(parsed);
+                        pretty_print(expanded);
+                        lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
+                        std::string result_sym_name = "$$" + std::to_string(result_counter++);
+                        bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
+                        bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
+                        printf("%5s => ", result_sym_name.c_str());
+                        pretty_print(result);
+                }
         }
         return 0;
 }
