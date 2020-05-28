@@ -244,6 +244,23 @@ namespace lisp {
                 return lisp_value(ret);
         }
         
+        static inline lisp_value list() 
+        {
+                return LISP_NIL;
+        }
+
+        template<class tlast>
+        static inline lisp_value list(tlast e) 
+        {
+                return cons(e, list());
+        }
+
+        template<class tfirst, class ...trest>
+        static inline lisp_value list(tfirst first, trest... rest) 
+        {
+                return cons(first, list(rest...));
+        }
+
         static inline lisp_value create_lisp_obj_character(char in)
         {
                 lisp_obj *ret = new lisp_obj();
