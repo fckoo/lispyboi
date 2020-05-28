@@ -97,7 +97,9 @@ namespace lisp {
         lisp_value LISP_SYM_SYMBOL;
         lisp_value LISP_SYM_NULL;
         lisp_value LISP_SYM_BOOLEAN;
-
+        lisp_value LISP_SYM_QUASIQUOTE;
+        lisp_value LISP_SYM_UNQUOTE;
+        lisp_value LISP_SYM_UNQUOTESPLICING;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name) 
@@ -223,7 +225,8 @@ bool is_symbol_start_char(int c)
 {
         if (c == lisp_stream::end_of_file)
                 return false;
-        if (c == '(' || c == ')' || c == '\''
+        if (c == '(' || c == ')' 
+            || c == '\'' || c == '`' || c == ','
             || is_whitespace(c) 
             || is_digit(c))
                 return false;
@@ -329,6 +332,25 @@ lisp_value lisp::parse(lisp_stream &stream)
                         if (quoted_val.is_invalid())
                                 return quoted_val;
                         return list(LISP_SYM_QUOTE, quoted_val);
+                }
+                else if (stream.peekc() == '`') {
+                        stream.getc();
+                        auto quoted_val = parse(stream);
+                        if (quoted_val.is_invalid())
+                                return quoted_val;
+                        return list(LISP_SYM_QUASIQUOTE, quoted_val);
+                }
+                else if (stream.peekc() == ',') {
+                        stream.getc();
+                        auto symbol = LISP_SYM_UNQUOTE;
+                        if (stream.peekc() == '@') {
+                                stream.getc();
+                                symbol = LISP_SYM_UNQUOTESPLICING;
+                        }
+                        auto val = parse(stream);
+                        if (val.is_invalid())
+                                return val;
+                        return list(symbol, val);
                 }
                 else if (is_symbol_start_char(stream.peekc())) {
                         std::string symbol;
@@ -691,6 +713,10 @@ void initialize_globals()
         INTERN_GLOBAL(SYMBOL);
         INTERN_GLOBAL(NULL);
         INTERN_GLOBAL(BOOLEAN);
+        INTERN_GLOBAL(QUASIQUOTE);
+        INTERN_GLOBAL(UNQUOTE);
+        
+        LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
         
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);

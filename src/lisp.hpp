@@ -185,6 +185,9 @@ namespace lisp {
         extern lisp_value LISP_SYM_SYMBOL;
         extern lisp_value LISP_SYM_NULL;
         extern lisp_value LISP_SYM_BOOLEAN;
+        extern lisp_value LISP_SYM_QUASIQUOTE;
+        extern lisp_value LISP_SYM_UNQUOTE;
+        extern lisp_value LISP_SYM_UNQUOTESPLICING;
         
 
         lisp_value intern_symbol(const std::string &symbol_name);
