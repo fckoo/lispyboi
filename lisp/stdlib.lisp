@@ -80,7 +80,7 @@
       y))
 
 (defun map1 (func seq)
-  (if seq (cons (func (car seq)) (map func (cdr seq)))))
+  (if seq (cons (func (car seq)) (map1 func (cdr seq)))))
 
 (defun map (func &rest seqs)
   (if (null (cdr seqs))
