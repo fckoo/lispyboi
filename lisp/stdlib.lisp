@@ -79,8 +79,6 @@
       (cons (car x) (append (cdr x) y))
       y))
 
-;;; @TODO: make map take variable amount of extra lists
-
 (defun map1 (func seq)
   (if seq (cons (func (car seq)) (map func (cdr seq)))))
 
