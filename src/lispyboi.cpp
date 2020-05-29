@@ -168,7 +168,7 @@ lisp_value lisp::intern_symbol(const std::string &symbol_name)
         return symbol;
 }
 
-std::string lisp::repr(const lisp_value obj)
+std::string lisp::repr(lisp_value obj)
 {
         std::string result;
         std::stringstream ss;
@@ -213,6 +213,10 @@ std::string lisp::repr(const lisp_value obj)
                                         lisp_value current = cdr(obj);
                                         while (current != LISP_NIL) {
                                                 result += " ";
+            /* @AUDIT: There's a big in here that results in a stack overflow.
+                In the repl you can (print (%get-env)) and it will correctly print
+                it, but if you just do (%get-env) the repl stack overflows at this line
+            */
                                                 result += repr(car(current));
                                                 current = cdr(current);
                                                 if (!current.is_nil() && !current.is_type(CONS_TYPE)) {
@@ -252,6 +256,10 @@ std::string lisp::repr(const lisp_value obj)
                 }
         }
         return result;
+}
+std::string lisp::repr(const lisp_value *obj)
+{
+        return repr(*obj);
 }
 
 std::string lisp::pretty_print(lisp_value obj)
@@ -617,13 +625,11 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                         }
                                 }
                                 else if (car == LISP_SYM_DEFMACRO) {
-                                        // (defmacro NAME (PARAMS-LIST) &body BODY...)
                                         auto macro_name = second(obj);
                                         auto params_list = third(obj);
                                         auto body = cdddr(obj);
                                         auto macro = create_lisp_obj_lambda(env, params_list, body);
                                         LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
-                                        //bind(env, macro_name, macro);
                                         return macro_name;
                                 }
                                 else if (car == LISP_SYM_LAMBDA) {

@@ -1,6 +1,55 @@
+(defmacro cons (x y) (%cons '%cons (%cons x (%cons y nil))))
+(setq cons (lambda (x y) (cons x y)))
+
 (setq list (lambda (&rest lst) lst))
+
 (defmacro defun (name argslist &rest body)
   (list 'setq name (cons 'lambda (cons argslist body))))
+
+(defmacro car (obj) (list '%car obj))
+(defun car (obj) (car obj))
+
+(defmacro cdr (obj) (list '%cdr obj))
+(defun cdr (obj) (cdr obj))
+
+(defmacro eq (x y) (list '%eq x y))
+(defun eq (x y) (eq x y))
+
+(defmacro type-of (obj) (list '%type-of obj))
+(defun type-of (obj) (type-of obj))
+
+(defmacro read () (list '%read nil))
+(defun read () (read))
+
+(defmacro macro-expand (expr) (list '%macro-expand expr))
+(defun macro-expand (expr) (macro-expand expr))
+
+(defmacro eval (expr) (list '%eval (macro-expand expr)))
+(defun eval (expr) (eval expr))
+
+(defmacro apply (func &rest args)
+  (cons '%apply (cons func args)))
+(defun apply (func &rest args)
+  ;; this is incorrect.
+  (eval (cons '%apply (cons (list 'quote func) args))))
+
+(defmacro - (&rest vals) (cons '%- vals))
+(defun - (&rest vals) (apply %- vals))
+
+(defmacro + (&rest vals) (cons '%+ vals))
+(defun + (&rest vals) (apply %+ vals))
+
+(defmacro * (&rest vals) (cons '%* vals))
+(defun * (&rest vals) (apply %* vals))
+
+(defmacro < (&rest vals) (cons '%< vals))
+(defun < (&rest vals) (apply %< vals))
+
+(defmacro putchar (character) (list '%putchar character))
+(defun putchar (character) (putchar character))
+
+(defmacro print (obj) (list '%print obj))
+(defun print (obj) (print obj))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
@@ -28,11 +77,6 @@
 (defun append (x y)
   (if x
       (cons (car x) (append (cdr x) y))
-      (cons y nil)))
-
-(defun concatenate (x y)
-  (if x
-      (cons (car x) (concatenate (cdr x) y))
       y))
 
 (defmacro let (args &rest body)
@@ -55,6 +99,7 @@
   (and-helper exprs))
 
 (defun consp (obj) (eq 'cons (type-of obj)))
+(defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defmacro quasiquote (exp)
   (defun qq-list (l)
@@ -62,7 +107,7 @@
         (let ((obj (first l)))
           (if (and (consp obj) (eq (first obj) 'unquote-splicing))
               (if (rest l)
-                  (list 'concatenate (second obj) (qq-list (rest l)))
+                  (list 'append (second obj) (qq-list (rest l)))
                   (second obj))
               (list 'cons (qq-object obj) (qq-list (rest l)))))
         (list 'quote l)))
@@ -78,9 +123,63 @@
         (list 'quote object)))
   (qq-object exp))
 
-;;(setq foo 123)
-;;(setq bar '(a b c))
-;;(quasiquote ((unquote foo) 4 5 h i j (unquote-splicing bar) x y z))
-;;`(,foo 4 5 h i j ,@bar x y z)
-;;
 
+(defmacro progn (&body body)
+  `((lambda () ,@body)))
+
+(defmacro when (test &body body)
+  `(if ,test (progn ,@body) nil))
+
+(defmacro unless (test &body)
+  `(if ,test nil (progn ,@body)))
+
+(defmacro cond (&body body)
+  (if (null body)
+      nil
+      `(if ,(caar body)
+           (progn ,@(rest (first body)))
+           (cond ,@(rest body)))))
+
+(defun assoc (item alist)
+  (when alist
+    (if (eq item (caar alist))
+        (car alist)
+        (assoc item (cdr alist)))))
+
+
+;; @HACK: this gets the defun to bind to this scope...
+(setq %defsetf nil)
+(setq get-setf-expansion nil)
+(let ((*setf-functions* nil))
+  (defun %defsetf (access-fn update-fn)
+    (setq *setf-functions* (cons (cons access-fn update-fn) *setf-functions*))
+    access-fn)
+
+  (defun get-setf-expansion (form)
+    (cond ((symbolp form)
+           form)
+          ((consp form)
+           (let ((set-functions (assoc (car form) *setf-functions*)))
+             (when set-functions
+               (append (list (cdr set-functions))
+                       (rest form)))))
+          (t
+           ;; @TODO: Need to implement error capabilities in host
+           nil))))
+
+(defmacro defsetf (access-fn update-fn)
+  (%defsetf access-fn update-fn)
+  `(quote ,access-fn))
+
+(defsetf car %set-car)
+(defsetf cdr %set-cdr)
+
+(defmacro setf (place value)
+  (let ((expansion (get-setf-expansion place)))
+    (cond ((symbolp expansion)
+           `(setq ,expansion ,value))
+          ((consp expansion)
+           (append expansion (list value)))
+          (t
+           ;; @TODO: Need to implement error capabilities in host
+           nil))))

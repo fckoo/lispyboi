@@ -2,7 +2,19 @@
 #define _LISP_HPP_
 
 #include <string>
-#include <cassert>
+#include <stdio.h>
+#include "backtrace.hpp"
+
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
+#define ENSURE_VALUE(value, expr) do {                                  \
+                if (!(expr)) {                                          \
+                        fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
+                        fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr); \
+                        fprintf(stderr, "lisp_value was a: %s\n", lisp::repr(value).c_str()); \
+                        bt::trace_and_abort(10);                \
+                }                                                       \
+        } while (0)
 
 namespace lisp {
 
@@ -15,7 +27,8 @@ namespace lisp {
         };
 
         struct lisp_obj;
-
+        struct lisp_value;
+        std::string repr(const lisp_value *obj);
         struct lisp_value {
                 /*
                   Do not be fooled into thinking this is another layer of indirection.
@@ -70,25 +83,25 @@ namespace lisp {
         
                 inline int64_t as_fixnum() const
                 {
-                        assert(is_fixnum());
+                        ENSURE_VALUE(this, is_fixnum());
                         return u.fixnum_layout.fixnum;
                 }
         
                 inline lisp_value as_nil() const
                 {
-                        assert(is_nil());
+                        ENSURE_VALUE(this, is_nil());
                         return *this;
                 }
         
                 inline lisp_obj *as_object() const 
                 {
-                        assert(is_object());
+                        ENSURE_VALUE(this, is_object());
                         return u.obj;
                 }
 
                 inline const lisp_obj *as_cobject() const 
                 {
-                        assert(is_object());
+                        ENSURE_VALUE(this, is_object());
                         return u.obj;
                 }
                 

@@ -3,8 +3,6 @@
 
 using namespace lisp;
 
-#define XSTR(x) #x
-#define STR(x) XSTR(x)
 #define NYI(fmt, ...) do {                                              \
                 fprintf(stderr, "NYI: " __FILE__ ":" STR(__LINE__) "\n\tin %s\n", __PRETTY_FUNCTION__); \
                 fprintf(stderr, fmt "\n", ##__VA_ARGS__);                     \
@@ -12,7 +10,7 @@ using namespace lisp;
         } while (0)
 
 
-static
+
 lisp_value lisp_prim_plus(lisp_value env, lisp_value args) 
 {
         int64_t result = 0;
@@ -26,7 +24,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
         return create_lisp_obj_fixnum(result);
 }
 
-static
+
 lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
 {
         int64_t result = 0;
@@ -46,7 +44,7 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
 }
 
 
-static
+
 lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
 {
         int result = 1;
@@ -59,14 +57,15 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
         return create_lisp_obj_fixnum(result);
 }
 
-static
+
 lisp_value lisp_prim_print(lisp_value env, lisp_value args) 
 {
-        printf("%s", repr(car(args)).c_str());
+        printf("%s\n", repr(car(args)).c_str());
+        // @TODO: Whenever we support strings, maybe prim_print returns that string??
         return LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_num_less(lisp_value env, lisp_value args) 
 {
         // (< 1)
@@ -93,25 +92,25 @@ lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_car(lisp_value env, lisp_value args) 
 {
         return caar(args);
 }
 
-static
+
 lisp_value lisp_prim_cdr(lisp_value env, lisp_value args) 
 {
         return cdar(args);
 }
 
-static
+
 lisp_value lisp_prim_cons(lisp_value env, lisp_value args) 
 {
         return cons(first(args), second(args));
 }
 
-static
+
 lisp_value lisp_prim_eq(lisp_value env, lisp_value args) 
 {
         if (cdr(args) == LISP_NIL) {
@@ -137,14 +136,14 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args) 
 {
         putchar(car(args).as_object()->character);
         return LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
 {
         auto it = car(args);
@@ -169,7 +168,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_read(lisp_value, lisp_value args)
 {
         if (args.is_nil()) {
@@ -184,19 +183,19 @@ lisp_value lisp_prim_read(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-static
+
 lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
 {
         return macro_expand(car(args));
 }
 
-static
+
 lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
 {
         return lisp::evaluate(env, car(args));
 }
 
-static
+
 lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
 {
         auto function = first(args);
@@ -227,6 +226,28 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
         return lisp::apply(env, function, head);
 }
 
+
+lisp_value lisp_prim_set_car(lisp_value env, lisp_value args)
+{
+        auto obj = first(args);
+        auto val = second(args);
+        set_car(obj, val);
+        return val;
+}
+
+lisp_value lisp_prim_set_cdr(lisp_value env, lisp_value args)
+{
+        auto obj = first(args);
+        auto val = second(args);
+        set_cdr(obj, val);
+        return val;
+}
+
+lisp_value lisp_prim_get_env(lisp_value env, lisp_value)
+{
+        return env;
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
 {
@@ -239,19 +260,22 @@ void bind_primitive(lisp_value &environment, const std::string &symbol_name, pri
 void primitives::bind_primitives(lisp_value &environment)
 {
 #define BIND_PRIM(lisp_name, function) bind_primitive(environment, lisp_name, function)
-        BIND_PRIM("+", lisp_prim_plus);
-        BIND_PRIM("PRINT", lisp_prim_print);
-        BIND_PRIM("-", lisp_prim_minus);
-        BIND_PRIM("<", lisp_prim_num_less);
-        BIND_PRIM("*", lisp_prim_multiply);
-        BIND_PRIM("CAR", lisp_prim_car);
-        BIND_PRIM("CDR", lisp_prim_cdr);
-        BIND_PRIM("CONS", lisp_prim_cons);
-        BIND_PRIM("EQ", lisp_prim_eq);
-        BIND_PRIM("PUTCHAR", lisp_prim_putchar);
-        BIND_PRIM("TYPE-OF", lisp_prim_type_of);
-        BIND_PRIM("READ", lisp_prim_read);
-        BIND_PRIM("MACRO-EXPAND", lisp_prim_macro_expand);
-        BIND_PRIM("EVAL", lisp_prim_eval);
-        BIND_PRIM("APPLY", lisp_prim_apply);
+        BIND_PRIM("%PRINT", lisp_prim_print);
+        BIND_PRIM("%+", lisp_prim_plus);
+        BIND_PRIM("%-", lisp_prim_minus);
+        BIND_PRIM("%<", lisp_prim_num_less);
+        BIND_PRIM("%*", lisp_prim_multiply);
+        BIND_PRIM("%CAR", lisp_prim_car);
+        BIND_PRIM("%CDR", lisp_prim_cdr);
+        BIND_PRIM("%CONS", lisp_prim_cons);
+        BIND_PRIM("%EQ", lisp_prim_eq);
+        BIND_PRIM("%PUTCHAR", lisp_prim_putchar);
+        BIND_PRIM("%TYPE-OF", lisp_prim_type_of);
+        BIND_PRIM("%READ", lisp_prim_read);
+        BIND_PRIM("%MACRO-EXPAND", lisp_prim_macro_expand);
+        BIND_PRIM("%EVAL", lisp_prim_eval);
+        BIND_PRIM("%APPLY", lisp_prim_apply);
+        BIND_PRIM("%SET-CAR", lisp_prim_set_car);
+        BIND_PRIM("%SET-CDR", lisp_prim_set_cdr);
+        BIND_PRIM("%GET-ENV", lisp_prim_get_env);
 }

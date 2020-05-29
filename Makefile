@@ -1,10 +1,10 @@
 CC := g++
-CFLAGS := -std=c++17 -O0 -g
-LDFLAGS := -O0 -g -lreadline
+CFLAGS := -std=c++17 -O0 -g3 -rdynamic -fno-omit-frame-pointer
+LDFLAGS := -lreadline
 
 
-lispyboi: obj/primitives.o obj/lispyboi.o
-	$(CC) -o $@ $^ $(LDFLAGS)
+lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 obj/%.o: src/%.cpp obj
 	$(CC) $(CFLAGS) -o $@ -c $<
