@@ -67,61 +67,85 @@
 (defun cdddr (lst) (cdr (cdr (cdr lst))))
 (defun cddddr (lst) (cdr (cdr (cdr (cdr lst)))))
 (defun cdddddr (lst) (cdr (cdr (cdr (cdr (cdr lst))))))
-(defmacro first (lst) (list 'car lst))
-(defmacro rest (lst) (list 'cdr lst))
-(defmacro second (lst) (list 'cadr lst))
-(defmacro third (lst) (list 'caddr lst))
-(defmacro fourth (lst) (list 'cadddr lst))
-(defmacro fifth (lst) (list 'caddddr lst))
+(defun first (lst) (car lst))
+(defun rest (lst) (cdr lst))
+(defun second (lst) (cadr lst))
+(defun third (lst) (caddr lst))
+(defun fourth (lst) (cadddr lst))
+(defun fifth (lst) (caddddr lst))
 
 (defun append (x y)
   (if x
       (cons (car x) (append (cdr x) y))
       y))
 
+;;; @TODO: make map take variable amount of extra lists
+
+(defun map1 (func seq)
+  (if seq (cons (func (car seq)) (map func (cdr seq)))))
+
+(defun map (func &rest seqs)
+  (if (null (cdr seqs))
+      (map1 func (car seqs))
+      (if (car seqs)
+          (cons (apply func (map1 car seqs))
+                (apply map func (map1 cdr seqs))))))
+
 (defmacro let (args &rest body)
-  (defun get-syms (args)
-    (if (null args)
-        nil
-        (cons (caar args) (get-syms (cdr args)))))
-  (defun get-vals (args)
-    (if (null args)
-        nil
-        (cons (cadar args) (get-vals (cdr args)))))
-  (cons (cons 'lambda (cons (get-syms args) body))
-        (get-vals args)))
+  (cons (cons 'lambda (cons (map first args) body))
+        (map second args)))
+
+(defmacro flet (definitions &body body)
+  (let ((names (map first definitions))
+        (lambda-lists (map second definitions))
+        (bodies (map cddr definitions)))
+    (cons (cons 'lambda (cons names body))
+          (map (lambda (ll body) (cons 'lambda (cons ll body)))
+               lambda-lists
+               bodies))))
+
+
+(defmacro labels (definitions &body body)
+  (let ((names (map first definitions))
+        (lambda-lists (map second definitions))
+        (bodies (map cddr definitions)))
+    (let ((setqs (map (lambda (name ll body)
+                        (list 'setq name (cons 'lambda (cons ll body))))
+                      names
+                      lambda-lists
+                      bodies)))
+      (cons (cons 'lambda (cons names (append setqs body)))
+            nil))))
 
 (defmacro and (&rest exprs)
-  (defun and-helper (args)
-    (if (null (cdr args))
-        (car args)
-        (list 'if (car args) (and-helper (cdr args)))))
-  (and-helper exprs))
+  (labels ((and-helper (args)
+             (if (null (cdr args))
+                 (car args)
+                 (list 'if (car args) (and-helper (cdr args))))))
+    (and-helper exprs)))
 
 (defun consp (obj) (eq 'cons (type-of obj)))
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defmacro quasiquote (exp)
-  (defun qq-list (l)
-    (if (consp l)
-        (let ((obj (first l)))
-          (if (and (consp obj) (eq (first obj) 'unquote-splicing))
-              (if (rest l)
-                  (list 'append (second obj) (qq-list (rest l)))
-                  (second obj))
-              (list 'cons (qq-object obj) (qq-list (rest l)))))
-        (list 'quote l)))
-
-  (defun qq-element (l)
-    (if (eq (first l) 'unquote)
-        (second l)
-        (qq-list l)))
-
-  (defun qq-object (object)
-    (if (consp object)
-        (qq-element object)
-        (list 'quote object)))
-  (qq-object exp))
+  (labels ((qq-list (l)
+             (if (consp l)
+                 (let ((obj (first l)))
+                   (if (and (consp obj) (eq (first obj) 'unquote-splicing))
+                       (if (rest l)
+                           (list 'append (second obj) (qq-list (rest l)))
+                           (second obj))
+                       (list 'cons (qq-object obj) (qq-list (rest l)))))
+                 (list 'quote l)))
+           (qq-element (l)
+             (if (eq (first l) 'unquote)
+                 (second l)
+                 (qq-list l)))
+           (qq-object (object)
+             (if (consp object)
+                 (qq-element object)
+                 (list 'quote object))))
+    (qq-object exp)))
 
 
 (defmacro progn (&body body)
@@ -147,9 +171,6 @@
         (assoc item (cdr alist)))))
 
 
-;; @HACK: this gets the defun to bind to this scope...
-(setq %defsetf nil)
-(setq get-setf-expansion nil)
 (let ((*setf-functions* nil))
   (defun %defsetf (access-fn update-fn)
     (setq *setf-functions* (cons (cons access-fn update-fn) *setf-functions*))

@@ -641,7 +641,14 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                 else if (car == LISP_SYM_SETQ) {
                                         auto variable_name = second(obj);
                                         auto value = evaluate(env, third(obj));
-                                        return bind(env, variable_name, value);
+                                        auto place = symbol_lookup(env, variable_name);
+                                        if (place.is_invalid()) {
+                                                push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
+                                        }
+                                        else {
+                                                set_cdr(place, value);
+                                        }
+                                        return value;
                                 }
                                 else {
                                         auto function = evaluate(env, car);
