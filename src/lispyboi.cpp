@@ -161,7 +161,7 @@ lisp_value lisp::intern_symbol(const std::string &symbol_name)
         auto it = interned_symbols.find(symbol_name);
         if (it != interned_symbols.end())
                 return it->second;
-        auto symbol = create_lisp_obj_symbol(symbol_name);
+        auto symbol = lisp_obj::create_symbol(symbol_name);
         interned_symbols[symbol_name] = symbol;
         return symbol;
 }
@@ -206,40 +206,41 @@ std::string lisp::repr(lisp_value obj)
                 }
                 result += ")";
         }
-        else if (obj.is_object()) {
-                switch (obj.as_object()->type) {
-                        case SYM_TYPE:
-                                result = *(obj.as_object()->symbol);
+        else if (obj.is_character()) {
+                auto codepoint = obj.as_character();
+                switch (codepoint) {
+                        default: 
+                                result = std::string("#\\") + reinterpret_cast<const char*>(&codepoint); 
                                 break;
-                        case CHAR_TYPE:
-                                switch (obj.as_object()->character) {
-                                        default: 
-                                                result = std::string("#\\") + obj.as_object()->character; 
-                                                break;
-                                        case ' ':
-                                                result = "#\\Space";
-                                                break;
-                                        case '\t':
-                                                result = "#\\Tab";
-                                                break;
-                                        case '\n':
-                                                result = "#\\Newline";
-                                                break;
-                                        case '\r':
-                                                result = "#\\Return";
-                                                break;
-                                }
+                        case ' ':
+                                result = "#\\Space";
+                                break;
+                        case '\t':
+                                result = "#\\Tab";
+                                break;
+                        case '\n':
+                                result = "#\\Newline";
+                                break;
+                        case '\r':
+                                result = "#\\Return";
+                                break;
+                }
+        }
+        else if (obj.is_object()) {
+                switch (obj.as_object()->type()) {
+                        case SYM_TYPE:
+                                result = *(obj.as_object()->symbol());
                                 break;
                         case LAMBDA_TYPE:
                                 result += "(LAMBDA ";
-                                if (obj.as_object()->lambda.args == LISP_NIL) {
+                                if (obj.as_object()->lambda()->args == LISP_NIL) {
                                         result += "() ";
                                 }
                                 else {
-                                        result += repr(obj.as_object()->lambda.args);
+                                        result += repr(obj.as_object()->lambda()->args);
                                         result += " ";
                                 }
-                                auto body = obj.as_object()->lambda.body;
+                                auto body = obj.as_object()->lambda()->body;
                                 while (body != LISP_NIL) {
                                         result += repr(car(body));
                                         body = cdr(body);
@@ -247,9 +248,9 @@ std::string lisp::repr(lisp_value obj)
                                 result += ")";
                 }
         }
-        else if (obj.is_primitive_function()) {
+        else if (obj.is_lisp_primitive()) {
                 ss << "#<PRIMITIVE 0x";
-                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
+                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive());
                 ss << ">";
                 result = ss.str();
         }
@@ -347,7 +348,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 result *= 10;
                                 result += digit - '0';
                         }
-                        return create_lisp_obj_fixnum(result);
+                        return lisp_value(result);
                 }
                 else if (stream.peekc() == '#') {
                         stream.getc();
@@ -359,23 +360,25 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 }
                                 if (character.size() == 0) {
                                         // error
+                                        fprintf(stderr, "character literal of length 0?\n");
+                                        abort();
                                 }
                                 if (character.size() == 1) {
-                                        return create_lisp_obj_character(character[0]);
+                                        return lisp_value(static_cast<int32_t>(character[0]));
                                 }
                                 else  {
                                         character = str_upper(character);
                                         if (character == "SPACE") {
-                                                return create_lisp_obj_character(' ');
+                                                return lisp_value(static_cast<int32_t>(' '));
                                         }
                                         else if (character == "RETURN") {
-                                                return create_lisp_obj_character('\r');
+                                                return lisp_value(static_cast<int32_t>('\r'));
                                         }
                                         else if (character == "NEWLINE") {
-                                                return create_lisp_obj_character('\n');
+                                                return lisp_value(static_cast<int32_t>('\n'));
                                         }
                                         else if (character == "TAB") {
-                                                return create_lisp_obj_character('\t');
+                                                return lisp_value(static_cast<int32_t>('\t'));
                                         }
                                         else {
                                                 // @TODO: pooper error handling
@@ -564,16 +567,16 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
 
 lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
 {
-        if (function.is_primitive_function()) {
-                return function.as_primitive_function()(env, args);
+        if (function.is_lisp_primitive()) {
+                return function.as_lisp_primitive()(env, args);
         }
-        else if (function.as_object()->type == LAMBDA_TYPE) {
-                auto params = function.as_object()->lambda.args;
-                auto shadowed_env = function.as_object()->lambda.env;
+        else if (function.as_object()->type() == LAMBDA_TYPE) {
+                auto params = function.as_object()->lambda()->args;
+                auto shadowed_env = function.as_object()->lambda()->env;
                 while (params != LISP_NIL) {
                         auto sym = first(params);
-                        if (*(sym.as_object()->symbol) == "&REST" ||
-                            *(sym.as_object()->symbol) == "&BODY") {
+                        if (*(sym.as_object()->symbol()) == "&REST" ||
+                            *(sym.as_object()->symbol()) == "&BODY") {
                                 sym = second(params);
                                 shadowed_env = shadow(shadowed_env, sym, args);
                                 break;
@@ -582,7 +585,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
                         params = rest(params);
                         args = rest(args);
                 }
-                auto body = function.as_object()->lambda.body;
+                auto body = function.as_object()->lambda()->body;
                 auto result = LISP_NIL;
                 while (body != LISP_NIL) {
                         result = evaluate(shadowed_env, first(body));
@@ -623,14 +626,14 @@ tailcall:
                         auto macro_name = second(obj);
                         auto params_list = third(obj);
                         auto body = cdddr(obj);
-                        auto macro = create_lisp_obj_lambda(env, params_list, body);
-                        LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
+                        auto macro = lisp_obj::create_lambda(env, params_list, body);
+                        LISP_MACROS[*(macro_name.as_object()->symbol())] = macro;
                         return macro_name;
                 }
                 else if (car == LISP_SYM_LAMBDA) {
                         auto args = second(obj);
                         auto body = cddr(obj);
-                        auto tmp = create_lisp_obj_lambda(env, args, body);
+                        auto tmp = lisp_obj::create_lambda(env, args, body);
                         return tmp;
                 }
                 else if (car == LISP_SYM_SETQ) {
@@ -649,16 +652,16 @@ tailcall:
                         auto function = evaluate(env, car);
                         auto args = evaluate_list(env, rest(obj));
                         //return apply(env, function, args);
-                        if (function.is_primitive_function()) {
-                                return function.as_primitive_function()(env, args);
+                        if (function.is_lisp_primitive()) {
+                                return function.as_lisp_primitive()(env, args);
                         }
-                        else if (function.as_object()->type == LAMBDA_TYPE) {
-                                auto params = function.as_object()->lambda.args;
-                                auto shadowed_env = function.as_object()->lambda.env;
+                        else if (function.as_object()->type() == LAMBDA_TYPE) {
+                                auto params = function.as_object()->lambda()->args;
+                                auto shadowed_env = function.as_object()->lambda()->env;
                                 while (params != LISP_NIL) {
                                         auto sym = first(params);
-                                        if (*(sym.as_object()->symbol) == "&REST" ||
-                                            *(sym.as_object()->symbol) == "&BODY") {
+                                        if (*(sym.as_object()->symbol()) == "&REST" ||
+                                            *(sym.as_object()->symbol()) == "&BODY") {
                                                 sym = second(params);
                                                 shadowed_env = shadow(shadowed_env, sym, args);
                                                 break;
@@ -667,7 +670,7 @@ tailcall:
                                         params = rest(params);
                                         args = rest(args);
                                 }
-                                auto body = function.as_object()->lambda.body;
+                                auto body = function.as_object()->lambda()->body;
                                 while (rest(body) != LISP_NIL) {
                                         evaluate(shadowed_env, first(body));
                                         body = rest(body);
@@ -679,19 +682,17 @@ tailcall:
                         }
                 }
         }
-        if (obj.is_object()) {
-                switch (obj.as_object()->type) {
-                        case SYM_TYPE: {
-                                if (obj == LISP_T) return obj;
-                                auto val = symbol_lookup(env, obj); 
-                                if (val.is_invalid()) {
-                                        printf("UNBOUND VARIABLE: %s\n", obj.as_object()->symbol->c_str()); // @TODO: POOPER ERROR HANDLING
-                                        abort();
-                                }
-                                return cdr(val);
-                        }
-                        case CHAR_TYPE: return obj;
+        if (obj.is_character()) {
+                return obj;
+        }
+        if (obj.is_type(SYM_TYPE)) {
+                if (obj == LISP_T) return obj;
+                auto val = symbol_lookup(env, obj); 
+                if (val.is_invalid()) {
+                        printf("UNBOUND VARIABLE: %s\n", obj.as_object()->symbol()->c_str()); // @TODO: POOPER ERROR HANDLING
+                        abort();
                 }
+                return cdr(val);
         }
         return lisp_value::invalid_object();
 }
@@ -766,7 +767,7 @@ lisp_value lisp::macro_expand(lisp_value obj)
                         auto value = macro_expand(third(obj));
                         return list(LISP_SYM_SETQ, variable_name, value);
                 }
-                auto &sym_name = *car.as_object()->symbol;
+                auto &sym_name = *car.as_object()->symbol();
                 auto it = LISP_MACROS.find(sym_name);
                 if (it != LISP_MACROS.end()) {
                         auto function = it->second;

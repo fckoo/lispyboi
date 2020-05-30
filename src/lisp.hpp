@@ -20,7 +20,6 @@ namespace lisp {
 
         enum LISP_OBJ_TYPE {
                 SYM_TYPE = 0,
-                CHAR_TYPE,
                 LAMBDA_TYPE,
                 ARRAY_TYPE,
         };
@@ -29,7 +28,7 @@ namespace lisp {
         struct lisp_cons;
         struct lisp_value;
         std::string repr(const lisp_value *obj);
-        typedef lisp_value (*primitive_function)(lisp_value env, lisp_value args);
+        typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args);
         struct lisp_value {
                 /*
                   Do not be fooled into thinking this is another layer of indirection.
@@ -89,11 +88,23 @@ namespace lisp {
                         u.bits |= TAG_CONS;
                 }
 
-                inline lisp_value(primitive_function func)
+                inline lisp_value(lisp_primitive func)
                 {
                         u.primitive_func = func;
                         // @HACK: Can we be certain to fit every primitive function in 61 bits?
                         u.bits = (u.bits << 3) | TAG_PRIM_FUNC;
+                }
+
+                inline lisp_value(int32_t codepoint)
+                {
+                        u.bits = WTAG_CHAR;
+                        u.character.codepoint = codepoint;
+                }
+
+                inline lisp_value(uint8_t byte)
+                {
+                        u.bits = WTAG_BYTE;
+                        u.byte.byte = byte;
                 }
 
                 inline bool is_fixnum() const
@@ -111,7 +122,7 @@ namespace lisp {
                         return tag_bits() == TAG_CONS;
                 }
 
-                inline bool is_primitive_function() const
+                inline bool is_lisp_primitive() const
                 {
                         return tag_bits() == TAG_PRIM_FUNC;
                 }
@@ -125,6 +136,18 @@ namespace lisp {
                 {
                         ENSURE_VALUE(this, is_fixnum());
                         return u.fixnum_layout.fixnum;
+                }
+
+                inline int32_t as_character() const
+                {
+                        ENSURE_VALUE(this, is_character());
+                        return u.character.codepoint;
+                }
+
+                inline int32_t as_byte() const
+                {
+                        ENSURE_VALUE(this, is_byte());
+                        return u.byte.byte;
                 }
 
                 inline lisp_value as_nil() const
@@ -153,9 +176,9 @@ namespace lisp {
                         return tmp.u.cons;
                 }
 
-                inline primitive_function as_primitive_function() const
+                inline lisp_primitive as_lisp_primitive() const
                 {
-                        ENSURE_VALUE(this, is_primitive_function());
+                        ENSURE_VALUE(this, is_lisp_primitive());
                         auto tmp = *this;
                         // @HACK: Can we be certain to fit every primitive function in 61 bits?
                         tmp.u.bits >>= 3;
@@ -215,13 +238,27 @@ namespace lisp {
 
                 union {
                         uint64_t bits;
+
+                        struct {
+                                int32_t _unused; // low bits
+                                int32_t codepoint;
+                        } character;
+
+                        struct {
+                                int32_t _unused; // low bits
+                                uint8_t byte;
+                        } byte;
+
                         struct {
                                 int64_t tag : 1; // bit 0 == fixnum tag
                                 int64_t fixnum : 63;
                         } fixnum_layout;
+
                         lisp_obj *obj;
+
                         lisp_cons *cons;
-                        primitive_function primitive_func;
+
+                        lisp_primitive primitive_func;
                 } u;
 
 
@@ -234,29 +271,82 @@ namespace lisp {
 
         static_assert(sizeof(lisp_value) == 8);
 
+        struct lisp_lambda {
+                lisp_value env;
+                lisp_value args;
+                lisp_value body;
+        };
+
+        struct lisp_array {
+                size_t size;
+                size_t capacity;
+                size_t element_size;
+                char buffer[0];
+        };
 
         struct lisp_obj {
                 lisp_obj() {}
                 ~lisp_obj() {}
 
-                LISP_OBJ_TYPE type;
+                inline LISP_OBJ_TYPE type() const
+                {
+                        return m_type;
+                }
+
+                inline const std::string *symbol() const
+                {
+                        return u.symbol;
+                }
+
+                inline const lisp_lambda *lambda() const
+                {
+                        return u.lambda;
+                }
+
+                inline lisp_array *array() const
+                {
+                        return u.array;
+                }
+
+                inline lisp_primitive primitive() const
+                {
+                        return u.primitive;
+                }
+
+                static inline
+                lisp_value create_symbol(const std::string &name)
+                {
+                        // create a symbol that has not been interned.
+                        lisp_obj *ret = new lisp_obj();
+                        ret->m_type = SYM_TYPE;
+                        ret->u.symbol = new std::string(name);
+                        return lisp_value(ret);
+                }
+
+                static inline
+                lisp_value create_lambda(lisp_value env, lisp_value args, lisp_value body)
+                {
+                        lisp_obj *ret = new lisp_obj();
+                        ret->m_type = LAMBDA_TYPE;
+                        ret->u.lambda = new lisp_lambda { env, args, body };
+                        return lisp_value(ret);
+                }
+
+        private:
+                LISP_OBJ_TYPE m_type;
                 union {
                         std::string *symbol;
-                        char character;
-                        struct {
-                                lisp_value env;
-                                lisp_value args;
-                                lisp_value body;
-                        } lambda;
-                        primitive_function primitive;
-                };
+                        lisp_lambda *lambda;
+                        lisp_array *array;
+                        lisp_primitive primitive;
+                } u;
         };
 
         inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
         {
                 return !is_nil() &&
                         is_object() &&
-                        as_object()->type == type;
+                        as_object()->type() == type;
         }
 
         struct lisp_stream {
@@ -359,38 +449,6 @@ namespace lisp {
         static inline lisp_value list(tfirst first, trest... rest)
         {
                 return cons(first, list(rest...));
-        }
-
-        static inline lisp_value create_lisp_obj_symbol(const std::string &name)
-        {
-                // create a symbol that has not been interned.
-                lisp_obj *ret = new lisp_obj();
-                ret->type = SYM_TYPE;
-                ret->symbol = new std::string(name);
-                return lisp_value(ret);
-        }
-
-        static inline lisp_value create_lisp_obj_character(char in)
-        {
-                lisp_obj *ret = new lisp_obj();
-                ret->type = CHAR_TYPE;
-                ret->character = in;
-                return lisp_value(ret);
-        }
-
-        static inline lisp_value create_lisp_obj_fixnum(int64_t fixnum)
-        {
-                return lisp_value(fixnum);
-        }
-
-        static inline lisp_value create_lisp_obj_lambda(lisp_value env, lisp_value args, lisp_value body)
-        {
-                lisp_obj *ret = new lisp_obj();
-                ret->type = LAMBDA_TYPE;
-                ret->lambda.env = env;
-                ret->lambda.args = args;
-                ret->lambda.body = body;
-                return lisp_value(ret);
         }
 }
 

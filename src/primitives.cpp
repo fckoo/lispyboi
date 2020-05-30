@@ -21,7 +21,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
                 result += tmp.as_fixnum();
                 args = cdr(args);
         }
-        return create_lisp_obj_fixnum(result);
+        return lisp_value(result);
 }
 
 
@@ -40,21 +40,21 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
                         args = cdr(args);
                 }
         }
-        return create_lisp_obj_fixnum(result);
+        return lisp_value(result);
 }
 
 
 
 lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
 {
-        int result = 1;
+        int64_t result = 1;
         while (args != LISP_NIL) {
                 // @TODO: Type validation
                 auto tmp = car(args);
                 result *= tmp.as_fixnum();
                 args = cdr(args);
         }
-        return create_lisp_obj_fixnum(result);
+        return lisp_value(result);
 }
 
 
@@ -139,7 +139,7 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
 
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args) 
 {
-        putchar(car(args).as_object()->character);
+        putchar(car(args).as_character());
         return LISP_NIL;
 }
 
@@ -156,18 +156,21 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         if (it.is_cons()) {
                 return LISP_SYM_CONS;
         }
-        if (it == LISP_T) {
-                return LISP_SYM_BOOLEAN;
+        if (it.is_character()) {
+                return LISP_SYM_CHARACTER;
         }
         if (it.is_object()) {
-                switch (it.as_object()->type) {
+                switch (it.as_object()->type()) {
                         case SYM_TYPE: return LISP_SYM_SYMBOL;
-                        case CHAR_TYPE: return LISP_SYM_CHARACTER;
                         case LAMBDA_TYPE: return LISP_SYM_FUNCTION;
                 }
+                return LISP_NIL;
         }
-        if (it.is_primitive_function()) {
+        if (it.is_lisp_primitive()) {
             return LISP_SYM_FUNCTION;
+        }
+        if (it == LISP_T) {
+                return LISP_SYM_BOOLEAN;
         }
         return LISP_NIL;
 }
@@ -262,7 +265,7 @@ lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
         
         std::string sym_name("G");
         sym_name += std::to_string(counter++);
-        return create_lisp_obj_symbol(sym_name);
+        return lisp_obj::create_symbol(sym_name);
 }
 
 
@@ -276,7 +279,7 @@ lisp_value lisp_prim_exit(lisp_value , lisp_value args)
 }
 
 static inline
-void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
+void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
         auto prim_object = lisp_value(primitive);
         auto symbol = intern_symbol(symbol_name);
