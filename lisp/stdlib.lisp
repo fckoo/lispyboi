@@ -29,8 +29,8 @@
 
 (defmacro apply (func &rest args)
   (cons '%apply (cons func args)))
-(defun apply (func &rest args)
-  ;; this is incorrect.
+'(defun apply (func &rest args)
+  ;; @FIXME: this is incorrect.
   (eval (cons '%apply (cons (list 'quote func) args))))
 
 (defmacro - (&rest vals) (cons '%- vals))
