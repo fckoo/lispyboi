@@ -466,6 +466,7 @@ lisp_value lisp::parse(lisp_stream &stream)
 }
 
 static inline
+__attribute__((always_inline))
 lisp_value push(lisp_value item, lisp_value place) 
 {
         if (place == LISP_NIL) {
@@ -477,7 +478,8 @@ lisp_value push(lisp_value item, lisp_value place)
         return place;
 }
 
-static
+static inline
+__attribute__((always_inline))
 lisp_value symbol_lookup(lisp_value env, lisp_value symbol) 
 {
         /* env is a list of pairs mapping symbols to their corresponding value in the form of 
@@ -507,6 +509,8 @@ lisp_value assoc(lisp_value item, lisp_value alist)
                 return assoc(item, cdr(alist));
 }
 
+static inline
+__attribute__((always_inline))
 lisp_value evaluate_list(lisp_value env, lisp_value list) 
 {
         if (list == LISP_NIL)
@@ -537,6 +541,7 @@ lisp_value for_each(lisp_value head, T function)
 }
 
 static inline
+__attribute__((always_inline))
 lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value) 
 {
         auto tmp = symbol_lookup(env, symbol);
@@ -551,6 +556,7 @@ lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
 }
 
 static inline
+__attribute__((always_inline))
 lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value) 
 {
         auto binding = cons(symbol, value);
@@ -592,6 +598,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
 
 lisp_value lisp::evaluate(lisp_value env, lisp_value obj) 
 {
+tailcall:
         if (obj.is_fixnum()) {
                 return obj;
         }
@@ -609,7 +616,6 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                 }
                                 return cdr(val);
                         }
-                        case CHAR_TYPE: return obj;
                         case CONS_TYPE: {
                                 auto car = first(obj);
                                 if (car == LISP_SYM_QUOTE) {
@@ -618,10 +624,12 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                 else if (car == LISP_SYM_IF) {
                                         auto condition = evaluate(env, second(obj));
                                         if (condition != LISP_NIL) {
-                                                return evaluate(env, third(obj));
+                                                obj = third(obj);
+                                                goto tailcall;
                                         }
                                         else {
-                                                return evaluate(env, fourth(obj));
+                                                obj = fourth(obj);
+                                                goto tailcall;
                                         }
                                 }
                                 else if (car == LISP_SYM_DEFMACRO) {
@@ -653,9 +661,38 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
                                 else {
                                         auto function = evaluate(env, car);
                                         auto args = evaluate_list(env, rest(obj));
-                                        return apply(env, function, args);
+                                        //return apply(env, function, args);
+                                        if (function.as_object()->type == PRIMITIVE_FUNCTION_TYPE) {
+                                                return function.as_object()->primitive(env, args);
+                                        }
+                                        else if (function.as_object()->type == LAMBDA_TYPE) {
+                                                auto params = function.as_object()->lambda.args;
+                                                auto shadowed_env = function.as_object()->lambda.env;
+                                                while (params != LISP_NIL) {
+                                                        auto sym = first(params);
+                                                        if (*(sym.as_object()->symbol) == "&REST" ||
+                                                            *(sym.as_object()->symbol) == "&BODY") {
+                                                                sym = second(params);
+                                                                shadowed_env = shadow(shadowed_env, sym, args);
+                                                                break;
+                                                        }
+                                                        shadowed_env = shadow(shadowed_env, sym, first(args));
+                                                        params = rest(params);
+                                                        args = rest(args);
+                                                }
+                                                auto body = function.as_object()->lambda.body;
+                                                while (rest(body) != LISP_NIL) {
+                                                        evaluate(shadowed_env, first(body));
+                                                        body = rest(body);
+                                                }
+                                                env = shadowed_env;
+                                                obj = first(body);
+                                                goto tailcall;
+                                                //return result;
+                                        }
                                 }
                         } break;
+                        case CHAR_TYPE: return obj;
                 }
         }
         return lisp_value::invalid_object();
