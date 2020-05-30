@@ -102,7 +102,6 @@
                lambda-lists
                bodies))))
 
-
 (defmacro labels (definitions &body body)
   (let ((names (map first definitions))
         (lambda-lists (map second definitions))
@@ -147,7 +146,12 @@
 
 
 (defmacro progn (&body body)
-  `((lambda () ,@body)))
+  `(let () ,@body))
+
+(defmacro prog1 (&body body)
+  `(let ((--tmp-var-- ,(car body)))
+     ,@(cdr body)
+     --tmp-var--))
 
 (defmacro when (test &body body)
   `(if ,test (progn ,@body) nil))
@@ -202,3 +206,44 @@
           (t
            ;; @TODO: Need to implement error capabilities in host
            nil))))
+
+
+(defmacro dolist (var-list &body body)
+  (let ((var-name (first var-list))
+        (list (second var-list)))
+    `(labels ((--looper-- (--list--)
+                (when --list--
+                  (let ((,var-name (car --list--)))
+                    ,@body
+                    (--looper-- (cdr --list--))))))
+       (--looper-- ,list))))
+
+
+(defmacro dotimes (var-times &body body)
+  (let ((var-name (first var-times))
+        (times (second var-times)))
+    `(labels ((--looper-- (,var-name)
+                (when (< ,var-name ,times)
+                  ,@body
+                  (--looper-- (+ ,var-name 1)))))
+       (--looper-- 0))))
+
+
+
+(defmacro push (obj place)
+  `(setf ,place (cons ,obj ,place)))
+
+(defun push (obj place)
+  (let ((original (car place)))
+    (setf (car place) obj)
+    (setf (cdr place) (cons original (cdr place)))
+    place))
+
+(defmacro pop (place)
+  `(setf ,place (cdr ,place)))
+
+(defun pop (place)
+  (let ((val (car place)))
+    (setf (car place) (second place))
+    (setf (cdr place) (cddr place))
+    val))
