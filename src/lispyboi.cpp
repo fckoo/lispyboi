@@ -176,6 +176,36 @@ std::string lisp::repr(lisp_value obj)
         else if (obj.is_nil()) {
                 result = "NIL";
         }
+        else if (obj.is_cons()) {
+                result += "(";
+                result += repr(car(obj));
+                if (cdr(obj) == LISP_NIL) {
+                        /* List with one element */
+                        ;
+                }
+                else if (cdr(obj).is_cons()) {
+                        lisp_value current = cdr(obj);
+                        while (current != LISP_NIL) {
+                                result += " ";
+                                /* @AUDIT: There's a big in here that results in a stack overflow.
+                                   In the repl you can (print (%get-env)) and it will correctly print
+                                   it, but if you just do (%get-env) the repl stack overflows at this line
+                                */
+                                result += repr(car(current));
+                                current = cdr(current);
+                                if (!current.is_nil() && !current.is_cons()) {
+                                        result += " . ";
+                                        result += repr(current);
+                                        break;
+                                }
+                        }
+                }
+                else {
+                        result += " . ";
+                        result += repr(cdr(obj));
+                }
+                result += ")";
+        }
         else if (obj.is_object()) {
                 switch (obj.as_object()->type) {
                         case SYM_TYPE:
@@ -200,42 +230,6 @@ std::string lisp::repr(lisp_value obj)
                                                 break;
                                 }
                                 break;
-                        case CONS_TYPE:
-                                result += "(";
-                                result += repr(car(obj));
-                                if (cdr(obj) == LISP_NIL) {
-                                        /* List with one element */
-                                        ;
-                                }
-                                else if (cdr(obj).is_type(CONS_TYPE)) {
-                                        lisp_value current = cdr(obj);
-                                        while (current != LISP_NIL) {
-                                                result += " ";
-            /* @AUDIT: There's a big in here that results in a stack overflow.
-                In the repl you can (print (%get-env)) and it will correctly print
-                it, but if you just do (%get-env) the repl stack overflows at this line
-            */
-                                                result += repr(car(current));
-                                                current = cdr(current);
-                                                if (!current.is_nil() && !current.is_type(CONS_TYPE)) {
-                                                        result += " . ";
-                                                        result += repr(current);
-                                                        break;
-                                                }
-                                        }
-                                }
-                                else {
-                                        result += " . ";
-                                        result += repr(cdr(obj));
-                                }
-                                result += ")";
-                                break;
-                        case PRIMITIVE_FUNCTION_TYPE:
-                                ss << "#<PRIMITIVE 0x";
-                                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
-                                ss << ">";
-                                result = ss.str();
-                                break;
                         case LAMBDA_TYPE:
                                 result += "(LAMBDA ";
                                 if (obj.as_object()->lambda.args == LISP_NIL) {
@@ -252,6 +246,12 @@ std::string lisp::repr(lisp_value obj)
                                 }
                                 result += ")";
                 }
+        }
+        else if (obj.is_primitive_function()) {
+                ss << "#<PRIMITIVE 0x";
+                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive);
+                ss << ">";
+                result = ss.str();
         }
         return result;
 }
@@ -483,7 +483,7 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
         /* env is a list of pairs mapping symbols to their corresponding value in the form of 
          * ((symbol . value) (symbol . value) (symbol . value))
          */
-        if (env.is_type(CONS_TYPE)) {
+        if (env.is_cons()) {
                 while (env != LISP_NIL) {
                         auto pair = car(env);
                         auto s = car(pair);
@@ -564,8 +564,8 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
 
 lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
 {
-        if (function.as_object()->type == PRIMITIVE_FUNCTION_TYPE) {
-                return function.as_object()->primitive(env, args);
+        if (function.is_primitive_function()) {
+                return function.as_primitive_function()(env, args);
         }
         else if (function.as_object()->type == LAMBDA_TYPE) {
                 auto params = function.as_object()->lambda.args;
@@ -603,6 +603,82 @@ tailcall:
         if (obj.is_nil()) {
                 return obj;
         }
+        if (obj.is_cons()) {
+                auto car = first(obj);
+                if (car == LISP_SYM_QUOTE) {
+                        return second(obj); // intentionally not evaluated.
+                }
+                else if (car == LISP_SYM_IF) {
+                        auto condition = evaluate(env, second(obj));
+                        if (condition != LISP_NIL) {
+                                obj = third(obj);
+                                goto tailcall;
+                        }
+                        else {
+                                obj = fourth(obj);
+                                goto tailcall;
+                        }
+                }
+                else if (car == LISP_SYM_DEFMACRO) {
+                        auto macro_name = second(obj);
+                        auto params_list = third(obj);
+                        auto body = cdddr(obj);
+                        auto macro = create_lisp_obj_lambda(env, params_list, body);
+                        LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
+                        return macro_name;
+                }
+                else if (car == LISP_SYM_LAMBDA) {
+                        auto args = second(obj);
+                        auto body = cddr(obj);
+                        auto tmp = create_lisp_obj_lambda(env, args, body);
+                        return tmp;
+                }
+                else if (car == LISP_SYM_SETQ) {
+                        auto variable_name = second(obj);
+                        auto value = evaluate(env, third(obj));
+                        auto place = symbol_lookup(env, variable_name);
+                        if (place.is_invalid()) {
+                                push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
+                        }
+                        else {
+                                set_cdr(place, value);
+                        }
+                        return value;
+                }
+                else {
+                        auto function = evaluate(env, car);
+                        auto args = evaluate_list(env, rest(obj));
+                        //return apply(env, function, args);
+                        if (function.is_primitive_function()) {
+                                return function.as_primitive_function()(env, args);
+                        }
+                        else if (function.as_object()->type == LAMBDA_TYPE) {
+                                auto params = function.as_object()->lambda.args;
+                                auto shadowed_env = function.as_object()->lambda.env;
+                                while (params != LISP_NIL) {
+                                        auto sym = first(params);
+                                        if (*(sym.as_object()->symbol) == "&REST" ||
+                                            *(sym.as_object()->symbol) == "&BODY") {
+                                                sym = second(params);
+                                                shadowed_env = shadow(shadowed_env, sym, args);
+                                                break;
+                                        }
+                                        shadowed_env = shadow(shadowed_env, sym, first(args));
+                                        params = rest(params);
+                                        args = rest(args);
+                                }
+                                auto body = function.as_object()->lambda.body;
+                                while (rest(body) != LISP_NIL) {
+                                        evaluate(shadowed_env, first(body));
+                                        body = rest(body);
+                                }
+                                env = shadowed_env;
+                                obj = first(body);
+                                goto tailcall;
+                                //return result;
+                        }
+                }
+        }
         if (obj.is_object()) {
                 switch (obj.as_object()->type) {
                         case SYM_TYPE: {
@@ -614,82 +690,6 @@ tailcall:
                                 }
                                 return cdr(val);
                         }
-                        case CONS_TYPE: {
-                                auto car = first(obj);
-                                if (car == LISP_SYM_QUOTE) {
-                                        return second(obj); // intentionally not evaluated.
-                                }
-                                else if (car == LISP_SYM_IF) {
-                                        auto condition = evaluate(env, second(obj));
-                                        if (condition != LISP_NIL) {
-                                                obj = third(obj);
-                                                goto tailcall;
-                                        }
-                                        else {
-                                                obj = fourth(obj);
-                                                goto tailcall;
-                                        }
-                                }
-                                else if (car == LISP_SYM_DEFMACRO) {
-                                        auto macro_name = second(obj);
-                                        auto params_list = third(obj);
-                                        auto body = cdddr(obj);
-                                        auto macro = create_lisp_obj_lambda(env, params_list, body);
-                                        LISP_MACROS[*(macro_name.as_object()->symbol)] = macro;
-                                        return macro_name;
-                                }
-                                else if (car == LISP_SYM_LAMBDA) {
-                                        auto args = second(obj);
-                                        auto body = cddr(obj);
-                                        auto tmp = create_lisp_obj_lambda(env, args, body);
-                                        return tmp;
-                                }
-                                else if (car == LISP_SYM_SETQ) {
-                                        auto variable_name = second(obj);
-                                        auto value = evaluate(env, third(obj));
-                                        auto place = symbol_lookup(env, variable_name);
-                                        if (place.is_invalid()) {
-                                                push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
-                                        }
-                                        else {
-                                                set_cdr(place, value);
-                                        }
-                                        return value;
-                                }
-                                else {
-                                        auto function = evaluate(env, car);
-                                        auto args = evaluate_list(env, rest(obj));
-                                        //return apply(env, function, args);
-                                        if (function.as_object()->type == PRIMITIVE_FUNCTION_TYPE) {
-                                                return function.as_object()->primitive(env, args);
-                                        }
-                                        else if (function.as_object()->type == LAMBDA_TYPE) {
-                                                auto params = function.as_object()->lambda.args;
-                                                auto shadowed_env = function.as_object()->lambda.env;
-                                                while (params != LISP_NIL) {
-                                                        auto sym = first(params);
-                                                        if (*(sym.as_object()->symbol) == "&REST" ||
-                                                            *(sym.as_object()->symbol) == "&BODY") {
-                                                                sym = second(params);
-                                                                shadowed_env = shadow(shadowed_env, sym, args);
-                                                                break;
-                                                        }
-                                                        shadowed_env = shadow(shadowed_env, sym, first(args));
-                                                        params = rest(params);
-                                                        args = rest(args);
-                                                }
-                                                auto body = function.as_object()->lambda.body;
-                                                while (rest(body) != LISP_NIL) {
-                                                        evaluate(shadowed_env, first(body));
-                                                        body = rest(body);
-                                                }
-                                                env = shadowed_env;
-                                                obj = first(body);
-                                                goto tailcall;
-                                                //return result;
-                                        }
-                                }
-                        } break;
                         case CHAR_TYPE: return obj;
                 }
         }
@@ -719,7 +719,7 @@ int length(lisp_value obj)
         if (obj == LISP_NIL)
                 return 0;
         int i = 0;
-        if (obj.is_type(CONS_TYPE)) {
+        if (obj.is_cons()) {
                 while (obj != LISP_NIL) {
                         i += 1;
                         obj = cdr(obj);
@@ -736,7 +736,7 @@ lisp_value lisp::macro_expand(lisp_value obj)
         if (obj.is_nil()) {
                 return obj;
         }
-        if (!obj.is_type(CONS_TYPE)) {
+        if (!obj.is_cons()) {
                 return obj;
         }
         auto car = first(obj);

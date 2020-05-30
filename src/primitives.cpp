@@ -153,6 +153,9 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         if (it.is_nil()) {
                 return LISP_SYM_NULL;
         }
+        if (it.is_cons()) {
+                return LISP_SYM_CONS;
+        }
         if (it == LISP_T) {
                 return LISP_SYM_BOOLEAN;
         }
@@ -160,10 +163,11 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
                 switch (it.as_object()->type) {
                         case SYM_TYPE: return LISP_SYM_SYMBOL;
                         case CHAR_TYPE: return LISP_SYM_CHARACTER;
-                        case CONS_TYPE: return LISP_SYM_CONS;
                         case LAMBDA_TYPE: return LISP_SYM_FUNCTION;
-                        case PRIMITIVE_FUNCTION_TYPE: return LISP_SYM_FUNCTION;
                 }
+        }
+        if (it.is_primitive_function()) {
+            return LISP_SYM_FUNCTION;
         }
         return LISP_NIL;
 }
@@ -274,7 +278,7 @@ lisp_value lisp_prim_exit(lisp_value , lisp_value args)
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
 {
-        auto prim_object = create_lisp_obj_primitive_function(primitive);
+        auto prim_object = lisp_value(primitive);
         auto symbol = intern_symbol(symbol_name);
         auto binding = cons(symbol, prim_object);
         environment = cons(binding, environment);
