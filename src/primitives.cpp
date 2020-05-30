@@ -248,6 +248,29 @@ lisp_value lisp_prim_get_env(lisp_value env, lisp_value)
         return env;
 }
 
+lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
+{
+        static unsigned int counter = 0;
+        auto hint = first(args);
+        if (hint != LISP_NIL) {
+                // @TODO: gensym needs to utilize hint when strings are implemented
+        }
+        
+        std::string sym_name("G");
+        sym_name += std::to_string(counter++);
+        return create_lisp_obj_symbol(sym_name);
+}
+
+
+lisp_value lisp_prim_exit(lisp_value , lisp_value args)
+{
+        int code = 0;
+        if (car(args) != LISP_NIL) {
+                code = car(args).as_fixnum();
+        }
+        exit(code);
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, primitive_function primitive)
 {
@@ -278,4 +301,6 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%SET-CAR", lisp_prim_set_car);
         BIND_PRIM("%SET-CDR", lisp_prim_set_cdr);
         BIND_PRIM("%GET-ENV", lisp_prim_get_env);
+        BIND_PRIM("%GENSYM", lisp_prim_gensym);
+        BIND_PRIM("%EXIT", lisp_prim_exit);
 }

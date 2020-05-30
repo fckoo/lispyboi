@@ -161,10 +161,8 @@ lisp_value lisp::intern_symbol(const std::string &symbol_name)
         auto it = interned_symbols.find(symbol_name);
         if (it != interned_symbols.end())
                 return it->second;
-        auto symbol = new lisp_obj();
-        symbol->type = SYM_TYPE;
-        symbol->symbol = new std::string(symbol_name);
-        interned_symbols[symbol_name] = lisp_value(symbol);
+        auto symbol = create_lisp_obj_symbol(symbol_name);
+        interned_symbols[symbol_name] = symbol;
         return symbol;
 }
 

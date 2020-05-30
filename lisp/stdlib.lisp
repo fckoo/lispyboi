@@ -74,6 +74,12 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (caddddr lst))
 
+(defmacro gensym () '(%gensym))
+(defun gensym () (gensym))
+
+(defmacro exit (n) (list '%exit n))
+(defun exit (n) (exit n))
+
 (defun append (x y)
   (if x
       (cons (car x) (append (cdr x) y))
@@ -149,9 +155,10 @@
   `(let () ,@body))
 
 (defmacro prog1 (&body body)
-  `(let ((--tmp-var-- ,(car body)))
-     ,@(cdr body)
-     --tmp-var--))
+  (let ((tmp-var-name (gensym)))
+    `(let ((,tmp-var-name ,(car body)))
+       ,@(cdr body)
+       ,tmp-var-name)))
 
 (defmacro when (test &body body)
   `(if ,test (progn ,@body) nil))
@@ -210,25 +217,26 @@
 
 (defmacro dolist (var-list &body body)
   (let ((var-name (first var-list))
-        (list (second var-list)))
-    `(labels ((--looper-- (--list--)
-                (when --list--
-                  (let ((,var-name (car --list--)))
+        (list (second var-list))
+        (fn-name (gensym))
+        (list-name (gensym)))
+    `(labels ((,fn-name (,list-name)
+                (when ,list-name
+                  (let ((,var-name (car ,list-name)))
                     ,@body
-                    (--looper-- (cdr --list--))))))
-       (--looper-- ,list))))
+                    (,fn-name (cdr ,list-name))))))
+       (,fn-name ,list))))
 
 
 (defmacro dotimes (var-times &body body)
   (let ((var-name (first var-times))
-        (times (second var-times)))
-    `(labels ((--looper-- (,var-name)
+        (times (second var-times))
+        (fn-name (gensym)))
+    `(labels ((,fn-name (,var-name)
                 (when (< ,var-name ,times)
                   ,@body
-                  (--looper-- (+ ,var-name 1)))))
-       (--looper-- 0))))
-
-
+                  (,fn-name (+ ,var-name 1)))))
+       (,fn-name 0))))
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))

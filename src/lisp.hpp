@@ -280,6 +280,15 @@ namespace lisp {
         {
                 return cons(first, list(rest...));
         }
+        
+        static inline lisp_value create_lisp_obj_symbol(const std::string &name)
+        {
+                // create a symbol that has not been interned.
+                lisp_obj *ret = new lisp_obj();
+                ret->type = SYM_TYPE;
+                ret->symbol = new std::string(name);
+                return lisp_value(ret);
+        }
 
         static inline lisp_value create_lisp_obj_character(char in)
         {
