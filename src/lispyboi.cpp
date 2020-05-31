@@ -30,7 +30,7 @@ struct lisp_string_stream : lisp_stream {
                 : m_index(0)
                 , m_data(data) {}
 
-        int getc() 
+        int getc()
         {
                 if (m_index >= m_data.size()) {
                         return end_of_file;
@@ -45,53 +45,53 @@ struct lisp_string_stream : lisp_stream {
                 }
                 return m_data[m_index];
         }
-        
+
         bool eof()
         {
                 return m_index >= m_data.size();
         }
 
         inline
-        void clear() 
+        void clear()
         {
                 m_index = 0;
                 m_data = "";
         }
 
         inline
-        void append(const std::string &data) 
+        void append(const std::string &data)
         {
                 m_data.append(data);
         }
 
         inline
-        void append(const char *data) 
+        void append(const char *data)
         {
                 m_data.append(data);
         }
 
         inline
-        void append(char c) 
+        void append(char c)
         {
                 m_data.push_back(c);
         }
 
         inline
-        void puts() const 
+        void puts() const
         {
                 printf("%s\n", m_data.c_str() + m_index);
         }
 
         inline
-        size_t index() const 
-        { 
-                return m_index; 
+        size_t index() const
+        {
+                return m_index;
         };
 
         inline
-        void index(size_t idx) 
-        { 
-                m_index = idx; 
+        void index(size_t idx)
+        {
+                m_index = idx;
         };
 
 private:
@@ -100,7 +100,7 @@ private:
 };
 
 struct lisp_ifstream : lisp_stream {
-        
+
         inline
         lisp_ifstream(std::ifstream &&ifstream)
                 : m_ifs(std::move(ifstream)) {}
@@ -114,7 +114,7 @@ struct lisp_ifstream : lisp_stream {
                 return c;
         }
 
-        int getc()  
+        int getc()
         {
                 auto c = m_ifs.get();
                 if (c == m_ifs.eof()) {
@@ -122,13 +122,13 @@ struct lisp_ifstream : lisp_stream {
                 }
                 return c;
         }
-        
+
         bool eof()
         {
                 return peekc() == end_of_file;
         }
 
-        
+
 private:
         std::ifstream m_ifs;
 };
@@ -153,9 +153,11 @@ namespace lisp {
         lisp_value LISP_SYM_QUASIQUOTE;
         lisp_value LISP_SYM_UNQUOTE;
         lisp_value LISP_SYM_UNQUOTESPLICING;
+        lisp_value LISP_SYM_SIMPLE_ARRAY;
+        lisp_value LISP_SYM_ARRAY;
 }
 
-lisp_value lisp::intern_symbol(const std::string &symbol_name) 
+lisp_value lisp::intern_symbol(const std::string &symbol_name)
 {
         static std::unordered_map<std::string, lisp_value> interned_symbols;
         auto it = interned_symbols.find(symbol_name);
@@ -209,8 +211,8 @@ std::string lisp::repr(lisp_value obj)
         else if (obj.is_character()) {
                 auto codepoint = obj.as_character();
                 switch (codepoint) {
-                        default: 
-                                result = std::string("#\\") + reinterpret_cast<const char*>(&codepoint); 
+                        default:
+                                result = std::string("#\\") + reinterpret_cast<const char*>(&codepoint);
                                 break;
                         case ' ':
                                 result = "#\\Space";
@@ -231,7 +233,7 @@ std::string lisp::repr(lisp_value obj)
                         case SYM_TYPE:
                                 result = *(obj.as_object()->symbol());
                                 break;
-                        case LAMBDA_TYPE:
+                        case LAMBDA_TYPE: {
                                 result += "(LAMBDA ";
                                 if (obj.as_object()->lambda()->args == LISP_NIL) {
                                         result += "() ";
@@ -246,6 +248,23 @@ std::string lisp::repr(lisp_value obj)
                                         body = cdr(body);
                                 }
                                 result += ")";
+                        } break;
+                        case SIMPLE_ARRAY_TYPE: {
+                                auto array = obj.as_object()->simple_array();
+                                result += "#(";
+                                if (array->length() != 0) {
+                                        size_t i = 0;
+                                        size_t end = array->length() - 1;
+                                        for (; i < end; ++i) {
+                                                result += repr(array->get(i));
+                                                result += " ";
+                                        }
+                                        if (i < array->length()) {
+                                                result += repr(array->get(i));
+                                        }
+                                }
+                                result += ")";
+                        } break;
                 }
         }
         else if (obj.is_lisp_primitive()) {
@@ -285,9 +304,9 @@ bool is_symbol_start_char(int c)
 {
         if (c == lisp_stream::end_of_file)
                 return false;
-        if (c == '(' || c == ')' 
+        if (c == '(' || c == ')'
             || c == '\'' || c == '`' || c == ','
-            || is_whitespace(c) 
+            || is_whitespace(c)
             || is_digit(c))
                 return false;
         else
@@ -327,7 +346,7 @@ lisp_value lisp::parse(lisp_stream &stream)
         // symbol = anything not (), is not whitespace, doesnt start with int
         // an int = series of numbas :^) basically
         // a char: #\<anything>
-        while (stream.peekc() != stream.end_of_file) { 
+        while (stream.peekc() != stream.end_of_file) {
                 consume_whitespace(stream);
                 if (stream.peekc() == ';') {
                         stream.getc();
@@ -453,7 +472,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 auto elem = parse(stream);
                                 if (elem.is_invalid())
                                         return elem;
-                                
+
                                 set_cdr(car_obj, cons(elem, LISP_NIL));
                                 car_obj = cdr(car_obj);
                                 consume_whitespace(stream);
@@ -468,7 +487,7 @@ lisp_value lisp::parse(lisp_stream &stream)
 
 static inline
 __attribute__((always_inline))
-lisp_value push(lisp_value item, lisp_value place) 
+lisp_value push(lisp_value item, lisp_value place)
 {
         if (place == LISP_NIL) {
                 return cons(item, LISP_NIL);
@@ -481,9 +500,9 @@ lisp_value push(lisp_value item, lisp_value place)
 
 static inline
 __attribute__((always_inline))
-lisp_value symbol_lookup(lisp_value env, lisp_value symbol) 
+lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
 {
-        /* env is a list of pairs mapping symbols to their corresponding value in the form of 
+        /* env is a list of pairs mapping symbols to their corresponding value in the form of
          * ((symbol . value) (symbol . value) (symbol . value))
          */
         if (env.is_cons()) {
@@ -512,7 +531,7 @@ lisp_value assoc(lisp_value item, lisp_value alist)
 
 static inline
 __attribute__((always_inline))
-lisp_value evaluate_list(lisp_value env, lisp_value list) 
+lisp_value evaluate_list(lisp_value env, lisp_value list)
 {
         if (list == LISP_NIL)
                 return list;
@@ -543,7 +562,7 @@ lisp_value for_each(lisp_value head, T function)
 
 static inline
 __attribute__((always_inline))
-lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value) 
+lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
 {
         auto tmp = symbol_lookup(env, symbol);
         if (tmp.is_invalid()) {
@@ -558,7 +577,7 @@ lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
 
 static inline
 __attribute__((always_inline))
-lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value) 
+lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
 {
         auto binding = cons(symbol, value);
         auto shadow_env = cons(binding, env);
@@ -597,7 +616,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
         abort();
 }
 
-lisp_value lisp::evaluate(lisp_value env, lisp_value obj) 
+lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
 {
 tailcall:
         if (obj.is_fixnum()) {
@@ -687,7 +706,7 @@ tailcall:
         }
         if (obj.is_type(SYM_TYPE)) {
                 if (obj == LISP_T) return obj;
-                auto val = symbol_lookup(env, obj); 
+                auto val = symbol_lookup(env, obj);
                 if (val.is_invalid()) {
                         printf("UNBOUND VARIABLE: %s\n", obj.as_object()->symbol()->c_str()); // @TODO: POOPER ERROR HANDLING
                         abort();
@@ -702,7 +721,7 @@ lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 {
         if (list == LISP_NIL)
                 return list;
-        
+
         auto head = cons(func(car(list)), LISP_NIL);
         auto current = head;
         list = cdr(list);
@@ -715,7 +734,7 @@ lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 }
 
 static
-int length(lisp_value obj) 
+int length(lisp_value obj)
 {
         if (obj == LISP_NIL)
                 return 0;
@@ -798,9 +817,11 @@ void initialize_globals()
         INTERN_GLOBAL(BOOLEAN);
         INTERN_GLOBAL(QUASIQUOTE);
         INTERN_GLOBAL(UNQUOTE);
-        
+        INTERN_GLOBAL(ARRAY);
+
         LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
-        
+        LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
+
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
 }
@@ -833,10 +854,10 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
                 stream.clear();
                 return false;
         }
-        /* readline doesn't return a string with a line terminator so we end up 
-           appending one ourselves, this makes it so (+\n1\n2\n) isn't parsed as 
+        /* readline doesn't return a string with a line terminator so we end up
+           appending one ourselves, this makes it so (+\n1\n2\n) isn't parsed as
            (+12). This means upon a successful parse there should be some form of
-           trailing whitespace and we need to discard that whitespace to future 
+           trailing whitespace and we need to discard that whitespace to future
            calls to this function will display prompt_top_level correctly.
         */
         consume_whitespace(stream);
@@ -864,7 +885,7 @@ int main(int argc, char *argv[])
 {
         bool repl = false;
         std::vector<std::string> file_paths;
-        
+
         for (int i = 1; i < argc; ++i) {
                 const char *arg = argv[i];
                 if (strcmp("-i", arg) == 0) {
@@ -874,10 +895,10 @@ int main(int argc, char *argv[])
                         file_paths.push_back(arg);
                 }
         }
-        
+
         if (!repl && file_paths.size() == 0)
                 repl = true;
-        
+
         std::vector<std::ifstream> fstreams;
         for (auto &path : file_paths) {
                 std::ifstream f(path, std::ios::binary);
@@ -889,12 +910,12 @@ int main(int argc, char *argv[])
                         return -1;
                 }
         }
-        
+
         initialize_globals();
         for (auto &fs : fstreams) {
                 eval_fstream(fs);
         }
-        
+
         if (repl) {
                 static const char *prompt_lisp = "lisp_nasa> ";
                 static const char *prompt_ws   = ".......... ";

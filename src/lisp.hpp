@@ -3,6 +3,7 @@
 
 #include <string>
 #include <stdio.h>
+#include <string.h>
 #include "backtrace.hpp"
 
 #define XSTR(x) #x
@@ -22,6 +23,7 @@ namespace lisp {
                 SYM_TYPE = 0,
                 LAMBDA_TYPE,
                 ARRAY_TYPE,
+                SIMPLE_ARRAY_TYPE,
         };
 
         struct lisp_obj;
@@ -70,6 +72,11 @@ namespace lisp {
 
                 // An uninitialized lisp_value will be defaulted to NIL
                 inline lisp_value() { u.bits = 0; }
+
+                inline lisp_value(const lisp_value &other)
+                {
+                        u.bits = other.u.bits;
+                }
 
                 inline lisp_value(int64_t fixnum)
                 {
@@ -278,10 +285,95 @@ namespace lisp {
         };
 
         struct lisp_array {
-                size_t size;
-                size_t capacity;
+                /* a lisp_array is a generalized array where each element is uniform size
+                   but the type and size isn't necessarily known at (c++) compile time.
+                   we'll use this to represent c-style strings who knows what else.
+                */
+                using array_dtor = void(*)(void*);
+
+                size_t length;
                 size_t element_size;
+                size_t buffer_physical_size;
                 char buffer[0];
+
+                inline const void *get(size_t index) const
+                {
+                        size_t offset = element_size * index;
+                        return buffer + offset;
+                }
+
+                inline void set(size_t index, void *value)
+                {
+                        size_t offset = element_size * index;
+                        memcpy(buffer + offset, value, element_size);
+                }
+
+                static inline lisp_array *create(size_t num_elems, size_t elem_size)
+                {
+                        size_t total_size = sizeof(lisp_array) + num_elems * elem_size;
+                        auto ptr = malloc(total_size);
+                        auto array = static_cast<lisp_array*>(ptr);
+                        array->length = num_elems;
+                        array->element_size = elem_size;
+                        array->buffer_physical_size = num_elems * elem_size;
+                        return array;
+                }
+
+                static inline void free(lisp_array *array)
+                {
+                        array->length = 0;
+                        array->element_size = 0;
+                        array->buffer_physical_size = 0;
+                        std::free(array);
+                }
+
+                static inline void free(lisp_array *array, array_dtor dtor)
+                {
+                        for (size_t i = 0;
+                             i < array->buffer_physical_size;
+                             i += array->element_size) {
+                                dtor(array->buffer + i);
+                        }
+                        array->length = 0;
+                        array->element_size = 0;
+                        array->buffer_physical_size = 0;
+                        std::free(array);
+                }
+        };
+
+        struct lisp_simple_array {
+                /* A lisp_simple_array is just an array of lisp_values. */
+
+                lisp_simple_array(size_t len)
+                        : m_values(new lisp_value[len]())
+                        , m_length(len)
+                        {}
+
+                lisp_simple_array(size_t len, lisp_value default_value)
+                        : m_values(new lisp_value[len])
+                        , m_length(len)
+                        {
+                                std::fill(m_values, m_values+m_length, default_value);
+                        }
+
+                inline lisp_value get(int index) const
+                {
+                        return m_values[index];
+                }
+
+                inline void set(int index, lisp_value value)
+                {
+                        m_values[index] = value;
+                }
+
+                inline size_t length() const
+                {
+                        return m_length;
+                }
+        private:
+
+                lisp_value *m_values;
+                size_t m_length;
         };
 
         struct lisp_obj {
@@ -308,6 +400,11 @@ namespace lisp {
                         return u.array;
                 }
 
+                inline lisp_simple_array *simple_array() const
+                {
+                        return u.simple_array;
+                }
+
                 inline lisp_primitive primitive() const
                 {
                         return u.primitive;
@@ -332,12 +429,40 @@ namespace lisp {
                         return lisp_value(ret);
                 }
 
+                static inline
+                lisp_value create_array(size_t length, size_t element_size)
+                {
+                        lisp_obj *ret = new lisp_obj();
+                        ret->m_type = ARRAY_TYPE;
+                        ret->u.array = lisp_array::create(length, element_size);
+                        return lisp_value(ret);
+                }
+
+                static inline
+                lisp_value create_simple_array(size_t length)
+                {
+                        lisp_obj *ret = new lisp_obj();
+                        ret->m_type = SIMPLE_ARRAY_TYPE;
+                        ret->u.simple_array = new lisp_simple_array(length);
+                        return lisp_value(ret);
+                }
+
+                static inline
+                lisp_value create_simple_array(size_t length, lisp_value default_value)
+                {
+                        lisp_obj *ret = new lisp_obj();
+                        ret->m_type = SIMPLE_ARRAY_TYPE;
+                        ret->u.simple_array = new lisp_simple_array(length, default_value);
+                        return lisp_value(ret);
+                }
+
         private:
                 LISP_OBJ_TYPE m_type;
                 union {
                         std::string *symbol;
                         lisp_lambda *lambda;
                         lisp_array *array;
+                        lisp_simple_array *simple_array;
                         lisp_primitive primitive;
                 } u;
         };
@@ -375,6 +500,8 @@ namespace lisp {
         extern lisp_value LISP_SYM_QUASIQUOTE;
         extern lisp_value LISP_SYM_UNQUOTE;
         extern lisp_value LISP_SYM_UNQUOTESPLICING;
+        extern lisp_value LISP_SYM_SIMPLE_ARRAY;
+        extern lisp_value LISP_SYM_ARRAY;
 
 
         lisp_value intern_symbol(const std::string &symbol_name);

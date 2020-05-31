@@ -255,3 +255,32 @@
     (setf (car place) (second place))
     (setf (cdr place) (cddr place))
     val))
+
+
+
+(defmacro make-array (length default-value)
+  (if default-value
+      (list '%make-array length default-value)
+      (list '%make-array length)))
+
+(defun make-array (length default-value)
+  (make-array length default-value))
+
+(defmacro aref (array subscript) (list '%aref array subscript))
+(defun aref (array subscript) (aref array subscript))
+(defsetf aref %set-aref)
+
+(defun arrayp (obj)
+  (let ((type (type-of obj)))
+    (when (consp type)
+      (cond ((eq 'array (car type))
+             t)
+            ((eq 'simple-array (car type))
+             t)))))
+
+(defun array-length (array)
+  (when (arrayp array)
+    (second (type-of array))))
+
+(setf foo (make-array 10 'test))
+(print foo)
