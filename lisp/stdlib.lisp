@@ -163,7 +163,7 @@
 (defmacro when (test &body body)
   `(if ,test (progn ,@body) nil))
 
-(defmacro unless (test &body)
+(defmacro unless (test &body body)
   `(if ,test nil (progn ,@body)))
 
 (defmacro cond (&body body)
@@ -281,6 +281,3 @@
 (defun array-length (array)
   (when (arrayp array)
     (second (type-of array))))
-
-(setf foo (make-array 10 'test))
-(print foo)
