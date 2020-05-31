@@ -10,6 +10,7 @@
 (assert-true (= (- +most-negative-fixnum+ 1) +most-positive-fixnum+))
 (assert-true (< +most-negative-fixnum+ 0))
 (assert-true (< +most-negative-fixnum+ +most-positive-fixnum+))
+(assert-true (> +most-positive-fixnum+ 0))
 
 (assert-true (= 5 (+ 5)))
 (assert-true (let ((a 5) (b 0)) (= a (+ 5 b))))

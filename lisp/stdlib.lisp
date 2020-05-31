@@ -51,6 +51,15 @@
 (defmacro > (&rest vals) (cons '%> vals))
 (defun > (&rest vals) (apply %> vals))
 
+(defmacro <= (&rest vals) (list 'not (cons '%> vals)))
+(defun <= (&rest vals) (not (apply %> vals)))
+
+(defmacro >= (&rest vals) (list 'not (cons '%< vals)))
+(defun >= (&rest vals) (not (apply %< vals)))
+
+(defmacro /= (&rest vals) (list 'not (cons '%= vals)))
+(defun /= (&rest vals) (not (apply %= vals)))
+
 (defmacro putchar (character) (list '%putchar character))
 (defun putchar (character) (putchar character))
 
@@ -155,13 +164,6 @@
                  (qq-element object)
                  (list 'quote object))))
     (qq-object exp)))
-
-(defmacro <= (&rest vals) `(not (%> ,@vals)))
-(defun <= (&rest vals) (not (apply '%> vals)))
-(defmacro >= (&rest vals) `(not (%< ,@vals)))
-(defun >= (&rest vals) (not (apply '%< vals)))
-(defmacro /= (&rest vals) `(not (%= ,@vals)))
-(defun /= (&rest vals) (not (apply '%= vals)))
 
 (defmacro progn (&body body)
   (if (null (cdr body))
