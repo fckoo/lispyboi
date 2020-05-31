@@ -2,8 +2,13 @@
   (let ((tmp-var-name (gensym)))
     `(let ((,tmp-var-name ,expr))
        (unless ,tmp-var-name
-         (print '(assertion failed for ,expr))
-         (print (list 'got ,tmp-var-name))))))
+         (print '(assertion failed for ,expr))))))
+
+(defmacro assert-false (expr)
+  (let ((tmp-var-name (gensym)))
+    `(let ((,tmp-var-name ,expr))
+       (when ,tmp-var-name
+         (print '(assertion failed for ,expr))))))
 
 
 (defmacro assert-eq (expected actual)

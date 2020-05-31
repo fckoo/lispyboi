@@ -200,6 +200,12 @@
   (eq 'fixnum (type-of object)))
 
 (defun eql (x y) (eq x y))
+(defun equal (x y)
+  (cond ((eql x y)
+         t)
+        ((and (consp x) (consp y))
+         (and (equal (car x) (car y))
+              (equal (cdr x) (cdr y))))))
 
 (defun %case-generator (test-fn keyform body)
   (let ((tmp-val-name (gensym)))
