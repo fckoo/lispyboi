@@ -18,7 +18,7 @@
 (defmacro type-of (obj) (list '%type-of obj))
 (defun type-of (obj) (type-of obj))
 
-(defmacro read () (list '%read nil))
+(defmacro read () (list '%read))
 (defun read () (read))
 
 (defmacro macro-expand (expr) (list '%macro-expand expr))
@@ -44,6 +44,12 @@
 
 (defmacro < (&rest vals) (cons '%< vals))
 (defun < (&rest vals) (apply %< vals))
+
+(defmacro = (&rest vals) (cons '%= vals))
+(defun = (&rest vals) (apply %= vals))
+
+(defmacro > (&rest vals) (cons '%> vals))
+(defun > (&rest vals) (apply %> vals))
 
 (defmacro putchar (character) (list '%putchar character))
 (defun putchar (character) (putchar character))
@@ -150,15 +156,25 @@
                  (list 'quote object))))
     (qq-object exp)))
 
+(defmacro <= (&rest vals) `(not (%> ,@vals)))
+(defun <= (&rest vals) (not (apply '%> vals)))
+(defmacro >= (&rest vals) `(not (%< ,@vals)))
+(defun >= (&rest vals) (not (apply '%< vals)))
+(defmacro /= (&rest vals) `(not (%= ,@vals)))
+(defun /= (&rest vals) (not (apply '%= vals)))
 
 (defmacro progn (&body body)
-  `(let () ,@body))
+  (if (null (cdr body))
+      (car body)
+      `(let () ,@body)))
 
 (defmacro prog1 (&body body)
-  (let ((tmp-var-name (gensym)))
-    `(let ((,tmp-var-name ,(car body)))
-       ,@(cdr body)
-       ,tmp-var-name)))
+  (if (null (cdr body))
+      (car body)
+      (let ((tmp-var-name (gensym)))
+        `(let ((,tmp-var-name ,(car body)))
+           ,@(cdr body)
+           ,tmp-var-name))))
 
 (defmacro when (test &body body)
   `(if ,test (progn ,@body) nil))
@@ -179,6 +195,41 @@
         (car alist)
         (assoc item (cdr alist)))))
 
+(defun numberp (object)
+  ;; we only support fixnums currently!
+  (eq 'fixnum (type-of object)))
+
+(defun eql (x y) (eq x y))
+
+(defun %case-generator (test-fn keyform body)
+  (let ((tmp-val-name (gensym)))
+    (labels ((test-generator (lst)
+               (when lst
+                 (let ((the-case (car lst)))
+                   (if (eq 't (car the-case))
+                       `(progn ,@(cdr the-case))
+                       (if (eq 'otherwise (car the-case))
+                           `(progn ,@(cdr the-case))
+                           `(if ,(test-fn tmp-val-name (car the-case))
+                                (progn ,@(cdr the-case))
+                                ,(test-generator (cdr lst)))))))))
+      `(let ((,tmp-val-name ,keyform))
+         ,(test-generator body)))))
+
+(defmacro case (keyform &body body)
+  (%case-generator (lambda (sym-name case-value) `(eql ,sym-name ',case-value))
+                   keyform
+                   body))
+
+(defmacro typecase (keyform &body body)
+  (%case-generator (lambda (sym-name type-name)
+                     (print type-name)
+                     (cond ((eq 'list type-name)
+                            `(listp ,sym-name))
+                           (t
+                            `(eq ',type-name (type-of ,sym-name)))))
+                   keyform
+                   body))
 
 (let ((*setf-functions* nil))
   (defun %defsetf (access-fn update-fn)
@@ -227,7 +278,6 @@
                     (,fn-name (cdr ,list-name))))))
        (,fn-name ,list))))
 
-
 (defmacro dotimes (var-times &body body)
   (let ((var-name (first var-times))
         (times (second var-times))
@@ -240,7 +290,6 @@
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
-
 (defun push (obj place)
   (let ((original (car place)))
     (setf (car place) obj)
@@ -249,27 +298,23 @@
 
 (defmacro pop (place)
   `(setf ,place (cdr ,place)))
-
 (defun pop (place)
   (let ((val (car place)))
     (setf (car place) (second place))
     (setf (cdr place) (cddr place))
     val))
 
-
-
 (defmacro make-array (length default-value)
   (if default-value
       (list '%make-array length default-value)
       (list '%make-array length)))
-
 (defun make-array (length default-value)
   (make-array length default-value))
-
 (defmacro aref (array subscript) (list '%aref array subscript))
 (defun aref (array subscript) (aref array subscript))
 (defsetf aref %set-aref)
-
+(defmacro array-length (array) (list '%array-length array))
+(defun array-length (array) (array-length array))
 (defun arrayp (obj)
   (let ((type (type-of obj)))
     (when (consp type)
@@ -278,6 +323,38 @@
             ((eq 'simple-array (car type))
              t)))))
 
-(defun array-length (array)
-  (when (arrayp array)
-    (second (type-of array))))
+(defun nth (n list)
+  (if (and list (/= 0 n))
+      (nth (- n 1) (cdr list))
+      (car list)))
+(defun set-nth (n list value)
+  (if (and list (/= 0 n))
+      (set-nth (- n 1) (cdr list) value)
+      (setf (car list) value)))
+(defsetf nth set-nth)
+(defun list-length (list)
+  (labels ((f (lst accum)
+             (if lst
+                 (f (cdr lst) (+ 1 accum))
+                 accum)))
+    (f list 0)))
+(defun listp (obj)
+  (if (null obj)
+      t
+      (consp obj)))
+
+(defun length (sequence)
+  (cond ((listp sequence) (list-length sequence))
+        ((arrayp sequence) (array-length sequence))))
+
+(defun elt (sequence index)
+  (cond ((listp sequence)
+         (nth index sequence))
+        ((arrayp sequence)
+         (aref sequence index))))
+
+(defun set-elt (sequence index value)
+  (cond ((listp sequence) (setf (nth index sequence) value))
+        ((arrayp sequence) (setf (aref sequence index) value))))
+
+(defsetf elt set-elt)
