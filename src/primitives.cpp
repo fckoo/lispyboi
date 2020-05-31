@@ -27,7 +27,6 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-
 lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
 {
         /***
@@ -49,8 +48,6 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-
-
 lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
 {
         /***
@@ -66,7 +63,6 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-
 lisp_value lisp_prim_print(lisp_value env, lisp_value args)
 {
         /***
@@ -77,17 +73,11 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args)
         return LISP_NIL;
 }
 
-
 lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
 {
         /***
              (< n...)
         */
-        // (< 1)
-        if (cdr(args) == LISP_NIL) {
-                return LISP_T;
-        }
-
         auto a = first(args);
         auto b = second(args);
         bool result = a.as_fixnum() < b.as_fixnum();
@@ -107,6 +97,53 @@ lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
+lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args)
+{
+        /***
+             (= n...)
+        */
+        auto a = first(args);
+        auto b = second(args);
+        bool result = a.as_fixnum() == b.as_fixnum();
+        if (result) {
+                args = cddr(args);
+                a = b;
+                while (args != LISP_NIL) {
+                        b = car(args);
+                        result = a.as_fixnum() == b.as_fixnum();
+                        if (result == false) {
+                                break;
+                        }
+                        a = b;
+                        args = cdr(args);
+                }
+        }
+        return result ? LISP_T : LISP_NIL;
+}
+
+lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args)
+{
+        /***
+             (> n...)
+        */
+        auto a = first(args);
+        auto b = second(args);
+        bool result = a.as_fixnum() > b.as_fixnum();
+        if (result) {
+                args = cddr(args);
+                a = b;
+                while (args != LISP_NIL) {
+                        b = car(args);
+                        result = a.as_fixnum() > b.as_fixnum();
+                        if (result == false) {
+                                break;
+                        }
+                        a = b;
+                        args = cdr(args);
+                }
+        }
+        return result ? LISP_T : LISP_NIL;
+}
 
 lisp_value lisp_prim_car(lisp_value env, lisp_value args)
 {
@@ -115,7 +152,6 @@ lisp_value lisp_prim_car(lisp_value env, lisp_value args)
         */
         return caar(args);
 }
-
 
 lisp_value lisp_prim_cdr(lisp_value env, lisp_value args)
 {
@@ -126,7 +162,6 @@ lisp_value lisp_prim_cdr(lisp_value env, lisp_value args)
         return cdar(args);
 }
 
-
 lisp_value lisp_prim_cons(lisp_value env, lisp_value args)
 {
         /***
@@ -135,7 +170,6 @@ lisp_value lisp_prim_cons(lisp_value env, lisp_value args)
 
         return cons(first(args), second(args));
 }
-
 
 lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
 {
@@ -166,7 +200,6 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
 {
         /***
@@ -176,7 +209,6 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
         putchar(car(args).as_character());
         return LISP_NIL;
 }
-
 
 lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
 {
@@ -224,7 +256,6 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-
 lisp_value lisp_prim_read(lisp_value, lisp_value args)
 {
         /***
@@ -243,7 +274,6 @@ lisp_value lisp_prim_read(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-
 lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
 {
         /***
@@ -253,7 +283,6 @@ lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
         return macro_expand(car(args));
 }
 
-
 lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
 {
         /***
@@ -262,7 +291,6 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
 
         return lisp::evaluate(env, car(args));
 }
-
 
 lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
 {
@@ -297,7 +325,6 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
         }
         return lisp::apply(env, function, head);
 }
-
 
 lisp_value lisp_prim_set_car(lisp_value env, lisp_value args)
 {
@@ -345,7 +372,6 @@ lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
         sym_name += std::to_string(counter++);
         return lisp_obj::create_symbol(sym_name);
 }
-
 
 lisp_value lisp_prim_exit(lisp_value , lisp_value args)
 {
@@ -398,6 +424,22 @@ lisp_value lisp_prim_set_aref(lisp_value , lisp_value args)
         return value;
 }
 
+lisp_value lisp_prim_array_length(lisp_value , lisp_value args)
+{
+        /***
+             (array-length array)
+        */
+
+        auto array = first(args);
+        if (array.is_type(ARRAY_TYPE)) {
+                return lisp_value(static_cast<int64_t>(array.as_object()->array()->length));
+        }
+        if (array.is_type(SIMPLE_ARRAY_TYPE)) {
+                return lisp_value(static_cast<int64_t>(array.as_object()->simple_array()->length()));
+        }
+        return LISP_NIL;
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
@@ -413,8 +455,10 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%PRINT", lisp_prim_print);
         BIND_PRIM("%+", lisp_prim_plus);
         BIND_PRIM("%-", lisp_prim_minus);
-        BIND_PRIM("%<", lisp_prim_num_less);
         BIND_PRIM("%*", lisp_prim_multiply);
+        BIND_PRIM("%<", lisp_prim_num_less);
+        BIND_PRIM("%=", lisp_prim_num_equal);
+        BIND_PRIM("%>", lisp_prim_num_greater);
         BIND_PRIM("%CAR", lisp_prim_car);
         BIND_PRIM("%CDR", lisp_prim_cdr);
         BIND_PRIM("%CONS", lisp_prim_cons);
@@ -433,4 +477,5 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%MAKE-ARRAY", lisp_prim_make_array);
         BIND_PRIM("%AREF", lisp_prim_aref);
         BIND_PRIM("%SET-AREF", lisp_prim_set_aref);
+        BIND_PRIM("%ARRAY-LENGTH", lisp_prim_array_length);
 }
