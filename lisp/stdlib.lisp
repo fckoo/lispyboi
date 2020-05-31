@@ -303,7 +303,9 @@
     place))
 
 (defmacro pop (place)
-  `(setf ,place (cdr ,place)))
+  `(prog1 (car ,place)
+     (setf ,place (cdr ,place))))
+
 (defun pop (place)
   (let ((val (car place)))
     (setf (car place) (second place))
