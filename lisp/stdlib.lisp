@@ -86,8 +86,8 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (caddddr lst))
 
-(defmacro gensym () '(%gensym))
-(defun gensym () (gensym))
+(defmacro gensym (hint) (list '%gensym hint))
+(defun gensym (hint) (gensym hint))
 
 (defmacro exit (n) (list '%exit n))
 (defun exit (n) (exit n))
@@ -202,6 +202,8 @@
 (defun equal (x y)
   (cond ((eql x y)
          t)
+        ((and (stringp x) (stringp y))
+         (string= x y))
         ((and (consp x) (consp y))
          (and (equal (car x) (car y))
               (equal (cdr x) (cdr y))))))
@@ -317,6 +319,10 @@
       (list '%make-array length)))
 (defun make-array (length default-value)
   (make-array length default-value))
+
+(defmacro array-type (array) (list '%array-type array))
+(defun array-type (array) (array-type array))
+
 (defmacro aref (array subscript) (list '%aref array subscript))
 (defun aref (array subscript) (aref array subscript))
 (defsetf aref %set-aref)
@@ -372,19 +378,29 @@
       (setf (aref str i) (nth i chars)))
     str))
 
+(defun stringp (object)
+  (eq 'character (array-type object)))
+
+(defun string= (x y)
+  (when (= (length x) (length y))
+    (labels ((func (n)
+               (cond ((= n (length x)) t)
+                     ((not (eql (aref x n) (aref y n)))
+                      (print `(different at index ,n with ,(aref x n) and ,(aref y n)))
+                      (print (%bits-of (aref x n)))
+                      (print (%bits-of (aref y n)))
+                      nil)
+                     (t (func (+ 1 n))))))
+      (func 0))))
+
+(defun string/= (x y)
+  (not (string= x y)))
+
 ;;(defmacro print (obj) (list '%print obj))
-(defun print (obj)
-  (cond ((eq 'character (%array-type obj))
-         (dotimes (i (array-length obj))
-           (putchar (aref obj i)))
+(defun print (object)
+  (cond ((stringp object)
+         (dotimes (i (array-length object))
+           (putchar (aref object i)))
          (putchar #\newline))
-        (t (%print obj))))
-
-'(let ((str (make-string #\П #\ #\l #\l #\o #\space #\w #\o #\r #\l #\d #\! #\newline)))
-  (print str)
-  (%print str)
-  (print (type-of str)))
-
-
-
+        (t (%print object))))
 

@@ -453,25 +453,29 @@ namespace lisp {
                         array->set_fill_pointer(0);
                         // valid utf-8 codepoint enumeration
                         for(size_t i = 0; i < str.length();) {
-                                int cplen = 1;
+                                int cp_len = 1;
+                                int32_t cp_mask = 0x000000ff;
 
                                 if ((str[i] & 0xf8) == 0xf0) {
-                                        cplen = 4;
+                                        cp_mask = 0xffffffff;
+                                        cp_len = 4;
                                 }
                                 else if ((str[i] & 0xf0) == 0xe0) {
-                                        cplen = 3;
+                                        cp_mask = 0x00ffffff;
+                                        cp_len = 3;
                                 }
                                 else if ((str[i] & 0xe0) == 0xc0) {
-                                        cplen = 2;
+                                        cp_mask = 0x0000ffff;
+                                        cp_len = 2;
                                 }
 
-                                if ((i + cplen) > str.length()) {
-                                        cplen = 1;
+                                if ((i + cp_len) > str.length()) {
+                                        cp_mask = 0x000000ff;
+                                        cp_len = 1;
                                 }
-                                auto character = str.substr(i, cplen).c_str();
-                                auto codepoint = *reinterpret_cast<const int32_t*>(character);
+                                auto codepoint = (*reinterpret_cast<const int32_t*>(str.data() + i)) & cp_mask;
                                 array->push_back(codepoint);
-                                i += cplen;
+                                i += cp_len;
                         }
                         auto ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;

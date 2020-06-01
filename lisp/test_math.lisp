@@ -2,6 +2,10 @@
 (setf +most-positive-fixnum+ 4611686018427387903)
 (setf +most-negative-fixnum+ (- 4611686018427387904))
 
+(assert-true (= (+) 0))
+(assert-true (= (-) 0))
+(assert-true (= (*) 1))
+
 (assert-true (= 1 1))
 (assert-true (= 111111 111111))
 (assert-true (= 1234567890 1234567890))
@@ -29,3 +33,4 @@
 
 (assert-true (>= 3 2 1))
 (assert-true (>= 3 2 2 1))
+
