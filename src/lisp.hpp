@@ -22,7 +22,6 @@ namespace lisp {
         enum LISP_OBJ_TYPE {
                 SYM_TYPE = 0,
                 LAMBDA_TYPE,
-                ARRAY_TYPE,
                 SIMPLE_ARRAY_TYPE,
         };
 
@@ -271,12 +270,35 @@ namespace lisp {
 
         };
 
+        static_assert(sizeof(lisp_value) == 8);
+
+        extern const lisp_value LISP_NIL;
+        extern lisp_value LISP_T;
+
+        /* Commonly used symbols for easier access without having to call intern */
+        extern lisp_value LISP_SYM_QUOTE;
+        extern lisp_value LISP_SYM_IF;
+        extern lisp_value LISP_SYM_LAMBDA;
+        extern lisp_value LISP_SYM_SETQ;
+        extern lisp_value LISP_SYM_DEFMACRO;
+        extern lisp_value LISP_SYM_FIXNUM;
+        extern lisp_value LISP_SYM_CONS;
+        extern lisp_value LISP_SYM_CHARACTER;
+        extern lisp_value LISP_SYM_FUNCTION;
+        extern lisp_value LISP_SYM_SYMBOL;
+        extern lisp_value LISP_SYM_STRING;
+        extern lisp_value LISP_SYM_NULL;
+        extern lisp_value LISP_SYM_BOOLEAN;
+        extern lisp_value LISP_SYM_QUASIQUOTE;
+        extern lisp_value LISP_SYM_UNQUOTE;
+        extern lisp_value LISP_SYM_UNQUOTESPLICING;
+        extern lisp_value LISP_SYM_SIMPLE_ARRAY;
+        extern lisp_value LISP_SYM_ARRAY;
+
         struct lisp_cons {
                 lisp_value car;
                 lisp_value cdr;
         };
-
-        static_assert(sizeof(lisp_value) == 8);
 
         struct lisp_lambda {
                 lisp_value env;
@@ -284,77 +306,29 @@ namespace lisp {
                 lisp_value body;
         };
 
-        struct lisp_array {
-                /* a lisp_array is a generalized array where each element is uniform size
-                   but the type and size isn't necessarily known at (c++) compile time.
-                   we'll use this to represent c-style strings who knows what else.
-                */
-                using array_dtor = void(*)(void*);
-
-                size_t length;
-                size_t element_size;
-                size_t buffer_physical_size;
-                char buffer[0];
-
-                inline const void *get(size_t index) const
-                {
-                        size_t offset = element_size * index;
-                        return buffer + offset;
-                }
-
-                inline void set(size_t index, void *value)
-                {
-                        size_t offset = element_size * index;
-                        memcpy(buffer + offset, value, element_size);
-                }
-
-                static inline lisp_array *create(size_t num_elems, size_t elem_size)
-                {
-                        size_t total_size = sizeof(lisp_array) + num_elems * elem_size;
-                        auto ptr = malloc(total_size);
-                        auto array = static_cast<lisp_array*>(ptr);
-                        array->length = num_elems;
-                        array->element_size = elem_size;
-                        array->buffer_physical_size = num_elems * elem_size;
-                        return array;
-                }
-
-                static inline void free(lisp_array *array)
-                {
-                        array->length = 0;
-                        array->element_size = 0;
-                        array->buffer_physical_size = 0;
-                        std::free(array);
-                }
-
-                static inline void free(lisp_array *array, array_dtor dtor)
-                {
-                        for (size_t i = 0;
-                             i < array->buffer_physical_size;
-                             i += array->element_size) {
-                                dtor(array->buffer + i);
-                        }
-                        array->length = 0;
-                        array->element_size = 0;
-                        array->buffer_physical_size = 0;
-                        std::free(array);
-                }
-        };
-
         struct lisp_simple_array {
                 /* A lisp_simple_array is just an array of lisp_values. */
 
-                lisp_simple_array(size_t len)
-                        : m_values(new lisp_value[len]())
-                        , m_length(len)
+                lisp_simple_array(size_t capacity)
+                        : m_values(new lisp_value[capacity]())
+                        , m_type(LISP_T)
+                        , m_fill_pointer(capacity)
+                        , m_capacity(capacity)
                         {}
 
-                lisp_simple_array(size_t len, lisp_value default_value)
-                        : m_values(new lisp_value[len])
-                        , m_length(len)
-                        {
-                                std::fill(m_values, m_values+m_length, default_value);
-                        }
+                lisp_simple_array(size_t capacity, lisp_value type)
+                        : m_values(new lisp_value[capacity])
+                        , m_type(type)
+                        , m_fill_pointer(capacity)
+                        , m_capacity(capacity)
+                        {}
+
+                ~lisp_simple_array()
+                {
+                        m_fill_pointer = 0;
+                        m_capacity = 0;
+                        delete[] m_values;
+                }
 
                 inline lisp_value get(int index) const
                 {
@@ -366,14 +340,41 @@ namespace lisp {
                         m_values[index] = value;
                 }
 
+                inline void set_fill_pointer(size_t new_fill_pointer)
+                {
+                        m_fill_pointer = new_fill_pointer;
+                }
+
+                inline void push_back(lisp_value value)
+                {
+                        if (m_fill_pointer >= m_capacity) {
+                                size_t new_cap = m_fill_pointer * 1.5;
+                                auto new_vals = new lisp_value[new_cap];
+                                auto old_vals = m_values;
+                                memcpy(new_vals, old_vals, sizeof(m_values[0]) * m_fill_pointer);
+                                m_values = new_vals;
+                                m_capacity = new_cap;
+                                delete[] old_vals;
+                        }
+                        m_values[m_fill_pointer++] = value;
+                }
+
                 inline size_t length() const
                 {
-                        return m_length;
+                        return m_fill_pointer;
                 }
+
+                inline lisp_value type() const
+                {
+                        return m_type;
+                }
+
         private:
 
                 lisp_value *m_values;
-                size_t m_length;
+                lisp_value m_type;
+                size_t m_fill_pointer;
+                size_t m_capacity;
         };
 
         struct lisp_obj {
@@ -393,11 +394,6 @@ namespace lisp {
                 inline const lisp_lambda *lambda() const
                 {
                         return u.lambda;
-                }
-
-                inline lisp_array *array() const
-                {
-                        return u.array;
                 }
 
                 inline lisp_simple_array *simple_array() const
@@ -430,29 +426,56 @@ namespace lisp {
                 }
 
                 static inline
-                lisp_value create_array(size_t length, size_t element_size)
-                {
-                        lisp_obj *ret = new lisp_obj();
-                        ret->m_type = ARRAY_TYPE;
-                        ret->u.array = lisp_array::create(length, element_size);
-                        return lisp_value(ret);
-                }
-
-                static inline
                 lisp_value create_simple_array(size_t length)
                 {
                         lisp_obj *ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
-                        ret->u.simple_array = new lisp_simple_array(length);
+                        ret->u.simple_array = new lisp_simple_array(length, LISP_T);
                         return lisp_value(ret);
                 }
 
                 static inline
-                lisp_value create_simple_array(size_t length, lisp_value default_value)
+                lisp_value create_simple_array(size_t length, lisp_value type)
                 {
                         lisp_obj *ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
-                        ret->u.simple_array = new lisp_simple_array(length, default_value);
+                        if (!type.is_type(SYM_TYPE)) {
+                                type = LISP_T;
+                        }
+                        ret->u.simple_array = new lisp_simple_array(length, type);
+                        return lisp_value(ret);
+                }
+
+                static inline
+                lisp_value create_string(const std::string &str)
+                {
+                        auto array = new lisp_simple_array(8, LISP_SYM_CHARACTER);
+                        array->set_fill_pointer(0);
+                        // valid utf-8 codepoint enumeration
+                        for(size_t i = 0; i < str.length();) {
+                                int cplen = 1;
+
+                                if ((str[i] & 0xf8) == 0xf0) {
+                                        cplen = 4;
+                                }
+                                else if ((str[i] & 0xf0) == 0xe0) {
+                                        cplen = 3;
+                                }
+                                else if ((str[i] & 0xe0) == 0xc0) {
+                                        cplen = 2;
+                                }
+
+                                if ((i + cplen) > str.length()) {
+                                        cplen = 1;
+                                }
+                                auto character = str.substr(i, cplen).c_str();
+                                auto codepoint = *reinterpret_cast<const int32_t*>(character);
+                                array->push_back(codepoint);
+                                i += cplen;
+                        }
+                        auto ret = new lisp_obj();
+                        ret->m_type = SIMPLE_ARRAY_TYPE;
+                        ret->u.simple_array = array;
                         return lisp_value(ret);
                 }
 
@@ -461,7 +484,6 @@ namespace lisp {
                 union {
                         std::string *symbol;
                         lisp_lambda *lambda;
-                        lisp_array *array;
                         lisp_simple_array *simple_array;
                         lisp_primitive primitive;
                 } u;
@@ -480,28 +502,6 @@ namespace lisp {
                 virtual int peekc() = 0;
                 virtual bool eof() = 0;
         };
-
-        extern const lisp_value LISP_NIL;
-        extern lisp_value LISP_T;
-
-        /* Commonly used symbols for easier access without having to call intern */
-        extern lisp_value LISP_SYM_QUOTE;
-        extern lisp_value LISP_SYM_IF;
-        extern lisp_value LISP_SYM_LAMBDA;
-        extern lisp_value LISP_SYM_SETQ;
-        extern lisp_value LISP_SYM_DEFMACRO;
-        extern lisp_value LISP_SYM_FIXNUM;
-        extern lisp_value LISP_SYM_CONS;
-        extern lisp_value LISP_SYM_CHARACTER;
-        extern lisp_value LISP_SYM_FUNCTION;
-        extern lisp_value LISP_SYM_SYMBOL;
-        extern lisp_value LISP_SYM_NULL;
-        extern lisp_value LISP_SYM_BOOLEAN;
-        extern lisp_value LISP_SYM_QUASIQUOTE;
-        extern lisp_value LISP_SYM_UNQUOTE;
-        extern lisp_value LISP_SYM_UNQUOTESPLICING;
-        extern lisp_value LISP_SYM_SIMPLE_ARRAY;
-        extern lisp_value LISP_SYM_ARRAY;
 
 
         lisp_value intern_symbol(const std::string &symbol_name);

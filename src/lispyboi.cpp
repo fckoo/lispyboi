@@ -148,6 +148,7 @@ namespace lisp {
         lisp_value LISP_SYM_CHARACTER;
         lisp_value LISP_SYM_FUNCTION;
         lisp_value LISP_SYM_SYMBOL;
+        lisp_value LISP_SYM_STRING;
         lisp_value LISP_SYM_NULL;
         lisp_value LISP_SYM_BOOLEAN;
         lisp_value LISP_SYM_QUASIQUOTE;
@@ -305,7 +306,7 @@ bool is_symbol_start_char(int c)
         if (c == lisp_stream::end_of_file)
                 return false;
         if (c == '(' || c == ')'
-            || c == '\'' || c == '`' || c == ','
+            || c == '\'' || c == '"' || c == '`' || c == ','
             || is_whitespace(c)
             || is_digit(c))
                 return false;
@@ -401,11 +402,21 @@ lisp_value lisp::parse(lisp_stream &stream)
                                         }
                                         else {
                                                 // @TODO: pooper error handling
-                                                printf("[ERROR] Unknown character name %s\n", character.c_str());
-                                                abort();
+                                                //printf("[ERROR] Unknown character name %s\n", character.c_str());
+                                                auto it = *reinterpret_cast<const int32_t*>(character.c_str());
+                                                return lisp_value(it);
                                         }
                                 }
                         }
+                }
+                else if (stream.peekc() == '"') {
+                        stream.getc(); // consume opening "
+                        std::string str;
+                        while (stream.peekc() != '"') {
+                                str += stream.getc();
+                        }
+                        stream.getc(); // consume closing "
+                        return lisp_obj::create_string(str);
                 }
                 else if (stream.peekc() == '\'') {
                         stream.getc();
@@ -713,6 +724,9 @@ tailcall:
                 }
                 return cdr(val);
         }
+        if (obj.is_object()) {
+                return obj;
+        }
         return lisp_value::invalid_object();
 }
 
@@ -750,12 +764,6 @@ int length(lisp_value obj)
 
 lisp_value lisp::macro_expand(lisp_value obj)
 {
-        if (obj.is_fixnum()) {
-                return obj;
-        }
-        if (obj.is_nil()) {
-                return obj;
-        }
         if (!obj.is_cons()) {
                 return obj;
         }
@@ -813,6 +821,7 @@ void initialize_globals()
         INTERN_GLOBAL(CHARACTER);
         INTERN_GLOBAL(FUNCTION);
         INTERN_GLOBAL(SYMBOL);
+        INTERN_GLOBAL(STRING);
         INTERN_GLOBAL(NULL);
         INTERN_GLOBAL(BOOLEAN);
         INTERN_GLOBAL(QUASIQUOTE);

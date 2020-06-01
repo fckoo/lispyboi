@@ -206,7 +206,9 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
              (putchar character)
         */
 
-        putchar(car(args).as_character());
+        //putchar(car(args).as_character());
+        auto codepoint = car(args).as_character();
+        fputs(reinterpret_cast<const char*>(&codepoint), stdout);
         return LISP_NIL;
 }
 
@@ -232,19 +234,15 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
                 switch (it.as_object()->type()) {
                         case SYM_TYPE: return LISP_SYM_SYMBOL;
                         case LAMBDA_TYPE: return LISP_SYM_FUNCTION;
-                        case ARRAY_TYPE: {
-                                auto array = it.as_object()->array();
-                                return list(LISP_SYM_ARRAY,
-                                            lisp_value(static_cast<int64_t>(array->length)),
-                                            lisp_value(static_cast<int64_t>(array->element_size)));
-                        } break;
                         case SIMPLE_ARRAY_TYPE: {
                                 auto array = it.as_object()->simple_array();
                                 return list(LISP_SYM_SIMPLE_ARRAY,
+                                            array->type(),
                                             lisp_value(static_cast<int64_t>(array->length())));
                         } break;
 
                 }
+                printf("fuck\n");
                 return LISP_NIL;
         }
         if (it.is_lisp_primitive()) {
@@ -390,9 +388,9 @@ lisp_value lisp_prim_make_array(lisp_value , lisp_value args)
         /***
              (make-array length &optional default)
         */
-        auto default_value = second(args);
-        if (default_value != LISP_NIL) {
-                return lisp_obj::create_simple_array(first(args).as_fixnum(), default_value);
+        auto type = second(args);
+        if (type != LISP_NIL) {
+                return lisp_obj::create_simple_array(first(args).as_fixnum(), type);
         }
         return lisp_obj::create_simple_array(first(args).as_fixnum());
 
@@ -431,11 +429,20 @@ lisp_value lisp_prim_array_length(lisp_value , lisp_value args)
         */
 
         auto array = first(args);
-        if (array.is_type(ARRAY_TYPE)) {
-                return lisp_value(static_cast<int64_t>(array.as_object()->array()->length));
-        }
         if (array.is_type(SIMPLE_ARRAY_TYPE)) {
                 return lisp_value(static_cast<int64_t>(array.as_object()->simple_array()->length()));
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_array_type(lisp_value , lisp_value args)
+{
+        /***
+             (array-type array)
+        */
+        auto array = first(args);
+        if (array.is_type(SIMPLE_ARRAY_TYPE)) {
+                return array.as_object()->simple_array()->type();
         }
         return LISP_NIL;
 }
@@ -478,4 +485,5 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%AREF", lisp_prim_aref);
         BIND_PRIM("%SET-AREF", lisp_prim_set_aref);
         BIND_PRIM("%ARRAY-LENGTH", lisp_prim_array_length);
+        BIND_PRIM("%ARRAY-TYPE", lisp_prim_array_type);
 }

@@ -63,9 +63,6 @@
 (defmacro putchar (character) (list '%putchar character))
 (defun putchar (character) (putchar character))
 
-(defmacro print (obj) (list '%print obj))
-(defun print (obj) (print obj))
-
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
 (defun cadr (lst) (car (cdr lst)))
@@ -368,3 +365,26 @@
         ((arrayp sequence) (setf (aref sequence index) value))))
 
 (defsetf elt set-elt)
+
+(defun make-string (&rest chars)
+  (let ((str (make-array (length chars) 'character)))
+    (dotimes (i (length chars))
+      (setf (aref str i) (nth i chars)))
+    str))
+
+;;(defmacro print (obj) (list '%print obj))
+(defun print (obj)
+  (cond ((eq 'character (%array-type obj))
+         (dotimes (i (array-length obj))
+           (putchar (aref obj i)))
+         (putchar #\newline))
+        (t (%print obj))))
+
+'(let ((str (make-string #\П #\ #\l #\l #\o #\space #\w #\o #\r #\l #\d #\! #\newline)))
+  (print str)
+  (%print str)
+  (print (type-of str)))
+
+
+
+
