@@ -1,7 +1,11 @@
 CC := g++
 CFLAGS := -std=c++17 -O0 -g3 -rdynamic -fno-omit-frame-pointer
+#CFLAGS := -std=c++17 -O3
 LDFLAGS := -lreadline
 
+
+.PHONY: all
+all: clean lispyboi
 
 lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)

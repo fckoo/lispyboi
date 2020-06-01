@@ -23,6 +23,7 @@ namespace lisp {
                 SYM_TYPE = 0,
                 LAMBDA_TYPE,
                 SIMPLE_ARRAY_TYPE,
+                FILE_STREAM_TYPE
         };
 
         struct lisp_obj;
@@ -377,6 +378,149 @@ namespace lisp {
                 size_t m_capacity;
         };
 
+        struct lisp_file_stream {
+                enum io_mode {
+                        read = 1 << 0,
+                        overwrite = 1 << 1,
+                        append = 1 << 2,
+                        read_overwrite = read | overwrite,
+                        read_append = read | append
+                };
+
+                lisp_file_stream()
+                        : m_fp(nullptr)
+                        {}
+
+                inline bool ok() const
+                {
+                        return m_fp != nullptr;
+                }
+
+                inline bool eof() const
+                {
+                        if (!ok()) return true;
+                        return feof(m_fp);
+                }
+
+                inline void flush()
+                {
+                        if (ok())
+                                fflush(m_fp);
+                }
+
+                void open(const std::string &path, io_mode mode)
+                {
+                        if (ok())
+                                close();
+                        m_path = path;
+                        m_mode = mode;
+                        const char *mode_str = "rb";
+                        if (mode & io_mode::read) {
+                                if (mode & io_mode::append) {
+                                        mode_str = "ab+";
+                                }
+                                else if (mode & io_mode::overwrite) {
+                                        mode_str = "rb+";
+                                }
+                        }
+                        else if (mode & io_mode::append) {
+                                mode_str = "ab";
+                        }
+                        else if (mode & io_mode::overwrite) {
+                                mode_str = "wb";
+                        }
+
+                        m_fp = fopen(path.c_str(), mode_str);
+                }
+
+                void close()
+                {
+                        if (ok())
+                                fclose(m_fp);
+                }
+
+                uint8_t peek_byte()
+                {
+                        if (eof()) return 0;
+                        int c = fgetc(m_fp);
+                        ungetc(c, m_fp);
+                        return c;
+                }
+
+                uint8_t read_byte()
+                {
+                        if (eof()) return 0;
+                        return fgetc(m_fp);
+                }
+
+                int32_t read_utf8()
+                {
+                        if (eof()) return 0;
+                        int c = fgetc(m_fp) & 0xff;
+                        if ((c & 0xf8) == 0xf0) {
+                                c |= (fgetc(m_fp) & 0xff) << 8;
+                                c |= (fgetc(m_fp) & 0xff) << 16;
+                                c |= (fgetc(m_fp) & 0xff) << 24;
+                        }
+                        else if ((c & 0xf0) == 0xe0) {
+                                c |= (fgetc(m_fp) & 0xff) << 8;
+                                c |= (fgetc(m_fp) & 0xff) << 16;
+                        }
+                        else if ((c & 0xe0) == 0xc0) {
+                                c |= (fgetc(m_fp) & 0xff) << 8;
+                        }
+                        return c;
+                }
+
+                void write_byte(uint8_t b)
+                {
+                        if (ok())
+                                fputc(b, m_fp);
+                }
+
+                void write_utf8(int32_t c)
+                {
+                        if (ok()) {
+                                /* unsure if the manual unrolling is better than
+                                 * one call to fwrite but here is the manually
+                                 * unrolled putter
+                                if ((c & 0xf8) == 0xf0) {
+                                        fputc((c >>  0) & 0xff, m_fp);
+                                        fputc((c >>  8) & 0xff, m_fp);
+                                        fputc((c >> 16) & 0xff, m_fp);
+                                        fputc((c >> 24) & 0xff, m_fp);
+                                }
+                                else if ((c & 0xf0) == 0xe0) {
+                                        fputc((c >>  0) & 0xff, m_fp);
+                                        fputc((c >>  8) & 0xff, m_fp);
+                                        fputc((c >> 16) & 0xff, m_fp);
+                                }
+                                else if ((c & 0xe0) == 0xc0) {
+                                        fputc((c >>  0) & 0xff, m_fp);
+                                        fputc((c >>  8) & 0xff, m_fp);
+                                }
+                                */
+                                if ((c & 0xf8) == 0xf0) {
+                                        fwrite(&c, 1, 4, m_fp);
+                                }
+                                else if ((c & 0xf0) == 0xe0) {
+                                        fwrite(&c, 1, 3, m_fp);
+                                }
+                                else if ((c & 0xe0) == 0xc0) {
+                                        fwrite(&c, 1, 2, m_fp);
+                                }
+                                else {
+                                        fputc(c & 0xff, m_fp);
+                                }
+                        }
+                }
+
+        private:
+                FILE *m_fp;
+                std::string m_path;
+                io_mode m_mode;
+        };
+
         struct lisp_obj {
                 lisp_obj() {}
                 ~lisp_obj() {}
@@ -406,11 +550,25 @@ namespace lisp {
                         return u.primitive;
                 }
 
+                inline lisp_file_stream *file_stream() const
+                {
+                        return u.file_stream;
+                }
+
+                static inline
+                lisp_value create_file_stream(lisp_file_stream *fs)
+                {
+                        auto ret = new lisp_obj();
+                        ret->m_type = FILE_STREAM_TYPE;
+                        ret->u.file_stream = fs;
+                        return lisp_value(ret);
+                }
+
                 static inline
                 lisp_value create_symbol(const std::string &name)
                 {
                         // create a symbol that has not been interned.
-                        lisp_obj *ret = new lisp_obj();
+                        auto ret = new lisp_obj();
                         ret->m_type = SYM_TYPE;
                         ret->u.symbol = new std::string(name);
                         return lisp_value(ret);
@@ -419,7 +577,7 @@ namespace lisp {
                 static inline
                 lisp_value create_lambda(lisp_value env, lisp_value args, lisp_value body)
                 {
-                        lisp_obj *ret = new lisp_obj();
+                        auto ret = new lisp_obj();
                         ret->m_type = LAMBDA_TYPE;
                         ret->u.lambda = new lisp_lambda { env, args, body };
                         return lisp_value(ret);
@@ -428,7 +586,7 @@ namespace lisp {
                 static inline
                 lisp_value create_simple_array(size_t length)
                 {
-                        lisp_obj *ret = new lisp_obj();
+                        auto ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
                         ret->u.simple_array = new lisp_simple_array(length, LISP_T);
                         return lisp_value(ret);
@@ -437,7 +595,7 @@ namespace lisp {
                 static inline
                 lisp_value create_simple_array(size_t length, lisp_value type)
                 {
-                        lisp_obj *ret = new lisp_obj();
+                        auto ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
                         if (!type.is_type(SYM_TYPE)) {
                                 type = LISP_T;
@@ -490,6 +648,7 @@ namespace lisp {
                         lisp_lambda *lambda;
                         lisp_simple_array *simple_array;
                         lisp_primitive primitive;
+                        lisp_file_stream *file_stream;
                 } u;
         };
 
