@@ -287,13 +287,14 @@
 
 (defmacro dotimes (var-times &body body)
   (let ((var-name (first var-times))
+        (times-name (gensym))
         (times (second var-times))
         (fn-name (gensym)))
-    `(labels ((,fn-name (,var-name)
-                (when (< ,var-name ,times)
+    `(labels ((,fn-name (,var-name ,times-name)
+                (when (< ,var-name ,times-name)
                   ,@body
-                  (,fn-name (+ ,var-name 1)))))
-       (,fn-name 0))))
+                  (,fn-name (+ ,var-name 1) ,times-name))))
+       (,fn-name 0 ,times))))
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
