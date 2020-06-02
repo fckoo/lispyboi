@@ -18,8 +18,10 @@
 (defmacro type-of (obj) (list '%type-of obj))
 (defun type-of (obj) (type-of obj))
 
-(defmacro read () (list '%read))
-(defun read () (read))
+(defmacro read (stm) (if stm
+                         (list '%read stm)
+                         (list '%read)))
+(defun read (stm) (read stm))
 
 (defmacro macro-expand (expr) (list '%macro-expand expr))
 (defun macro-expand (expr) (macro-expand expr))
@@ -60,8 +62,12 @@
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
 (defun /= (&rest vals) (not (apply %= vals)))
 
-(defmacro putchar (character) (list '%putchar character))
-(defun putchar (character) (putchar character))
+(defmacro putchar (character stm) (if stm
+                                      (list '%putchar character stm)
+                                      (list '%putchar character)))
+(defun putchar (character stm) (if stm
+                                   (putchar character stm)
+                                   (putchar character)))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
@@ -230,7 +236,6 @@
 
 (defmacro typecase (keyform &body body)
   (%case-generator (lambda (sym-name type-name)
-                     (print type-name)
                      (cond ((eq 'list type-name)
                             `(listp ,sym-name))
                            (t
@@ -397,11 +402,53 @@
 (defun string/= (x y)
   (not (string= x y)))
 
-;;(defmacro print (obj) (list '%print obj))
-(defun print (object)
-  (cond ((stringp object)
-         (dotimes (i (array-length object))
-           (putchar (aref object i)))
-         (putchar #\newline))
-        (t (%print object))))
+(defmacro open (file-path direction) `(%open ,file-path ,direction))
+(defun open (file-path direction) (open file-path direction))
+(defmacro close (file-stream) `(%close ,file-stream))
+(defun close (file-stream) (close file-stream))
 
+(defun print (object stm)
+  (let ((stm (if stm stm t)))
+    (cond ((stringp object)
+           (dotimes (i (array-length object))
+             (putchar (aref object i) stm))
+           (putchar #\newline stm)
+           object)
+          (t (%print object stm)))))
+
+
+(defmacro until (expr &body body)
+  (let ((fn-name (gensym "UNTIL-LOOP")))
+    `(labels ((,fn-name ()
+                (unless ,expr
+                  ,@body
+                  (,fn-name))))
+       (,fn-name))))
+
+(defmacro while (expr &body body)
+  (let ((fn-name (gensym "WHILE-LOOP")))
+    `(labels ((,fn-name ()
+                (when ,expr
+                  ,@body
+                  (,fn-name))))
+       (,fn-name))))
+
+
+(defmacro with-open-file (var-path-direction &body body)
+  (let ((var (first var-path-direction))
+        (path (second var-path-direction))
+        (direction (third var-path-direction)))
+    `(let ((,var (open ,path ,direction)))
+       (prog1 (progn ,@body)
+         (close ,var)))))
+
+
+(with-open-file (foo "/tmp/okie" 'overwrite)
+  (print (%file-ok foo))
+  (print "yer a b00t" foo))
+
+(with-open-file (foo "/tmp/okie" 'read)
+  (print (%file-ok foo))
+  (print (%file-length foo))
+  (until (%file-eof-p foo)
+         (print (read foo))))

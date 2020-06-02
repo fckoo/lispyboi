@@ -12,10 +12,13 @@
                 if (!(expr)) {                                          \
                         fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
                         fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr); \
-                        fprintf(stderr, "lisp_value was a: %s\n", lisp::repr(value).c_str()); \
+                        fprintf(stderr, "lisp_value was a [0x%x]: %s\n", value->bits(), lisp::repr(value).c_str()); \
                         bt::trace_and_abort(10);                \
                 }                                                       \
         } while (0)
+
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define FLATTEN __attribute__((flatten))
 
 namespace lisp {
 
@@ -71,111 +74,111 @@ namespace lisp {
                 static constexpr uint64_t WTAG_CHAR    = (0b00010ULL << 3) | TAG_OTHER_IMM;
 
                 // An uninitialized lisp_value will be defaulted to NIL
-                inline lisp_value() { u.bits = 0; }
+                FORCE_INLINE lisp_value() { u.bits = 0; }
 
-                inline lisp_value(const lisp_value &other)
+                FORCE_INLINE lisp_value(const lisp_value &other)
                 {
                         u.bits = other.u.bits;
                 }
 
-                inline lisp_value(int64_t fixnum)
+                FORCE_INLINE lisp_value(int64_t fixnum)
                 {
                         u.fixnum_layout.tag = 1;
                         u.fixnum_layout.fixnum = fixnum;
                 }
 
-                inline lisp_value(lisp_obj *pointer)
+                FORCE_INLINE lisp_value(lisp_obj *pointer)
                 {
                         u.obj = pointer;
                 }
 
-                inline lisp_value(lisp_cons *cons)
+                FORCE_INLINE lisp_value(lisp_cons *cons)
                 {
                         u.cons = cons;
                         u.bits |= TAG_CONS;
                 }
 
-                inline lisp_value(lisp_primitive func)
+                FORCE_INLINE lisp_value(lisp_primitive func)
                 {
                         u.primitive_func = func;
                         // @HACK: Can we be certain to fit every primitive function in 61 bits?
                         u.bits = (u.bits << 3) | TAG_PRIM_FUNC;
                 }
 
-                inline lisp_value(int32_t codepoint)
+                FORCE_INLINE lisp_value(int32_t codepoint)
                 {
                         u.bits = WTAG_CHAR;
                         u.character.codepoint = codepoint;
                 }
 
-                inline lisp_value(uint8_t byte)
+                FORCE_INLINE lisp_value(uint8_t byte)
                 {
                         u.bits = WTAG_BYTE;
                         u.byte.byte = byte;
                 }
 
-                inline bool is_fixnum() const
+                FORCE_INLINE bool is_fixnum() const
                 {
                         return u.fixnum_layout.tag != 0;
                 }
 
-                inline bool is_nil() const
+                FORCE_INLINE bool is_nil() const
                 {
                         return bits() == 0;
                 }
 
-                inline bool is_cons() const
+                FORCE_INLINE bool is_cons() const
                 {
                         return tag_bits() == TAG_CONS;
                 }
 
-                inline bool is_lisp_primitive() const
+                FORCE_INLINE bool is_lisp_primitive() const
                 {
                         return tag_bits() == TAG_PRIM_FUNC;
                 }
 
-                inline bool is_object() const
+                FORCE_INLINE bool is_object() const
                 {
                         return tag_bits() == TAG_POINTER;
                 }
 
-                inline int64_t as_fixnum() const
+                FORCE_INLINE int64_t as_fixnum() const
                 {
                         ENSURE_VALUE(this, is_fixnum());
                         return u.fixnum_layout.fixnum;
                 }
 
-                inline int32_t as_character() const
+                FORCE_INLINE int32_t as_character() const
                 {
                         ENSURE_VALUE(this, is_character());
                         return u.character.codepoint;
                 }
 
-                inline int32_t as_byte() const
+                FORCE_INLINE int32_t as_byte() const
                 {
                         ENSURE_VALUE(this, is_byte());
                         return u.byte.byte;
                 }
 
-                inline lisp_value as_nil() const
+                FORCE_INLINE lisp_value as_nil() const
                 {
                         ENSURE_VALUE(this, is_nil());
                         return *this;
                 }
 
-                inline lisp_obj *as_object() const
+                FORCE_INLINE lisp_obj *as_object() const
                 {
                         ENSURE_VALUE(this, is_object());
                         return u.obj;
                 }
 
-                inline const lisp_obj *as_cobject() const
+                FORCE_INLINE const lisp_obj *as_cobject() const
                 {
                         ENSURE_VALUE(this, is_object());
                         return u.obj;
                 }
 
-                inline lisp_cons *as_cons() const
+                FORCE_INLINE lisp_cons *as_cons() const
                 {
                         ENSURE_VALUE(this, is_cons());
                         auto tmp = *this;
@@ -183,7 +186,7 @@ namespace lisp {
                         return tmp.u.cons;
                 }
 
-                inline lisp_primitive as_lisp_primitive() const
+                FORCE_INLINE lisp_primitive as_lisp_primitive() const
                 {
                         ENSURE_VALUE(this, is_lisp_primitive());
                         auto tmp = *this;
@@ -192,51 +195,51 @@ namespace lisp {
                         return tmp.u.primitive_func;
                 }
 
-                inline const bool is_type(LISP_OBJ_TYPE type) const;
+                FORCE_INLINE const bool is_type(LISP_OBJ_TYPE type) const;
 
-                inline bool operator==(lisp_value other) const
+                FORCE_INLINE bool operator==(lisp_value other) const
                 {
                         return other.u.bits == u.bits;
                 }
 
-                inline bool operator!=(lisp_value other) const
+                FORCE_INLINE bool operator!=(lisp_value other) const
                 {
                         return other.u.bits != u.bits;
                 }
 
-                inline uint64_t bits() const
+                FORCE_INLINE uint64_t bits() const
                 {
                         return u.bits;
                 }
 
-                inline uint64_t tag_bits() const
+                FORCE_INLINE uint64_t tag_bits() const
                 {
                         return bits() & 0b111ULL;
                 }
 
-                inline uint64_t wide_tag_bits() const
+                FORCE_INLINE uint64_t wide_tag_bits() const
                 {
                         return bits() & 0xFF;
                 }
 
-                static inline lisp_value invalid_object()
+                static FORCE_INLINE lisp_value invalid_object()
                 {
                         lisp_value invalid;
                         invalid.u.bits = WTAG_INVALID;
                         return invalid;
                 }
 
-                inline bool is_invalid() const
+                FORCE_INLINE bool is_invalid() const
                 {
                         return wide_tag_bits() == WTAG_INVALID;
                 }
 
-                inline bool is_byte() const
+                FORCE_INLINE bool is_byte() const
                 {
                         return wide_tag_bits() == WTAG_BYTE;
                 }
 
-                inline bool is_character() const
+                FORCE_INLINE bool is_character() const
                 {
                         return wide_tag_bits() == WTAG_CHAR;
                 }
@@ -331,22 +334,22 @@ namespace lisp {
                         delete[] m_values;
                 }
 
-                inline lisp_value get(int index) const
+                FORCE_INLINE lisp_value get(int index) const
                 {
                         return m_values[index];
                 }
 
-                inline void set(int index, lisp_value value)
+                FORCE_INLINE void set(int index, lisp_value value)
                 {
                         m_values[index] = value;
                 }
 
-                inline void set_fill_pointer(size_t new_fill_pointer)
+                FORCE_INLINE void set_fill_pointer(size_t new_fill_pointer)
                 {
                         m_fill_pointer = new_fill_pointer;
                 }
 
-                inline void push_back(lisp_value value)
+                FORCE_INLINE void push_back(lisp_value value)
                 {
                         if (m_fill_pointer >= m_capacity) {
                                 size_t new_cap = m_fill_pointer * 1.5;
@@ -360,12 +363,12 @@ namespace lisp {
                         m_values[m_fill_pointer++] = value;
                 }
 
-                inline size_t length() const
+                FORCE_INLINE size_t length() const
                 {
                         return m_fill_pointer;
                 }
 
-                inline lisp_value type() const
+                FORCE_INLINE lisp_value type() const
                 {
                         return m_type;
                 }
@@ -378,7 +381,15 @@ namespace lisp {
                 size_t m_capacity;
         };
 
-        struct lisp_file_stream {
+        struct lisp_stream {
+                static const int end_of_file = 0;
+                virtual int getc() = 0;
+                virtual int peekc() = 0;
+                virtual bool eof() = 0;
+        };
+
+
+        struct lisp_file_stream : lisp_stream {
                 enum io_mode {
                         read = 1 << 0,
                         overwrite = 1 << 1,
@@ -389,14 +400,20 @@ namespace lisp {
 
                 lisp_file_stream()
                         : m_fp(nullptr)
+                        , m_path()
+                        , m_mode()
                         {}
+
+                inline const std::string &path() const {
+                        return m_path;
+                }
 
                 inline bool ok() const
                 {
                         return m_fp != nullptr;
                 }
 
-                inline bool eof() const
+                inline bool eof()
                 {
                         if (!ok()) return true;
                         return feof(m_fp);
@@ -406,6 +423,21 @@ namespace lisp {
                 {
                         if (ok())
                                 fflush(m_fp);
+                }
+                
+                inline size_t length()
+                {
+                        if (!ok()) return 0;
+                        auto original_pos = ftell(m_fp);
+                        fseek(m_fp, 0, SEEK_END);
+                        auto size = ftell(m_fp);
+                        fseek(m_fp, original_pos, SEEK_SET);
+                        return size;
+                }
+                
+                inline io_mode mode() const
+                {
+                        return m_mode;
                 }
 
                 void open(const std::string &path, io_mode mode)
@@ -417,10 +449,10 @@ namespace lisp {
                         const char *mode_str = "rb";
                         if (mode & io_mode::read) {
                                 if (mode & io_mode::append) {
-                                        mode_str = "ab+";
+                                        mode_str = "rab";
                                 }
                                 else if (mode & io_mode::overwrite) {
-                                        mode_str = "rb+";
+                                        mode_str = "rwb";
                                 }
                         }
                         else if (mode & io_mode::append) {
@@ -431,17 +463,33 @@ namespace lisp {
                         }
 
                         m_fp = fopen(path.c_str(), mode_str);
+                        if (!m_fp) {
+                                int x = errno;
+                                printf("%s, errono: %d, %s\n", mode_str, x, strerror(x));
+                        }
                 }
 
                 void close()
                 {
-                        if (ok())
+                        if (ok()) {
                                 fclose(m_fp);
+                                m_fp = nullptr;
+                        }
+                }
+
+                int getc()
+                {
+                        return read_byte();
+                }
+
+                int peekc() 
+                {
+                        return peek_byte();
                 }
 
                 uint8_t peek_byte()
                 {
-                        if (eof()) return 0;
+                        if (eof()) return end_of_file;
                         int c = fgetc(m_fp);
                         ungetc(c, m_fp);
                         return c;
@@ -449,13 +497,13 @@ namespace lisp {
 
                 uint8_t read_byte()
                 {
-                        if (eof()) return 0;
+                        if (eof()) return end_of_file;
                         return fgetc(m_fp);
                 }
 
                 int32_t read_utf8()
                 {
-                        if (eof()) return 0;
+                        if (eof()) return end_of_file;
                         int c = fgetc(m_fp) & 0xff;
                         if ((c & 0xf8) == 0xf0) {
                                 c |= (fgetc(m_fp) & 0xff) << 8;
@@ -471,14 +519,22 @@ namespace lisp {
                         }
                         return c;
                 }
-
-                void write_byte(uint8_t b)
+                
+                size_t write(const std::string &str) 
                 {
                         if (ok())
-                                fputc(b, m_fp);
+                                return fwrite(str.data(), 1, str.size(), m_fp);
+                        return 0;
                 }
 
-                void write_utf8(int32_t c)
+                size_t write_byte(uint8_t b)
+                {
+                        if (ok())
+                                return fputc(b, m_fp) != EOF;
+                        return 0;
+                }
+
+                size_t write_utf8(int32_t c)
                 {
                         if (ok()) {
                                 /* unsure if the manual unrolling is better than
@@ -501,21 +557,40 @@ namespace lisp {
                                 }
                                 */
                                 if ((c & 0xf8) == 0xf0) {
-                                        fwrite(&c, 1, 4, m_fp);
+                                        return fwrite(&c, 1, 4, m_fp);
                                 }
                                 else if ((c & 0xf0) == 0xe0) {
-                                        fwrite(&c, 1, 3, m_fp);
+                                        return fwrite(&c, 1, 3, m_fp);
                                 }
                                 else if ((c & 0xe0) == 0xc0) {
-                                        fwrite(&c, 1, 2, m_fp);
+                                        return fwrite(&c, 1, 2, m_fp);
                                 }
                                 else {
-                                        fputc(c & 0xff, m_fp);
+                                        return fputc(c & 0xff, m_fp) != EOF;
                                 }
                         }
+                        return 0;
                 }
 
+
+                static lisp_file_stream *new_stdin()
+                {
+                        return new lisp_file_stream(stdin, "<stdin>", io_mode::read);
+                }
+                static lisp_file_stream *new_stdout()
+                {
+                        return new lisp_file_stream(stdout, "<stdout>", io_mode::append);
+                }
+                static lisp_file_stream *new_stderr()
+                {
+                        return new lisp_file_stream(stderr, "<stderr>", io_mode::append);
+                }
         private:
+                lisp_file_stream(FILE *fp, const std::string &path, io_mode mode)
+                        : m_fp(fp)
+                        , m_path(path)
+                        , m_mode(mode)
+                        {}
                 FILE *m_fp;
                 std::string m_path;
                 io_mode m_mode;
@@ -543,11 +618,6 @@ namespace lisp {
                 inline lisp_simple_array *simple_array() const
                 {
                         return u.simple_array;
-                }
-
-                inline lisp_primitive primitive() const
-                {
-                        return u.primitive;
                 }
 
                 inline lisp_file_stream *file_stream() const
@@ -641,16 +711,64 @@ namespace lisp {
                         return lisp_value(ret);
                 }
 
+                static lisp_value standard_input_stream()
+                {
+                        static auto lfs = lisp_file_stream::new_stdin();
+                        static auto obj = create_file_stream(lfs);
+                        return lisp_value(obj);
+                }
+
+                static lisp_value standard_output_stream()
+                {
+                        static auto lfs = lisp_file_stream::new_stdout();
+                        static auto obj = create_file_stream(lfs);
+                        return lisp_value(obj);
+                }
+
+                static lisp_value standard_error_stream()
+                {
+                        static auto lfs = lisp_file_stream::new_stderr();
+                        static auto obj = create_file_stream(lfs);
+                        return lisp_value(obj);
+                }
+
         private:
                 LISP_OBJ_TYPE m_type;
                 union {
                         std::string *symbol;
                         lisp_lambda *lambda;
                         lisp_simple_array *simple_array;
-                        lisp_primitive primitive;
                         lisp_file_stream *file_stream;
                 } u;
         };
+        
+        static inline std::string lisp_string_to_native_string(lisp_value str)
+        {
+                std::string ret;
+                auto array = str.as_object()->simple_array();
+                for (size_t i = 0; i < array->length(); ++i) {
+                        auto c = array->get(i).as_character();
+                        if ((c & 0xf8) == 0xf0) {
+                                ret.push_back(static_cast<char>((c >>  0) & 0xff));
+                                ret.push_back(static_cast<char>((c >>  8) & 0xff));
+                                ret.push_back(static_cast<char>((c >> 16) & 0xff));
+                                ret.push_back(static_cast<char>((c >> 24) & 0xff));
+                        }
+                        else if ((c & 0xf0) == 0xe0) {
+                                ret.push_back(static_cast<char>((c >>  0) & 0xff));
+                                ret.push_back(static_cast<char>((c >>  8) & 0xff));
+                                ret.push_back(static_cast<char>((c >> 16) & 0xff));
+                        }
+                        else if ((c & 0xe0) == 0xc0) {
+                                ret.push_back(static_cast<char>((c >>  0) & 0xff));
+                                ret.push_back(static_cast<char>((c >>  8) & 0xff));
+                        }
+                        else {
+                                ret.push_back(static_cast<char>(c & 0xff));
+                        }
+                }
+                return ret;
+        }
 
         inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
         {
@@ -658,14 +776,6 @@ namespace lisp {
                         is_object() &&
                         as_object()->type() == type;
         }
-
-        struct lisp_stream {
-                static const int end_of_file = -1;
-                virtual int getc() = 0;
-                virtual int peekc() = 0;
-                virtual bool eof() = 0;
-        };
-
 
         lisp_value intern_symbol(const std::string &symbol_name);
         std::string pretty_print(lisp_value obj);
@@ -676,47 +786,59 @@ namespace lisp {
         lisp_value macro_expand(lisp_value obj);
         lisp_value evaluate(lisp_value env, lisp_value obj);
         lisp_value apply(lisp_value env, lisp_value function, lisp_value obj);
-
-        static inline void set_car(lisp_value cons, lisp_value val)
+        
+        static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
         {
                 // @TODO: Throw error if not cons.
                 cons.as_cons()->car = val;
         }
 
-        static inline void set_cdr(lisp_value cons, lisp_value val)
+        static FORCE_INLINE void set_cdr(lisp_value cons, lisp_value val)
         {
                 // @TODO: Throw error if not cons.
                 cons.as_cons()->cdr = val;
         }
 
-        static inline lisp_value car(lisp_value obj)
+        static FORCE_INLINE lisp_value car(lisp_value obj)
         {
                 // @TODO: Throw error if not nil or cons.
                 if (obj.is_nil()) return obj;
                 return obj.as_cons()->car;
         }
 
-        static inline lisp_value cdr(lisp_value obj)
+        static FORCE_INLINE lisp_value cdr(lisp_value obj)
         {
                 // @TODO: Throw error if not nil or cons.
                 if (obj.is_nil()) return obj;
                 return obj.as_cons()->cdr;
         }
 
-        static inline lisp_value cddr(lisp_value obj)    { return cdr(cdr(obj)); }
-        static inline lisp_value cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
-        static inline lisp_value cadr(lisp_value obj)    { return car(cdr(obj)); }
-        static inline lisp_value caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
-        static inline lisp_value cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
-        static inline lisp_value caar(lisp_value obj)    { return car(car(obj)); }
-        static inline lisp_value cdar(lisp_value obj)    { return cdr(car(obj)); }
-        static inline lisp_value first(lisp_value obj)   { return car(obj); }
-        static inline lisp_value rest(lisp_value obj)    { return cdr(obj); }
-        static inline lisp_value second(lisp_value obj)  { return cadr(obj); }
-        static inline lisp_value third(lisp_value obj)   { return caddr(obj); }
-        static inline lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
+        FLATTEN static inline
+        lisp_value cddr(lisp_value obj)    { return cdr(cdr(obj)); }
+        FLATTEN static inline 
+        lisp_value cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
+        FLATTEN static inline 
+        lisp_value cadr(lisp_value obj)    { return car(cdr(obj)); }
+        FLATTEN static inline 
+        lisp_value caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
+        FLATTEN static inline
+        lisp_value cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
+        FLATTEN static inline 
+        lisp_value caar(lisp_value obj)    { return car(car(obj)); }
+        FLATTEN static inline
+        lisp_value cdar(lisp_value obj)    { return cdr(car(obj)); }
+        FLATTEN static inline
+        lisp_value first(lisp_value obj)   { return car(obj); }
+        FLATTEN static inline
+        lisp_value rest(lisp_value obj)    { return cdr(obj); }
+        FLATTEN static inline
+        lisp_value second(lisp_value obj)  { return cadr(obj); }
+        FLATTEN static inline
+        lisp_value third(lisp_value obj)   { return caddr(obj); }
+        FLATTEN static inline
+        lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
 
-        static inline lisp_value cons(lisp_value car, lisp_value cdr)
+        FLATTEN static FORCE_INLINE lisp_value cons(lisp_value car, lisp_value cdr)
         {
                 lisp_cons *ret = new lisp_cons();
                 ret->car = car;
@@ -740,6 +862,38 @@ namespace lisp {
         {
                 return cons(first, list(rest...));
         }
+
+        static FORCE_INLINE
+        lisp_value push(lisp_value item, lisp_value place)
+        {
+                if (place == LISP_NIL) {
+                        return cons(item, LISP_NIL);
+                }
+                auto original = car(place);
+                set_car(place, item);
+                set_cdr(place, cons(original, cdr(place)));
+                return place;
+        }
+
+        static FORCE_INLINE
+        lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
+        {
+                /* env is a list of pairs mapping symbols to their corresponding value in the form of
+                 * ((symbol . value) (symbol . value) (symbol . value))
+                 */
+                if (env.is_cons()) {
+                        while (env != LISP_NIL) {
+                                auto pair = car(env);
+                                auto s = car(pair);
+                                auto v = cdr(pair);
+                                if (s == symbol)
+                                        return pair;
+                                env = cdr(env);
+                        }
+                }
+                return lisp_value::invalid_object();
+        }
+
 }
 
 #endif

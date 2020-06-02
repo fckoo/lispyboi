@@ -65,11 +65,24 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
 lisp_value lisp_prim_print(lisp_value env, lisp_value args)
 {
         /***
-            (print obj)
+            (print obj &optional stream)
         */
-        printf("%s\n", repr(car(args)).c_str());
-        // @TODO: Whenever we support strings, maybe prim_print returns that string??
-        return LISP_NIL;
+        lisp_file_stream *stm = nullptr;
+        if (cdr(args) == LISP_NIL || second(args) == LISP_T) {
+                auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
+                if (_stdout != LISP_NIL) {
+                        stm = _stdout.as_object()->file_stream();
+                }
+        }
+        else {
+                stm = second(args).as_object()->file_stream();
+        }
+        auto s = repr(car(args));
+        if (stm) {
+                stm->write(s);
+                stm->write_byte('\n');
+        }
+        return lisp_obj::create_string(s);
 }
 
 lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
@@ -200,13 +213,25 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
 {
         /***
-            (putchar character)
+            (putchar character &optional stm)
         */
 
-        //putchar(car(args).as_character());
+        lisp_file_stream *stm = nullptr;
+        if (cdr(args) == LISP_NIL || second(args) == LISP_T) {
+                auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
+                if (_stdout != LISP_NIL) {
+                        stm = _stdout.as_object()->file_stream();
+                }
+        }
+        else {
+                stm = second(args).as_object()->file_stream();
+        }
         auto codepoint = car(args).as_character();
-        fputs(reinterpret_cast<const char*>(&codepoint), stdout);
-        return LISP_NIL;
+        int64_t bytes_written = 0;
+        if (stm) {
+                bytes_written = stm->write_utf8(codepoint);
+        }
+        return lisp_value(bytes_written);
 }
 
 lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
@@ -239,7 +264,6 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
                         } break;
 
                 }
-                printf("fuck\n");
                 return LISP_NIL;
         }
         if (it.is_lisp_primitive()) {
@@ -254,7 +278,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
 lisp_value lisp_prim_read(lisp_value, lisp_value args)
 {
         /***
-            (read)
+            (read &optional file-stream)
         */
 
         if (args.is_nil()) {
@@ -264,7 +288,7 @@ lisp_value lisp_prim_read(lisp_value, lisp_value args)
                 return result;
         }
         else {
-                NYI("yer a boot.");
+                return parse(*car(args).as_object()->file_stream());
         }
         return LISP_NIL;
 }
@@ -352,7 +376,7 @@ lisp_value lisp_prim_get_env(lisp_value env, lisp_value)
         return env;
 }
 
-lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
+lisp_value lisp_prim_gensym(lisp_value, lisp_value args)
 {
         /***
             (gensym &optional hint)
@@ -361,11 +385,7 @@ lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
         auto hint = first(args);
         std::string sym_name;
         if (hint != LISP_NIL) {
-                auto array = hint.as_object()->simple_array();
-                for (size_t i = 0; i < array->length(); ++i) {
-                        auto codepoint = array->get(i).as_character();
-                        sym_name += reinterpret_cast<const char*>(&codepoint);
-                }
+                sym_name = lisp_string_to_native_string(hint);
         }
         else {
                 sym_name = "G";
@@ -375,7 +395,7 @@ lisp_value lisp_prim_gensym(lisp_value , lisp_value args)
         return lisp_obj::create_symbol(sym_name);
 }
 
-lisp_value lisp_prim_make_symbol(lisp_value , lisp_value args)
+lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args)
 {
         /***
             (make-symbol symbol-name)
@@ -390,7 +410,7 @@ lisp_value lisp_prim_make_symbol(lisp_value , lisp_value args)
         return lisp_obj::create_symbol(name);
 }
 
-lisp_value lisp_prim_exit(lisp_value , lisp_value args)
+lisp_value lisp_prim_exit(lisp_value, lisp_value args)
 {
         /***
             (exit n)
@@ -402,7 +422,7 @@ lisp_value lisp_prim_exit(lisp_value , lisp_value args)
         exit(code);
 }
 
-lisp_value lisp_prim_make_array(lisp_value , lisp_value args)
+lisp_value lisp_prim_make_array(lisp_value, lisp_value args)
 {
         /***
             (make-array length &optional type)
@@ -415,7 +435,7 @@ lisp_value lisp_prim_make_array(lisp_value , lisp_value args)
 
 }
 
-lisp_value lisp_prim_aref(lisp_value , lisp_value args)
+lisp_value lisp_prim_aref(lisp_value, lisp_value args)
 {
         /***
             (aref array subscript)
@@ -427,7 +447,7 @@ lisp_value lisp_prim_aref(lisp_value , lisp_value args)
         return array.as_object()->simple_array()->get(subscript.as_fixnum());
 }
 
-lisp_value lisp_prim_set_aref(lisp_value , lisp_value args)
+lisp_value lisp_prim_set_aref(lisp_value, lisp_value args)
 {
         /***
             (set-aref array subscript value)
@@ -441,7 +461,7 @@ lisp_value lisp_prim_set_aref(lisp_value , lisp_value args)
         return value;
 }
 
-lisp_value lisp_prim_array_length(lisp_value , lisp_value args)
+lisp_value lisp_prim_array_length(lisp_value, lisp_value args)
 {
         /***
             (array-length array)
@@ -454,7 +474,7 @@ lisp_value lisp_prim_array_length(lisp_value , lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_array_type(lisp_value , lisp_value args)
+lisp_value lisp_prim_array_type(lisp_value, lisp_value args)
 {
         /***
             (array-type array)
@@ -466,7 +486,7 @@ lisp_value lisp_prim_array_type(lisp_value , lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_bits_of(lisp_value , lisp_value args)
+lisp_value lisp_prim_bits_of(lisp_value, lisp_value args)
 {
         /***
             (bits-of object)
@@ -482,7 +502,7 @@ lisp_value lisp_prim_bits_of(lisp_value , lisp_value args)
         return ret;
 }
 
-lisp_value lisp_prim_code_char(lisp_value , lisp_value args)
+lisp_value lisp_prim_code_char(lisp_value, lisp_value args)
 {
         /***
             (code-char integer)
@@ -491,7 +511,7 @@ lisp_value lisp_prim_code_char(lisp_value , lisp_value args)
         return lisp_value(static_cast<int32_t>(char_code));
 }
 
-lisp_value lisp_prim_char_code(lisp_value , lisp_value args)
+lisp_value lisp_prim_char_code(lisp_value, lisp_value args)
 {
         /***
             (char-code character)
@@ -500,12 +520,109 @@ lisp_value lisp_prim_char_code(lisp_value , lisp_value args)
         return lisp_value(static_cast<int64_t>(character));
 }
 
+lisp_value lisp_prim_open(lisp_value, lisp_value args)
+{
+        /***
+            (open file-path direction)
+         */
+        auto path = lisp_string_to_native_string(first(args));
+        auto direction = second(args);
+        lisp_file_stream *fs = nullptr;
+        if (direction == intern_symbol("OVERWRITE")) {
+                fs = new lisp_file_stream();
+                fs->open(path, lisp_file_stream::io_mode::overwrite);
+        }
+        else if (direction == intern_symbol("READ")) {
+                fs = new lisp_file_stream();
+                fs->open(path, lisp_file_stream::io_mode::read);
+        }
+        else if (direction == intern_symbol("APPEND")) {
+                fs = new lisp_file_stream();
+                fs->open(path, lisp_file_stream::io_mode::append);
+        }
+        if (fs) {
+                return lisp_obj::create_file_stream(fs);
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_close(lisp_value, lisp_value args)
+{
+        /***
+            (close file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                it.as_object()->file_stream()->close();
+                return LISP_T;
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_length(lisp_value, lisp_value args)
+{
+        /***
+            (file-length file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                auto size = it.as_object()->file_stream()->length();
+                return lisp_value(static_cast<int64_t>(size));
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_ok(lisp_value, lisp_value args)
+{
+        /***
+            (file-ok file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                return it.as_object()->file_stream()->ok() ? LISP_T : LISP_NIL;
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_eof(lisp_value, lisp_value args)
+{
+        /***
+            (file-eof-p file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                return it.as_object()->file_stream()->eof() ? LISP_T : LISP_NIL;
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_mode(lisp_value, lisp_value args)
+{
+        /***
+            (file-mode file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                int64_t mode = it.as_object()->file_stream()->mode();
+                return lisp_value(mode);
+        }
+        return LISP_NIL;
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
         auto prim_object = lisp_value(primitive);
         auto symbol = intern_symbol(symbol_name);
         auto binding = cons(symbol, prim_object);
+        environment = cons(binding, environment);
+}
+
+static inline
+void bind_value(lisp_value &environment, const std::string &symbol_name, lisp_value value)
+{
+        auto symbol = intern_symbol(symbol_name);
+        auto binding = cons(symbol, value);
         environment = cons(binding, environment);
 }
 
@@ -543,4 +660,15 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%CHAR-CODE", lisp_prim_char_code);
         BIND_PRIM("%CODE-CHAR", lisp_prim_code_char);
         BIND_PRIM("%BITS-OF", lisp_prim_bits_of);
+        BIND_PRIM("%OPEN", lisp_prim_open);
+        BIND_PRIM("%CLOSE", lisp_prim_close);
+        BIND_PRIM("%FILE-LENGTH", lisp_prim_file_length);
+        BIND_PRIM("%FILE-MODE", lisp_prim_file_mode);
+        BIND_PRIM("%FILE-EOF-P", lisp_prim_file_eof);
+        BIND_PRIM("%FILE-OK", lisp_prim_file_ok);
+        
+        
+        bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
+        bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
+        bind_value(environment, "*STANDARD-ERROR*", lisp_obj::standard_error_stream());
 }

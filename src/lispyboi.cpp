@@ -99,40 +99,6 @@ private:
         std::string m_data;
 };
 
-struct lisp_ifstream : lisp_stream {
-
-        inline
-        lisp_ifstream(std::ifstream &&ifstream)
-                : m_ifs(std::move(ifstream)) {}
-
-        int peekc()
-        {
-                auto c = m_ifs.peek();
-                if (c == m_ifs.eof()) {
-                        return end_of_file;
-                }
-                return c;
-        }
-
-        int getc()
-        {
-                auto c = m_ifs.get();
-                if (c == m_ifs.eof()) {
-                        return end_of_file;
-                }
-                return c;
-        }
-
-        bool eof()
-        {
-                return peekc() == end_of_file;
-        }
-
-
-private:
-        std::ifstream m_ifs;
-};
-
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
 lisp_value LISP_BASE_ENVIRONMENT;
 namespace lisp {
@@ -190,10 +156,6 @@ std::string lisp::repr(lisp_value obj)
                         lisp_value current = cdr(obj);
                         while (current != LISP_NIL) {
                                 result += " ";
-                                /* @AUDIT: There's a big in here that results in a stack overflow.
-                                   In the repl you can (print (%get-env)) and it will correctly print
-                                   it, but if you just do (%get-env) the repl stack overflows at this line
-                                */
                                 result += repr(car(current));
                                 current = cdr(current);
                                 if (!current.is_nil() && !current.is_cons()) {
@@ -266,11 +228,16 @@ std::string lisp::repr(lisp_value obj)
                                 }
                                 result += ")";
                         } break;
+                        case FILE_STREAM_TYPE: {
+                                result += "#<FILE-STREAM ";
+                                result += obj.as_object()->file_stream()->path();
+                                result += ">";
+                        } break;
                 }
         }
         else if (obj.is_lisp_primitive()) {
                 ss << "#<PRIMITIVE 0x";
-                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->primitive());
+                ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_lisp_primitive());
                 ss << ">";
                 result = ss.str();
         }
@@ -347,7 +314,7 @@ lisp_value lisp::parse(lisp_stream &stream)
         // symbol = anything not (), is not whitespace, doesnt start with int
         // an int = series of numbas :^) basically
         // a char: #\<anything>
-        while (stream.peekc() != stream.end_of_file) {
+        while (!stream.eof()) {
                 consume_whitespace(stream);
                 if (stream.peekc() == ';') {
                         stream.getc();
@@ -491,39 +458,6 @@ lisp_value lisp::parse(lisp_stream &stream)
                         if (stream.peekc() == ')')
                                 stream.getc();
                         return head;
-                }
-        }
-        return lisp_value::invalid_object();
-}
-
-static inline
-__attribute__((always_inline))
-lisp_value push(lisp_value item, lisp_value place)
-{
-        if (place == LISP_NIL) {
-                return cons(item, LISP_NIL);
-        }
-        auto original = car(place);
-        set_car(place, item);
-        set_cdr(place, cons(original, cdr(place)));
-        return place;
-}
-
-static inline
-__attribute__((always_inline))
-lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
-{
-        /* env is a list of pairs mapping symbols to their corresponding value in the form of
-         * ((symbol . value) (symbol . value) (symbol . value))
-         */
-        if (env.is_cons()) {
-                while (env != LISP_NIL) {
-                        auto pair = car(env);
-                        auto s = car(pair);
-                        auto v = cdr(pair);
-                        if (s == symbol)
-                                return pair;
-                        env = cdr(env);
                 }
         }
         return lisp_value::invalid_object();
@@ -838,7 +772,7 @@ void initialize_globals()
 bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value)
 {
         static lisp_string_stream stream;
-        if (stream.peekc() == stream.end_of_file) {
+        if (stream.eof()) {
                 char *input = readline(prompt_top_level);
                 if (!input) return false;
                 stream.clear();
@@ -874,19 +808,18 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
         return true;
 }
 
-void eval_fstream(std::ifstream &fs)
+void eval_fstream(lisp_stream &stm)
 {
-        lisp_ifstream ifs(std::move(fs));
-        while (ifs.peekc() != ifs.end_of_file) {
-                lisp_value obj = parse(ifs);
+        while (!stm.eof()) {
+                lisp_value obj = parse(stm);
                 if (obj.is_invalid()) {
-                        consume_whitespace(ifs);
-                        if (ifs.eof()) return;
+                        consume_whitespace(stm);
+                        if (stm.eof()) return;
                         abort();
                 }
                 lisp_value expanded = macro_expand(obj);
                 evaluate(LISP_BASE_ENVIRONMENT, expanded);
-                consume_whitespace(ifs);
+                consume_whitespace(stm);
         }
 }
 
@@ -908,11 +841,12 @@ int main(int argc, char *argv[])
         if (!repl && file_paths.size() == 0)
                 repl = true;
 
-        std::vector<std::ifstream> fstreams;
+        std::vector<lisp_file_stream*> fstreams;
         for (auto &path : file_paths) {
-                std::ifstream f(path, std::ios::binary);
-                if (f.is_open()) {
-                        fstreams.push_back(std::move(f));
+                auto f = new lisp_file_stream();
+                f->open(path, lisp_file_stream::io_mode::read);
+                if (f->ok()) {
+                        fstreams.push_back(f);
                 }
                 else {
                         fprintf(stderr, "File not accessible: %s\n", path.c_str());
@@ -921,8 +855,10 @@ int main(int argc, char *argv[])
         }
 
         initialize_globals();
-        for (auto &fs : fstreams) {
-                eval_fstream(fs);
+        for (auto fs : fstreams) {
+                eval_fstream(*fs);
+                fs->close();
+                delete fs;
         }
 
         if (repl) {
@@ -938,8 +874,8 @@ int main(int argc, char *argv[])
                         lisp_value expanded = macro_expand(parsed);
                         lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
                         std::string result_sym_name = "$$" + std::to_string(result_counter++);
-                        bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
-                        bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
+                        //bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
+                        //bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
                         printf("%5s => ", result_sym_name.c_str());
                         pretty_print(result);
                 }
