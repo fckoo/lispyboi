@@ -298,6 +298,9 @@ namespace lisp {
         extern lisp_value LISP_SYM_UNQUOTESPLICING;
         extern lisp_value LISP_SYM_SIMPLE_ARRAY;
         extern lisp_value LISP_SYM_ARRAY;
+        extern lisp_value LISP_SYM_AMP_REST;
+        extern lisp_value LISP_SYM_AMP_BODY;
+        extern lisp_value LISP_SYM_AMP_OPTIONAL;
 
         struct lisp_cons {
                 lisp_value car;
@@ -314,14 +317,14 @@ namespace lisp {
                 /* A lisp_simple_array is just an array of lisp_values. */
 
                 lisp_simple_array(size_t capacity)
-                        : m_values(new lisp_value[capacity]())
+                        : m_values(capacity ? new lisp_value[capacity]() : nullptr)
                         , m_type(LISP_T)
                         , m_fill_pointer(capacity)
                         , m_capacity(capacity)
                         {}
 
                 lisp_simple_array(size_t capacity, lisp_value type)
-                        : m_values(new lisp_value[capacity])
+                        : m_values(capacity ? new lisp_value[capacity]() : nullptr)
                         , m_type(type)
                         , m_fill_pointer(capacity)
                         , m_capacity(capacity)
@@ -391,6 +394,7 @@ namespace lisp {
 
         struct lisp_file_stream : lisp_stream {
                 enum io_mode {
+                        invalid = 0,
                         read = 1 << 0,
                         overwrite = 1 << 1,
                         append = 1 << 2,
@@ -446,27 +450,27 @@ namespace lisp {
                                 close();
                         m_path = path;
                         m_mode = mode;
-                        const char *mode_str = "rb";
+                        const char *mode_str = "rb+";
                         if (mode & io_mode::read) {
                                 if (mode & io_mode::append) {
-                                        mode_str = "rab";
+                                        mode_str = "rab+";
                                 }
                                 else if (mode & io_mode::overwrite) {
-                                        mode_str = "rwb";
+                                        mode_str = "rwb+";
                                 }
                         }
                         else if (mode & io_mode::append) {
-                                mode_str = "ab";
+                                mode_str = "ab+";
                         }
                         else if (mode & io_mode::overwrite) {
-                                mode_str = "wb";
+                                mode_str = "wb+";
                         }
 
                         m_fp = fopen(path.c_str(), mode_str);
-                        if (!m_fp) {
-                                int x = errno;
-                                printf("%s, errono: %d, %s\n", mode_str, x, strerror(x));
-                        }
+                        //if (!m_fp) {
+                        //        int x = errno;
+                        //        printf("%s\n\t%s\n", strerror(x), path.c_str());
+                        //}
                 }
 
                 void close()
@@ -673,14 +677,14 @@ namespace lisp {
                         ret->u.simple_array = new lisp_simple_array(length, type);
                         return lisp_value(ret);
                 }
-
+                
                 static inline
-                lisp_value create_string(const std::string &str)
+                lisp_value create_string(const char *str, size_t len)
                 {
                         auto array = new lisp_simple_array(8, LISP_SYM_CHARACTER);
                         array->set_fill_pointer(0);
                         // valid utf-8 codepoint enumeration
-                        for(size_t i = 0; i < str.length();) {
+                        for(size_t i = 0; i < len;) {
                                 int cp_len = 1;
                                 int32_t cp_mask = 0x000000ff;
 
@@ -697,11 +701,11 @@ namespace lisp {
                                         cp_len = 2;
                                 }
 
-                                if ((i + cp_len) > str.length()) {
+                                if ((i + cp_len) > len) {
                                         cp_mask = 0x000000ff;
                                         cp_len = 1;
                                 }
-                                auto codepoint = (*reinterpret_cast<const int32_t*>(str.data() + i)) & cp_mask;
+                                auto codepoint = (*reinterpret_cast<const int32_t*>(str + i)) & cp_mask;
                                 array->push_back(codepoint);
                                 i += cp_len;
                         }
@@ -709,6 +713,12 @@ namespace lisp {
                         ret->m_type = SIMPLE_ARRAY_TYPE;
                         ret->u.simple_array = array;
                         return lisp_value(ret);
+                }
+
+                static inline
+                lisp_value create_string(const std::string &str)
+                {
+                        return create_string(str.data(), str.size());
                 }
 
                 static lisp_value standard_input_stream()

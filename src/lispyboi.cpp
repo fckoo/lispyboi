@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <cassert>
-#include <fstream>
+#include <filesystem>
 
 #include "lisp.hpp"
 #include "primitives.hpp"
@@ -122,6 +122,9 @@ namespace lisp {
         lisp_value LISP_SYM_UNQUOTESPLICING;
         lisp_value LISP_SYM_SIMPLE_ARRAY;
         lisp_value LISP_SYM_ARRAY;
+        lisp_value LISP_SYM_AMP_REST;
+        lisp_value LISP_SYM_AMP_BODY;
+        lisp_value LISP_SYM_AMP_OPTIONAL;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -474,8 +477,7 @@ lisp_value assoc(lisp_value item, lisp_value alist)
                 return assoc(item, cdr(alist));
 }
 
-static inline
-__attribute__((always_inline))
+static FORCE_INLINE
 lisp_value evaluate_list(lisp_value env, lisp_value list)
 {
         if (list == LISP_NIL)
@@ -505,8 +507,7 @@ lisp_value for_each(lisp_value head, T function)
         return head;
 }
 
-static inline
-__attribute__((always_inline))
+static FORCE_INLINE
 lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
 {
         auto tmp = symbol_lookup(env, symbol);
@@ -520,13 +521,73 @@ lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
         return cdr(tmp);
 }
 
-static inline
-__attribute__((always_inline))
+static FORCE_INLINE
 lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
 {
         auto binding = cons(symbol, value);
         auto shadow_env = cons(binding, env);
         return shadow_env;
+}
+
+static
+bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value args)
+{
+        // &BODY and &REST are synonyms here.
+        // (defun foo ()) => no arguments
+        // (defun foo (a b &optional c)) => two required and one optional
+        // (defun foo (a b &rest rest)) => two required and any number more
+        // (defun foo (a b &optional c &rest rest)) => two required, one optional, and any number more
+        // (defun foo (&optional a b c &rest rest)) => three optional and any number more
+        bool allowing_optional = false;
+        while (params != LISP_NIL && args != LISP_NIL) {
+                auto sym = first(params);
+                if (allowing_optional && sym.is_cons()) {
+                        sym = first(sym);
+                }
+                else if (sym == LISP_SYM_AMP_REST || sym == LISP_SYM_AMP_BODY) {
+                        sym = second(params);
+                        shadowed_env = shadow(shadowed_env, sym, args);
+                        return true;
+                }
+                else if (sym == LISP_SYM_AMP_OPTIONAL) {
+                        allowing_optional = true;
+                        params = rest(params);
+                        continue;
+                }
+                shadowed_env = shadow(shadowed_env, sym, first(args));
+                params = rest(params);
+                args = rest(args);
+        }
+        
+        if (params != LISP_NIL) {
+                if (first(params) == LISP_SYM_AMP_REST || first(params) == LISP_SYM_AMP_BODY) {
+                        shadowed_env = shadow(shadowed_env, second(params), LISP_NIL);
+                        return true;
+                }
+                else if (first(params) == LISP_SYM_AMP_OPTIONAL) {
+                        allowing_optional = true;
+                        params = rest(params);
+                }
+        
+                if (allowing_optional) {
+                        while (params != LISP_NIL) {
+                                auto sym = first(params);
+                                auto val = LISP_NIL;
+                                if (sym.is_cons()) {
+                                        val = evaluate(shadowed_env, second(sym));
+                                        sym = car(sym);
+                                }
+                                else if (sym == LISP_SYM_AMP_REST || sym == LISP_SYM_AMP_BODY) {
+                                        sym = second(params);
+                                        shadowed_env = shadow(shadowed_env, sym, val);
+                                        return true;
+                                }
+                                shadowed_env = shadow(shadowed_env, sym, val);
+                                params = rest(params);
+                        }
+                }
+        }
+        return params == LISP_NIL;
 }
 
 lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
@@ -537,17 +598,9 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
         else if (function.as_object()->type() == LAMBDA_TYPE) {
                 auto params = function.as_object()->lambda()->args;
                 auto shadowed_env = function.as_object()->lambda()->env;
-                while (params != LISP_NIL) {
-                        auto sym = first(params);
-                        if (*(sym.as_object()->symbol()) == "&REST" ||
-                            *(sym.as_object()->symbol()) == "&BODY") {
-                                sym = second(params);
-                                shadowed_env = shadow(shadowed_env, sym, args);
-                                break;
-                        }
-                        shadowed_env = shadow(shadowed_env, sym, first(args));
-                        params = rest(params);
-                        args = rest(args);
+                if (!apply_arguments(shadowed_env, params, args)) {
+                        pretty_print(function);
+                        abort();
                 }
                 auto body = function.as_object()->lambda()->body;
                 auto result = LISP_NIL;
@@ -622,17 +675,9 @@ tailcall:
                         else if (function.as_object()->type() == LAMBDA_TYPE) {
                                 auto params = function.as_object()->lambda()->args;
                                 auto shadowed_env = function.as_object()->lambda()->env;
-                                while (params != LISP_NIL) {
-                                        auto sym = first(params);
-                                        if (*(sym.as_object()->symbol()) == "&REST" ||
-                                            *(sym.as_object()->symbol()) == "&BODY") {
-                                                sym = second(params);
-                                                shadowed_env = shadow(shadowed_env, sym, args);
-                                                break;
-                                        }
-                                        shadowed_env = shadow(shadowed_env, sym, first(args));
-                                        params = rest(params);
-                                        args = rest(args);
+                                if (!apply_arguments(shadowed_env, params, args)) {
+                                        pretty_print(function);
+                                        abort();
                                 }
                                 auto body = function.as_object()->lambda()->body;
                                 while (rest(body) != LISP_NIL) {
@@ -762,6 +807,10 @@ void initialize_globals()
         INTERN_GLOBAL(UNQUOTE);
         INTERN_GLOBAL(ARRAY);
 
+        LISP_SYM_AMP_REST = intern_symbol("&REST");
+        LISP_SYM_AMP_BODY = intern_symbol("&BODY");
+        LISP_SYM_AMP_OPTIONAL = intern_symbol("&OPTIONAL");
+        
         LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
         LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
 
@@ -808,19 +857,25 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
         return true;
 }
 
-void eval_fstream(lisp_stream &stm)
+void eval_fstream(const std::filesystem::path filepath, lisp_stream &stm)
 {
+        auto here_path = std::filesystem::current_path();
+        auto there_path = filepath.parent_path();
+        if (there_path != "") {
+                std::filesystem::current_path(there_path);
+        }
         while (!stm.eof()) {
                 lisp_value obj = parse(stm);
                 if (obj.is_invalid()) {
                         consume_whitespace(stm);
-                        if (stm.eof()) return;
+                        if (stm.eof()) break;
                         abort();
                 }
                 lisp_value expanded = macro_expand(obj);
                 evaluate(LISP_BASE_ENVIRONMENT, expanded);
                 consume_whitespace(stm);
         }
+        std::filesystem::current_path(here_path);
 }
 
 int main(int argc, char *argv[])
@@ -856,7 +911,7 @@ int main(int argc, char *argv[])
 
         initialize_globals();
         for (auto fs : fstreams) {
-                eval_fstream(*fs);
+                eval_fstream(fs->path(), *fs);
                 fs->close();
                 delete fs;
         }

@@ -18,6 +18,7 @@
        (unless (,test ,actual-var-name ,expected-var-name)
          (print '(,test assertion failed for ,actual))
          (print (list 'expected 'to 'get ,expected-var-name 'but 'got ,actual-var-name 'instead))))))
+
 (defmacro assert-eq (expected actual)
   (assert-%% 'eq expected actual))
 
@@ -32,3 +33,5 @@
 
 (defmacro assert/= (expected actual)
   (assert-%% '/= expected actual))
+
+(provide "asserts")

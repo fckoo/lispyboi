@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <filesystem>
+#include <unistd.h> // needed for readlink
+#include <limits.h> // needed for PATH_MAX
 #include "primitives.hpp"
 
 using namespace lisp;
@@ -81,6 +84,7 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args)
         if (stm) {
                 stm->write(s);
                 stm->write_byte('\n');
+                stm->flush();
         }
         return lisp_obj::create_string(s);
 }
@@ -230,6 +234,8 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
         int64_t bytes_written = 0;
         if (stm) {
                 bytes_written = stm->write_utf8(codepoint);
+                if (codepoint == '\n')
+                        stm->flush();
         }
         return lisp_value(bytes_written);
 }
@@ -305,8 +311,11 @@ lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
 lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
 {
         /***
-            (eval expr)
+            (eval expr &optional environment)
         */
+        
+        if (cdr(args) != LISP_NIL)
+                env = second(args);
 
         return lisp::evaluate(env, car(args));
 }
@@ -520,27 +529,45 @@ lisp_value lisp_prim_char_code(lisp_value, lisp_value args)
         return lisp_value(static_cast<int64_t>(character));
 }
 
+
+static 
+lisp_file_stream::io_mode get_mode(lisp_value mode_sym)
+{
+        static auto OVERWRITE = intern_symbol("OVERWRITE");
+        static auto READ = intern_symbol("READ");
+        static auto APPEND = intern_symbol("APPEND");
+        if (mode_sym == OVERWRITE)
+                return lisp_file_stream::io_mode::overwrite;
+        if (mode_sym == READ)
+                return lisp_file_stream::io_mode::read;
+        if (mode_sym == APPEND)
+                return lisp_file_stream::io_mode::append;
+        return lisp_file_stream::io_mode::invalid;
+}
+
 lisp_value lisp_prim_open(lisp_value, lisp_value args)
 {
         /***
             (open file-path direction)
          */
+
         auto path = lisp_string_to_native_string(first(args));
         auto direction = second(args);
         lisp_file_stream *fs = nullptr;
-        if (direction == intern_symbol("OVERWRITE")) {
-                fs = new lisp_file_stream();
-                fs->open(path, lisp_file_stream::io_mode::overwrite);
+        int mode = lisp_file_stream::io_mode::invalid;
+        if (direction.is_cons()) {
+                auto p = direction;
+                while (p != LISP_NIL) {
+                        mode |= static_cast<int>(get_mode(car(p)));
+                        p = cdr(p);
+                }
         }
-        else if (direction == intern_symbol("READ")) {
-                fs = new lisp_file_stream();
-                fs->open(path, lisp_file_stream::io_mode::read);
+        else {
+                mode = get_mode(direction);
         }
-        else if (direction == intern_symbol("APPEND")) {
+        if (mode != lisp_file_stream::io_mode::invalid) {
                 fs = new lisp_file_stream();
-                fs->open(path, lisp_file_stream::io_mode::append);
-        }
-        if (fs) {
+                fs->open(path, static_cast<lisp_file_stream::io_mode>(mode));
                 return lisp_obj::create_file_stream(fs);
         }
         return LISP_NIL;
@@ -609,6 +636,57 @@ lisp_value lisp_prim_file_mode(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
+lisp_value lisp_prim_file_flush(lisp_value, lisp_value args)
+{
+        /***
+            (file-flush file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                it.as_object()->file_stream()->flush();
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value)
+{
+        /***
+            (get-working-directory)
+         */
+        std::error_code error;
+        auto current_path = std::filesystem::current_path(error);
+        return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
+}
+
+lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args)
+{
+        /***
+            (change-directory path)
+         */
+        auto new_path = lisp_string_to_native_string(car(args));
+        std::error_code error;
+        std::filesystem::current_path(new_path, error);
+        if (error.value() != 0) {
+                return LISP_NIL;
+        }
+        
+        error.clear();
+        auto current_path = std::filesystem::current_path(error);
+        return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
+}
+
+lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
+{
+        /***
+            (get-executable-path)
+         */
+        auto path = new char[PATH_MAX];
+        auto len = readlink("/proc/self/exe", path, PATH_MAX);
+        auto ret = lisp_obj::create_string(path, len);
+        delete[] path;
+        return ret;
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
@@ -666,7 +744,11 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%FILE-MODE", lisp_prim_file_mode);
         BIND_PRIM("%FILE-EOF-P", lisp_prim_file_eof);
         BIND_PRIM("%FILE-OK", lisp_prim_file_ok);
+        BIND_PRIM("%FILE-FLUSH", lisp_prim_file_flush);
         
+        BIND_PRIM("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
+        BIND_PRIM("CHANGE-DIRECTORY", lisp_prim_change_directory);
+        BIND_PRIM("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
         
         bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
         bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());

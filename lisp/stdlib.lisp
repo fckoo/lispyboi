@@ -26,14 +26,13 @@
 (defmacro macro-expand (expr) (list '%macro-expand expr))
 (defun macro-expand (expr) (macro-expand expr))
 
-(defmacro eval (expr) (list '%eval (macro-expand expr)))
-(defun eval (expr) (eval expr))
+(defun eval (expr &optional environment)
+  (if environment
+      (%eval (macro-expand expr) environment)
+      (%eval (macro-expand expr))))
 
 (defmacro apply (func &rest args)
   (cons '%apply (cons func args)))
-'(defun apply (func &rest args)
-  ;; @FIXME: this is incorrect.
-  (eval (cons '%apply (cons (list 'quote func) args))))
 
 (defmacro - (&rest vals) (cons '%- vals))
 (defun - (&rest vals) (apply %- vals))
@@ -62,12 +61,14 @@
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
 (defun /= (&rest vals) (not (apply %= vals)))
 
-(defmacro putchar (character stm) (if stm
-                                      (list '%putchar character stm)
-                                      (list '%putchar character)))
-(defun putchar (character stm) (if stm
-                                   (putchar character stm)
-                                   (putchar character)))
+(defmacro putchar (character &optional stm)
+  (if stm
+      (list '%putchar character stm)
+      (list '%putchar character)))
+(defun putchar (character &optional stm)
+  (if stm
+      (putchar character stm)
+      (putchar character)))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
@@ -92,11 +93,14 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (caddddr lst))
 
-(defmacro gensym (hint) (list '%gensym hint))
-(defun gensym (hint) (gensym hint))
+(defmacro gensym (&optional hint)
+  (if hint
+      (list '%gensym hint)
+      (list '%gensym)))
+(defun gensym (&optional hint) (gensym hint))
 
-(defmacro exit (n) (list '%exit n))
-(defun exit (n) (exit n))
+(defmacro exit (&optional n) (list '%exit n))
+(defun exit (&optional n) (exit (if n n 0)))
 
 (defun append (x y)
   (if x
@@ -113,7 +117,7 @@
           (cons (apply func (map1 car seqs))
                 (apply map func (map1 cdr seqs))))))
 
-(defmacro let (args &rest body)
+(defmacro let (args &body body)
   (cons (cons 'lambda (cons (map first args) body))
         (map second args)))
 
@@ -136,7 +140,16 @@
                       lambda-lists
                       bodies)))
       (cons (cons 'lambda (cons names (append setqs body)))
-            nil))))
+            (map (lambda (&rest p) nil) names)))))
+
+(defmacro let* (args &body body)
+  (let ((names (map first args))
+        (vals (map second args)))
+    (let ((setqs (map (lambda (name val) (list 'setq name val))
+                      names
+                      vals)))
+      (cons (cons 'lambda (cons names (append setqs body)))
+            (map (lambda (&rest p) nil) names)))))
 
 (defmacro and (&rest exprs)
   (labels ((and-helper (args)
@@ -146,6 +159,7 @@
     (and-helper exprs)))
 
 (defun consp (obj) (eq 'cons (type-of obj)))
+
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defmacro quasiquote (exp)
@@ -184,8 +198,24 @@
 (defmacro when (test &body body)
   `(if ,test (progn ,@body) nil))
 
+(defmacro while (expr &body body)
+  (let ((fn-name (gensym "WHILE-LOOP")))
+    `(labels ((,fn-name ()
+                (when ,expr
+                  ,@body
+                  (,fn-name))))
+       (,fn-name))))
+
 (defmacro unless (test &body body)
   `(if ,test nil (progn ,@body)))
+
+(defmacro until (expr &body body)
+  (let ((fn-name (gensym "UNTIL-LOOP")))
+    `(labels ((,fn-name ()
+                (unless ,expr
+                  ,@body
+                  (,fn-name))))
+       (,fn-name))))
 
 (defmacro cond (&body body)
   (if (null body)
@@ -205,6 +235,7 @@
   (eq 'fixnum (type-of object)))
 
 (defun eql (x y) (eq x y))
+
 (defun equal (x y)
   (cond ((eql x y)
          t)
@@ -238,6 +269,8 @@
   (%case-generator (lambda (sym-name type-name)
                      (cond ((eq 'list type-name)
                             `(listp ,sym-name))
+                           ((eq 'array type-name)
+                            `(arrayp ,sym-name))
                            (t
                             `(eq ',type-name (type-of ,sym-name)))))
                    keyform
@@ -265,6 +298,7 @@
   `(quote ,access-fn))
 
 (defsetf car %set-car)
+
 (defsetf cdr %set-cdr)
 
 (defmacro setf (place value)
@@ -276,7 +310,6 @@
           (t
            ;; @TODO: Need to implement error capabilities in host
            nil))))
-
 
 (defmacro dolist (var-list &body body)
   (let ((var-name (first var-list))
@@ -303,6 +336,7 @@
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
+
 (defun push (obj place)
   (let ((original (car place)))
     (setf (car place) obj)
@@ -319,21 +353,28 @@
     (setf (cdr place) (cddr place))
     val))
 
-(defmacro make-array (length default-value)
-  (if default-value
-      (list '%make-array length default-value)
+(defmacro make-array (length &optional element-type)
+  (if element-type
+      (list '%make-array length element-type)
       (list '%make-array length)))
-(defun make-array (length default-value)
-  (make-array length default-value))
+
+(defun make-array (length &optional element-type)
+  (make-array length (if element-type element-type t)))
 
 (defmacro array-type (array) (list '%array-type array))
+
 (defun array-type (array) (array-type array))
 
 (defmacro aref (array subscript) (list '%aref array subscript))
+
 (defun aref (array subscript) (aref array subscript))
+
 (defsetf aref %set-aref)
+
 (defmacro array-length (array) (list '%array-length array))
+
 (defun array-length (array) (array-length array))
+
 (defun arrayp (obj)
   (let ((type (type-of obj)))
     (when (consp type)
@@ -346,17 +387,21 @@
   (if (and list (/= 0 n))
       (nth (- n 1) (cdr list))
       (car list)))
+
 (defun set-nth (n list value)
   (if (and list (/= 0 n))
       (set-nth (- n 1) (cdr list) value)
       (setf (car list) value)))
+
 (defsetf nth set-nth)
+
 (defun list-length (list)
   (labels ((f (lst accum)
              (if lst
                  (f (cdr lst) (+ 1 accum))
                  accum)))
     (f list 0)))
+
 (defun listp (obj)
   (if (null obj)
       t
@@ -367,10 +412,8 @@
         ((arrayp sequence) (array-length sequence))))
 
 (defun elt (sequence index)
-  (cond ((listp sequence)
-         (nth index sequence))
-        ((arrayp sequence)
-         (aref sequence index))))
+  (cond ((listp sequence) (nth index sequence))
+        ((arrayp sequence) (aref sequence index))))
 
 (defun set-elt (sequence index value)
   (cond ((listp sequence) (setf (nth index sequence) value))
@@ -378,11 +421,27 @@
 
 (defsetf elt set-elt)
 
+(defun max (a b) (if (> a b) a b))
+(defun min (a b) (if (< a b) a b))
+
+(defmacro incf (place &optional (delta 1))
+  `(setf ,place (+ ,place ,delta)))
+
+(defmacro decf (place &optional (delta 1))
+  `(setf ,place (- ,place ,delta)))
+
+
 (defun make-string (&rest chars)
   (let ((str (make-array (length chars) 'character)))
     (dotimes (i (length chars))
       (setf (aref str i) (nth i chars)))
     str))
+
+(defmacro char-code (char) `(%char-code ,char))
+(defun char-code (char) (char-code char))
+
+(defmacro code-char (code) `(%code-char ,code))
+(defun code-char (code) (code-char code))
 
 (defun stringp (object)
   (eq 'character (array-type object)))
@@ -392,9 +451,6 @@
     (labels ((func (n)
                (cond ((= n (length x)) t)
                      ((not (eql (aref x n) (aref y n)))
-                      (print `(different at index ,n with ,(aref x n) and ,(aref y n)))
-                      (print (%bits-of (aref x n)))
-                      (print (%bits-of (aref y n)))
                       nil)
                      (t (func (+ 1 n))))))
       (func 0))))
@@ -402,12 +458,27 @@
 (defun string/= (x y)
   (not (string= x y)))
 
+(defun substring (string start &optional end)
+  (setf end (if end end (length string)))
+  (setf start (max 0 (if (< start 0)
+                         (+ (length string) start)
+                         start)))
+  (if (> start (length string))
+      (make-array 0 'character)
+      (let ((str (make-array (- end start) 'character))
+            (i 0))
+        (while (< start end)
+               (setf (aref str i) (aref string start))
+               (incf i)
+               (incf start))
+        str)))
+
 (defmacro open (file-path direction) `(%open ,file-path ,direction))
 (defun open (file-path direction) (open file-path direction))
 (defmacro close (file-stream) `(%close ,file-stream))
 (defun close (file-stream) (close file-stream))
 
-(defun print (object stm)
+(defun print (object &optional stm)
   (let ((stm (if stm stm t)))
     (cond ((stringp object)
            (dotimes (i (array-length object))
@@ -415,24 +486,6 @@
            (putchar #\newline stm)
            object)
           (t (%print object stm)))))
-
-
-(defmacro until (expr &body body)
-  (let ((fn-name (gensym "UNTIL-LOOP")))
-    `(labels ((,fn-name ()
-                (unless ,expr
-                  ,@body
-                  (,fn-name))))
-       (,fn-name))))
-
-(defmacro while (expr &body body)
-  (let ((fn-name (gensym "WHILE-LOOP")))
-    `(labels ((,fn-name ()
-                (when ,expr
-                  ,@body
-                  (,fn-name))))
-       (,fn-name))))
-
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
@@ -442,13 +495,81 @@
        (prog1 (progn ,@body)
          (close ,var)))))
 
+(defmacro file-ok (file-stream) `(%file-ok ,file-stream))
+(defun file-ok (file-stream) (file-ok file-stream))
 
-(with-open-file (foo "/tmp/okie" 'overwrite)
-  (print (%file-ok foo))
-  (print "yer a b00t" foo))
+(defmacro file-eof-p (file-stream) `(%file-eof-p ,file-stream))
+(defun file-eof-p (file-stream) (file-eof-p file-stream))
 
-(with-open-file (foo "/tmp/okie" 'read)
-  (print (%file-ok foo))
-  (print (%file-length foo))
-  (until (%file-eof-p foo)
-         (print (read foo))))
+(defmacro file-length (file-stream) `(%file-length ,file-stream))
+(defun file-length (file-stream) (file-length file-stream))
+
+(defmacro file-flush (file-stream) `(%file-flush ,file-stream))
+(defun file-flush (file-stream) (file-flush file-stream))
+
+(defun file-mode (file-stream)
+  (case (%file-mode file-stream)
+    (0 nil)
+    (1 'read)
+    (2 'overwrite)
+    (3 '(read overwrite))
+    (4 'append)
+    (5 '(read append))))
+
+(defun find-last-of (array value)
+  (let ((i (- (length array) 1)))
+    (while (and (>= i 0)
+                (not (eql value (aref array i))))
+           (decf i))
+    (if (< i 0) nil i)))
+
+(defun parent-directory (path)
+  (let ((idx (find-last-of path #\/)))
+    (when idx (substring path 0 idx))))
+
+(defun concatenate-arrays (&rest arrays)
+  (let* ((lengths (map length arrays))
+         (total-length (apply + lengths))
+         (new-array (make-array total-length (array-type (first arrays))))
+         (new-array-idx 0))
+    (dolist (array arrays)
+      (dotimes (i (length array))
+        (setf (aref new-array new-array-idx) (aref array i))
+        (incf new-array-idx)))
+    new-array))
+
+(defun concatenate (first &rest rest)
+  (typecase first
+    (cons (apply append first rest))
+    (array (apply concatenate-arrays first rest))))
+
+(defun member (item list &optional (test eql))
+  (when list
+    (if (test item (car list))
+        list
+        (member item (cdr list) test))))
+
+(defun error (message &rest arguments)
+  (print message)
+  (print arguments)
+  (exit 1))
+
+(defun load (file-path)
+  (let* ((here-path (get-working-directory))
+         (full-path (if (eql #\/ (aref file-path 0))
+                        file-path
+                        (concatenate here-path "/" file-path)))
+         (there-path (change-directory (parent-directory full-path))))
+    (when there-path
+      (prog1
+          (with-open-file (file full-path 'read)
+            (when (file-ok file)
+              (until (file-eof-p file)
+                     (eval (read file) (%get-env)))
+              full-path))
+        (change-directory here-path)))))
+
+(load "modules.lisp")
+
+(provide "stdlib")
+
