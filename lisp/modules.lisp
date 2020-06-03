@@ -1,4 +1,3 @@
-
 ;;;
 ;;; A module is made up of one or more files, a module's loader is a file ending in
 ;;; '.lisp' or '.module'. It may contain arbitrary code and is expected to call

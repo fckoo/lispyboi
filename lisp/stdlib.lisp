@@ -99,8 +99,8 @@
       (list '%gensym)))
 (defun gensym (&optional hint) (gensym hint))
 
-(defmacro exit (&optional n) (list '%exit n))
-(defun exit (&optional n) (exit (if n n 0)))
+(defmacro exit (&optional (n 0)) (list '%exit n))
+(defun exit (&optional (n 0)) (exit n))
 
 (defun append (x y)
   (if x
@@ -181,6 +181,17 @@
                  (qq-element object)
                  (list 'quote object))))
     (qq-object exp)))
+
+(defmacro or (&rest exprs)
+  (labels ((or-helper (args)
+             (if (null (cdr args))
+                 (car args)
+                 (let ((tmp-var-name (gensym)))
+                   `(let ((,tmp-var-name ,(car args)))
+                      (if ,tmp-var-name
+                          ,tmp-var-name
+                          ,(or-helper (cdr args))))))))
+    (or-helper exprs)))
 
 (defmacro progn (&body body)
   (if (null (cdr body))
@@ -358,8 +369,8 @@
       (list '%make-array length element-type)
       (list '%make-array length)))
 
-(defun make-array (length &optional element-type)
-  (make-array length (if element-type element-type t)))
+(defun make-array (length &optional (element-type t))
+  (make-array length element-type))
 
 (defmacro array-type (array) (list '%array-type array))
 
@@ -458,8 +469,7 @@
 (defun string/= (x y)
   (not (string= x y)))
 
-(defun substring (string start &optional end)
-  (setf end (if end end (length string)))
+(defun substring (string start &optional (end (length string)))
   (setf start (max 0 (if (< start 0)
                          (+ (length string) start)
                          start)))
@@ -478,14 +488,13 @@
 (defmacro close (file-stream) `(%close ,file-stream))
 (defun close (file-stream) (close file-stream))
 
-(defun print (object &optional stm)
-  (let ((stm (if stm stm t)))
-    (cond ((stringp object)
-           (dotimes (i (array-length object))
-             (putchar (aref object i) stm))
-           (putchar #\newline stm)
-           object)
-          (t (%print object stm)))))
+(defun print (object &optional (stm t))
+  (cond ((stringp object)
+         (dotimes (i (array-length object))
+           (putchar (aref object i) stm))
+         (putchar #\newline stm))
+        (t (%print object stm)))
+  object)
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
@@ -554,22 +563,24 @@
   (print arguments)
   (exit 1))
 
-(defun load (file-path)
+(defun load (file-path &optional (environment (%get-env)))
   (let* ((here-path (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
                         file-path
                         (concatenate here-path "/" file-path)))
          (there-path (change-directory (parent-directory full-path))))
+    (push (cons '*FILE-PATH* full-path) environment)
     (when there-path
       (prog1
           (with-open-file (file full-path 'read)
             (when (file-ok file)
               (until (file-eof-p file)
-                     (eval (read file) (%get-env)))
+                     (eval (read file) environment))
               full-path))
         (change-directory here-path)))))
 
 (load "modules.lisp")
 
 (provide "stdlib")
+
 
