@@ -1,3 +1,5 @@
+(require "asserts")
+
 (let ((foo 123)
       (bar (list 1 2 3 4))
       (baz 'qux))

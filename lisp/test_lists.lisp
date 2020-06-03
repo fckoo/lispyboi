@@ -1,4 +1,4 @@
-
+(require "asserts")
 
 (assert-true (eq 'foo (car (list 'foo))))
 (assert-true (eq 'bar (cdr (cons 'foo 'bar))))

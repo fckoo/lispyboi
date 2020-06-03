@@ -1,3 +1,4 @@
+(require "asserts")
 
 (setf +most-positive-fixnum+ 4611686018427387903)
 (setf +most-negative-fixnum+ (- 4611686018427387904))

@@ -1,3 +1,5 @@
+(require "asserts")
+
 (assert-false (equal 'a 'b))
 (assert-true (equal 'a 'a))
 (assert-true (equal 3 3))
