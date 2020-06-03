@@ -1,0 +1,8 @@
+(require "asserts")
+
+(load "test_equal.lisp")
+(load "test_math.lisp")
+(load "test_lists.lisp")
+(load "test_quasiquote.lisp")
+
+(provide "test-suite")
