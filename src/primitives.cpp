@@ -715,7 +715,7 @@ lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
         /***
             (get-executable-path)
          */
-        static auto ret = lisp_obj::create_string(plat::get_executable_path());
+        auto ret = lisp_obj::create_string(plat::get_executable_path());
         return ret;
 }
 

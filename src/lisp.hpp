@@ -8,7 +8,7 @@
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
-#define ENSURE_VALUE(value, expr) do {                                  \
+#define ENSURE_VALUE(value, expr) do {                                \
                 if (!(expr)) {                                          \
                         fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
                         fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr); \

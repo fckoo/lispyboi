@@ -61,14 +61,10 @@
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
 (defun /= (&rest vals) (not (apply %= vals)))
 
-(defmacro putchar (character &optional stm)
-  (if stm
-      (list '%putchar character stm)
-      (list '%putchar character)))
-(defun putchar (character &optional stm)
-  (if stm
-      (putchar character stm)
-      (putchar character)))
+(defmacro putchar (character &optional (stm *STANDARD-OUTPUT*))
+  (list '%putchar character stm))
+(defun putchar (character &optional (stm *STANDARD-OUTPUT*))
+  (putchar character stm))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
@@ -93,11 +89,10 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (caddddr lst))
 
-(defmacro gensym (&optional hint)
-  (if hint
-      (list '%gensym hint)
-      (list '%gensym)))
-(defun gensym (&optional hint) (gensym hint))
+(defmacro gensym (&optional (hint "G"))
+  (list '%gensym hint))
+(defun gensym (&optional (hint "G"))
+  (gensym hint))
 
 (defmacro exit (&optional (n 0)) (list '%exit n))
 (defun exit (&optional (n 0)) (exit n))
@@ -366,10 +361,8 @@
     (setf (cdr place) (cddr place))
     val))
 
-(defmacro make-array (length &optional element-type)
-  (if element-type
-      (list '%make-array length element-type)
-      (list '%make-array length)))
+(defmacro make-array (length &optional (element-type t))
+  (list '%make-array length element-type))
 
 (defun make-array (length &optional (element-type t))
   (make-array length element-type))
@@ -435,6 +428,7 @@
 (defsetf elt set-elt)
 
 (defun max (a b) (if (> a b) a b))
+
 (defun min (a b) (if (< a b) a b))
 
 (defmacro incf (place &optional (delta 1))
@@ -442,7 +436,6 @@
 
 (defmacro decf (place &optional (delta 1))
   `(setf ,place (- ,place ,delta)))
-
 
 (defun make-string (&rest chars)
   (let ((str (make-array (length chars) 'character)))
@@ -490,7 +483,7 @@
 (defmacro close (file-stream) `(%close ,file-stream))
 (defun close (file-stream) (close file-stream))
 
-(defun print (object &optional (stm t))
+(defun print (object &optional (stm *STANDARD-OUTPUT*))
   (cond ((stringp object)
          (dotimes (i (array-length object))
            (putchar (aref object i) stm))

@@ -275,19 +275,19 @@ std::string lisp::pretty_print(lisp_value obj)
         return result;
 }
 
-static inline
+static FORCE_INLINE
 bool is_whitespace(int c)
 {
         return (c == ' ' || c == '\n' || c == '\t');
 }
 
-static inline
+static FORCE_INLINE
 bool is_digit(int c)
 {
         return (c >= '0' && c <= '9');
 }
 
-static inline
+static FORCE_INLINE
 bool is_symbol_start_char(int c)
 {
         if (c == lisp_stream::end_of_file)
@@ -301,27 +301,27 @@ bool is_symbol_start_char(int c)
                 return true;
 }
 
-static inline
+static FORCE_INLINE
 bool is_symbol_char(int c)
 {
         return is_symbol_start_char(c) || is_digit(c);
 }
 
-static inline
+static FORCE_INLINE
 std::string str_lower(std::string in)
 {
         std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::tolower(c) ; } );
         return in;
 }
 
-static inline
+static FORCE_INLINE
 std::string str_upper(std::string in)
 {
         std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::toupper(c) ; } );
         return in;
 }
 
-static inline
+static FORCE_INLINE
 void consume_whitespace(lisp_stream &stream)
 {
         while (is_whitespace(stream.peekc()))
@@ -483,17 +483,6 @@ lisp_value lisp::parse(lisp_stream &stream)
         return lisp_value::invalid_object();
 }
 
-static
-lisp_value assoc(lisp_value item, lisp_value alist)
-{
-        if (alist == LISP_NIL)
-                return alist;
-        if (item == caar(alist))
-                return car(alist);
-        else
-                return assoc(item, cdr(alist));
-}
-
 static FORCE_INLINE
 lisp_value evaluate_list(lisp_value env, lisp_value list)
 {
@@ -508,18 +497,6 @@ lisp_value evaluate_list(lisp_value env, lisp_value list)
                 set_cdr(expr, cons(next_val, LISP_NIL));
                 expr = cdr(expr);
                 list = cdr(list);
-        }
-        return head;
-}
-
-template<typename T>
-lisp_value for_each(lisp_value head, T function)
-{
-        auto current = head;
-        while (current != LISP_NIL) {
-                auto elem = car(current);
-                function(elem);
-                current = cdr(current);
         }
         return head;
 }
@@ -741,21 +718,6 @@ lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
                 list = cdr(list);
         }
         return head;
-}
-
-static
-int length(lisp_value obj)
-{
-        if (obj == LISP_NIL)
-                return 0;
-        int i = 0;
-        if (obj.is_cons()) {
-                while (obj != LISP_NIL) {
-                        i += 1;
-                        obj = cdr(obj);
-                }
-        }
-        return i;
 }
 
 lisp_value lisp::macro_expand(lisp_value obj)
