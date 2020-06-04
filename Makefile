@@ -7,7 +7,7 @@ LDFLAGS := -lreadline
 .PHONY: all
 all: clean lispyboi
 
-lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o
+lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o obj/platform.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 obj/%.o: src/%.cpp obj

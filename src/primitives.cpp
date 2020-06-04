@@ -1,7 +1,5 @@
 #include <stdio.h>
-#include <filesystem>
-#include <unistd.h> // needed for readlink
-#include <limits.h> // needed for PATH_MAX
+#include "platform.hpp"
 #include "primitives.hpp"
 
 using namespace lisp;
@@ -70,23 +68,24 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args)
         /***
             (print obj &optional stream)
         */
-        lisp_file_stream *stm = nullptr;
+        lisp_file_stream *stream = nullptr;
+        auto obj = first(args);
         if (cdr(args) == LISP_NIL || second(args) == LISP_T) {
                 auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
                 if (_stdout != LISP_NIL) {
-                        stm = _stdout.as_object()->file_stream();
+                        stream = _stdout.as_object()->file_stream();
                 }
         }
         else {
-                stm = second(args).as_object()->file_stream();
+                stream = second(args).as_object()->file_stream();
         }
-        auto s = repr(car(args));
-        if (stm) {
-                stm->write(s);
-                stm->write_byte('\n');
-                stm->flush();
+        auto s = repr(obj);
+        if (stream) {
+                stream->write(s);
+                stream->write_byte('\n');
+                stream->flush();
         }
-        return lisp_obj::create_string(s);
+        return obj;
 }
 
 lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
@@ -648,13 +647,49 @@ lisp_value lisp_prim_file_flush(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
+lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args)
+{
+        /***
+            (file-read-byte file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                return lisp_value(it.as_object()->file_stream()->read_byte());
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args)
+{
+        /***
+            (file-peek-byte file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                return lisp_value(it.as_object()->file_stream()->peek_byte());
+        }
+        return LISP_NIL;
+}
+
+lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args)
+{
+        /***
+            (file-read-character file-stream)
+         */
+        auto it = car(args);
+        if (it.is_type(FILE_STREAM_TYPE)) {
+                return lisp_value(it.as_object()->file_stream()->read_utf8());
+        }
+        return LISP_NIL;
+}
+
 lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value)
 {
         /***
             (get-working-directory)
          */
         std::error_code error;
-        auto current_path = std::filesystem::current_path(error);
+        auto current_path = plat::get_working_directory(error);
         return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
@@ -665,13 +700,13 @@ lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args)
          */
         auto new_path = lisp_string_to_native_string(car(args));
         std::error_code error;
-        std::filesystem::current_path(new_path, error);
+        plat::change_directory(new_path, error);
         if (error.value() != 0) {
                 return LISP_NIL;
         }
         
         error.clear();
-        auto current_path = std::filesystem::current_path(error);
+        auto current_path = plat::get_working_directory(error);
         return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
@@ -680,10 +715,7 @@ lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
         /***
             (get-executable-path)
          */
-        auto path = new char[PATH_MAX];
-        auto len = readlink("/proc/self/exe", path, PATH_MAX);
-        auto ret = lisp_obj::create_string(path, len);
-        delete[] path;
+        static auto ret = lisp_obj::create_string(plat::get_executable_path());
         return ret;
 }
 
@@ -745,6 +777,9 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%FILE-EOF-P", lisp_prim_file_eof);
         BIND_PRIM("%FILE-OK", lisp_prim_file_ok);
         BIND_PRIM("%FILE-FLUSH", lisp_prim_file_flush);
+        BIND_PRIM("%FILE-READ-BYTE", lisp_prim_file_read_byte);
+        BIND_PRIM("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
+        BIND_PRIM("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
         
         BIND_PRIM("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
         BIND_PRIM("CHANGE-DIRECTORY", lisp_prim_change_directory);

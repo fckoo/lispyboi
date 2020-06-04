@@ -282,6 +282,8 @@
                             `(listp ,sym-name))
                            ((eq 'array type-name)
                             `(arrayp ,sym-name))
+                           ((eq 'string type-name)
+                            `(stringp ,sym-name))
                            (t
                             `(eq ',type-name (type-of ,sym-name)))))
                    keyform
@@ -580,7 +582,4 @@
         (change-directory here-path)))))
 
 (load "modules.lisp")
-
-(provide "stdlib")
-
-
+(provide "boot")

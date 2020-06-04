@@ -17,6 +17,7 @@
                 }                                                       \
         } while (0)
 
+
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
 
@@ -154,7 +155,7 @@ namespace lisp {
                         return u.character.codepoint;
                 }
 
-                FORCE_INLINE int32_t as_byte() const
+                FORCE_INLINE uint8_t as_byte() const
                 {
                         ENSURE_VALUE(this, is_byte());
                         return u.byte.byte;

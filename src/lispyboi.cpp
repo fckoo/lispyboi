@@ -9,9 +9,11 @@
 #include <sstream>
 #include <cassert>
 #include <filesystem>
+#include <set>
 
 #include "lisp.hpp"
 #include "primitives.hpp"
+#include "platform.hpp"
 
 using namespace lisp;
 
@@ -138,8 +140,14 @@ lisp_value lisp::intern_symbol(const std::string &symbol_name)
         return symbol;
 }
 
-std::string lisp::repr(lisp_value obj)
+std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
 {
+        if (seen.find(obj.bits()) != seen.end()) {
+                return "#<CIRCULAR REFERENCE>";
+        }
+        if (obj.is_cons() || obj.is_type(SIMPLE_ARRAY_TYPE)) {
+                seen.insert(obj.bits());
+        }
         std::string result;
         std::stringstream ss;
         if (obj.is_fixnum()) {
@@ -150,7 +158,7 @@ std::string lisp::repr(lisp_value obj)
         }
         else if (obj.is_cons()) {
                 result += "(";
-                result += repr(car(obj));
+                result += repr_impl(car(obj), seen);
                 if (cdr(obj) == LISP_NIL) {
                         /* List with one element */
                         ;
@@ -159,18 +167,18 @@ std::string lisp::repr(lisp_value obj)
                         lisp_value current = cdr(obj);
                         while (current != LISP_NIL) {
                                 result += " ";
-                                result += repr(car(current));
+                                result += repr_impl(car(current), seen);
                                 current = cdr(current);
                                 if (!current.is_nil() && !current.is_cons()) {
                                         result += " . ";
-                                        result += repr(current);
+                                        result += repr_impl(current, seen);
                                         break;
                                 }
                         }
                 }
                 else {
                         result += " . ";
-                        result += repr(cdr(obj));
+                        result += repr_impl(cdr(obj), seen);
                 }
                 result += ")";
         }
@@ -194,6 +202,10 @@ std::string lisp::repr(lisp_value obj)
                                 break;
                 }
         }
+        else if (obj.is_byte()) {
+                auto byte = obj.as_byte();
+                result = std::to_string(byte);
+        }
         else if (obj.is_object()) {
                 switch (obj.as_object()->type()) {
                         case SYM_TYPE:
@@ -210,7 +222,7 @@ std::string lisp::repr(lisp_value obj)
                                 }
                                 auto body = obj.as_object()->lambda()->body;
                                 while (body != LISP_NIL) {
-                                        result += repr(car(body));
+                                        result += repr_impl(car(body), seen);
                                         body = cdr(body);
                                 }
                                 result += ")";
@@ -222,11 +234,11 @@ std::string lisp::repr(lisp_value obj)
                                         size_t i = 0;
                                         size_t end = array->length() - 1;
                                         for (; i < end; ++i) {
-                                                result += repr(array->get(i));
+                                                result += repr_impl(array->get(i), seen);
                                                 result += " ";
                                         }
                                         if (i < array->length()) {
-                                                result += repr(array->get(i));
+                                                result += repr_impl(array->get(i), seen);
                                         }
                                 }
                                 result += ")";
@@ -245,6 +257,11 @@ std::string lisp::repr(lisp_value obj)
                 result = ss.str();
         }
         return result;
+}
+std::string lisp::repr(lisp_value obj)
+{
+        std::set<uint64_t> seen;
+        return repr_impl(obj, seen);
 }
 std::string lisp::repr(const lisp_value *obj)
 {
@@ -864,6 +881,16 @@ void eval_fstream(const std::filesystem::path filepath, lisp_stream &stm)
         if (there_path != "") {
                 std::filesystem::current_path(there_path);
         }
+
+        auto variable_name = intern_symbol("*FILE-PATH*");
+        auto value = lisp_obj::create_string(filepath);
+        auto place = symbol_lookup(LISP_BASE_ENVIRONMENT, variable_name);
+        if (place.is_invalid()) {
+                push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
+        }
+        else {
+                set_cdr(place, value);
+        }
         while (!stm.eof()) {
                 lisp_value obj = parse(stm);
                 if (obj.is_invalid()) {
@@ -897,9 +924,24 @@ int main(int argc, char *argv[])
                 repl = true;
 
         std::vector<lisp_file_stream*> fstreams;
+
+        {
+                auto exe_dir = plat::get_executable_path().parent_path();
+                auto boot_path = exe_dir/"lisp"/"boot.lisp";
+                auto f = new lisp_file_stream();
+                f->open(boot_path, lisp_file_stream::io_mode::read);
+                if (f->ok()) {
+                        fstreams.push_back(f);
+                }
+                else {
+                        fprintf(stderr, "boot.lisp inaccessible at %s\n", boot_path.c_str());
+                        return -1;
+                }
+        }
+        
         for (auto &path : file_paths) {
                 auto f = new lisp_file_stream();
-                f->open(path, lisp_file_stream::io_mode::read);
+                f->open(std::filesystem::absolute(path), lisp_file_stream::io_mode::read);
                 if (f->ok()) {
                         fstreams.push_back(f);
                 }
