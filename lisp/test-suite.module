@@ -1,8 +1,14 @@
 (require "asserts")
+(require "time-it")
 
-(load "test_equal.lisp")
-(load "test_math.lisp")
-(load "test_lists.lisp")
-(load "test_quasiquote.lisp")
+(time-it test-time
+         (progn
+           (load "test_equal.lisp")
+           (load "test_math.lisp")
+           (load "test_lists.lisp")
+           (load "test_quasiquote.lisp"))
+         (print "Tests completed in ")
+         (print test-time)
+         (print-line "ms."))
 
 (provide "test-suite")
