@@ -13,7 +13,7 @@ using namespace lisp;
 
 
 
-lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
+lisp_value lisp_prim_plus(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (+ &rest fixnums)
@@ -27,7 +27,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
+lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (- &rest fixnums)
@@ -50,7 +50,7 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
+lisp_value lisp_prim_multiply(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (* &rest fixnums)
@@ -64,7 +64,7 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
         return lisp_value(result);
 }
 
-lisp_value lisp_prim_divide(lisp_value env, lisp_value args)
+lisp_value lisp_prim_divide(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (/ x y)
@@ -74,7 +74,7 @@ lisp_value lisp_prim_divide(lisp_value env, lisp_value args)
         return lisp_value(x / y);
 }
 
-lisp_value lisp_prim_print(lisp_value env, lisp_value args)
+lisp_value lisp_prim_print(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (print obj &optional stream)
@@ -97,7 +97,7 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args)
         return obj;
 }
 
-lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
+lisp_value lisp_prim_num_less(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (< a b &rest more-fixnums)
@@ -121,7 +121,7 @@ lisp_value lisp_prim_num_less(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args)
+lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (= a b &rest more-fixnums)
@@ -145,7 +145,7 @@ lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args)
+lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (> a b &rest more-fixnums)
@@ -169,7 +169,7 @@ lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_car(lisp_value env, lisp_value args)
+lisp_value lisp_prim_car(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (car obj)
@@ -177,7 +177,7 @@ lisp_value lisp_prim_car(lisp_value env, lisp_value args)
         return caar(args);
 }
 
-lisp_value lisp_prim_cdr(lisp_value env, lisp_value args)
+lisp_value lisp_prim_cdr(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (cdr obj)
@@ -185,7 +185,7 @@ lisp_value lisp_prim_cdr(lisp_value env, lisp_value args)
         return cdar(args);
 }
 
-lisp_value lisp_prim_cons(lisp_value env, lisp_value args)
+lisp_value lisp_prim_cons(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (cons x y)
@@ -193,7 +193,7 @@ lisp_value lisp_prim_cons(lisp_value env, lisp_value args)
         return cons(first(args), second(args));
 }
 
-lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
+lisp_value lisp_prim_eq(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (eq x y &rest more-objects)
@@ -222,7 +222,7 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args)
         return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
+lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (putchar character &optional stm)
@@ -248,7 +248,7 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args)
         return lisp_value(bytes_written);
 }
 
-lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
+lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (type-of object)
@@ -289,7 +289,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_read(lisp_value, lisp_value args)
+lisp_value lisp_prim_read(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (read &optional file-stream)
@@ -307,7 +307,7 @@ lisp_value lisp_prim_read(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
+lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (macro-expand expr)
@@ -316,7 +316,7 @@ lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args)
         return macro_expand(car(args));
 }
 
-lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
+lisp_value lisp_prim_eval(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (eval expr &optional environment)
@@ -328,7 +328,7 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args)
         return lisp::evaluate(env, car(args));
 }
 
-lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
+lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (apply func &rest args args-list)
@@ -362,7 +362,7 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args)
         return lisp::apply(env, function, head);
 }
 
-lisp_value lisp_prim_set_car(lisp_value env, lisp_value args)
+lisp_value lisp_prim_set_car(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (set-car cons value)
@@ -374,7 +374,7 @@ lisp_value lisp_prim_set_car(lisp_value env, lisp_value args)
         return val;
 }
 
-lisp_value lisp_prim_set_cdr(lisp_value env, lisp_value args)
+lisp_value lisp_prim_set_cdr(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (set-cdr cons value)
@@ -385,7 +385,7 @@ lisp_value lisp_prim_set_cdr(lisp_value env, lisp_value args)
         return val;
 }
 
-lisp_value lisp_prim_get_env(lisp_value env, lisp_value)
+lisp_value lisp_prim_get_env(lisp_value env, lisp_value, bool &raised_signal)
 {
         /***
             (get-env)
@@ -393,7 +393,7 @@ lisp_value lisp_prim_get_env(lisp_value env, lisp_value)
         return env;
 }
 
-lisp_value lisp_prim_gensym(lisp_value, lisp_value args)
+lisp_value lisp_prim_gensym(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (gensym &optional hint)
@@ -412,7 +412,7 @@ lisp_value lisp_prim_gensym(lisp_value, lisp_value args)
         return lisp_obj::create_symbol(sym_name);
 }
 
-lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args)
+lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (make-symbol symbol-name)
@@ -427,7 +427,7 @@ lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args)
         return lisp_obj::create_symbol(name);
 }
 
-lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args)
+lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (symbol-name symbol)
@@ -435,7 +435,7 @@ lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args)
         return lisp_obj::create_string(*first(args).as_object()->symbol());
 }
 
-lisp_value lisp_prim_intern(lisp_value, lisp_value args)
+lisp_value lisp_prim_intern(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (intern symbol-name)
@@ -450,7 +450,7 @@ lisp_value lisp_prim_intern(lisp_value, lisp_value args)
         return intern_symbol(name);
 }
 
-lisp_value lisp_prim_exit(lisp_value, lisp_value args)
+lisp_value lisp_prim_exit(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (exit n)
@@ -462,7 +462,7 @@ lisp_value lisp_prim_exit(lisp_value, lisp_value args)
         exit(code);
 }
 
-lisp_value lisp_prim_make_array(lisp_value, lisp_value args)
+lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (make-array length &optional type)
@@ -475,7 +475,7 @@ lisp_value lisp_prim_make_array(lisp_value, lisp_value args)
 
 }
 
-lisp_value lisp_prim_aref(lisp_value, lisp_value args)
+lisp_value lisp_prim_aref(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (aref array subscript)
@@ -487,7 +487,7 @@ lisp_value lisp_prim_aref(lisp_value, lisp_value args)
         return array.as_object()->simple_array()->get(subscript.as_fixnum());
 }
 
-lisp_value lisp_prim_set_aref(lisp_value, lisp_value args)
+lisp_value lisp_prim_set_aref(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (set-aref array subscript value)
@@ -501,7 +501,7 @@ lisp_value lisp_prim_set_aref(lisp_value, lisp_value args)
         return value;
 }
 
-lisp_value lisp_prim_array_length(lisp_value, lisp_value args)
+lisp_value lisp_prim_array_length(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (array-length array)
@@ -514,7 +514,7 @@ lisp_value lisp_prim_array_length(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_array_type(lisp_value, lisp_value args)
+lisp_value lisp_prim_array_type(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (array-type array)
@@ -526,7 +526,7 @@ lisp_value lisp_prim_array_type(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_bits_of(lisp_value, lisp_value args)
+lisp_value lisp_prim_bits_of(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (bits-of object)
@@ -542,7 +542,7 @@ lisp_value lisp_prim_bits_of(lisp_value, lisp_value args)
         return ret;
 }
 
-lisp_value lisp_prim_code_char(lisp_value, lisp_value args)
+lisp_value lisp_prim_code_char(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (code-char integer)
@@ -551,7 +551,7 @@ lisp_value lisp_prim_code_char(lisp_value, lisp_value args)
         return lisp_value(static_cast<int32_t>(char_code));
 }
 
-lisp_value lisp_prim_char_code(lisp_value, lisp_value args)
+lisp_value lisp_prim_char_code(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (char-code character)
@@ -576,7 +576,7 @@ lisp_file_stream::io_mode get_mode(lisp_value mode_sym)
         return lisp_file_stream::io_mode::invalid;
 }
 
-lisp_value lisp_prim_open(lisp_value, lisp_value args)
+lisp_value lisp_prim_open(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (open file-path direction)
@@ -604,7 +604,7 @@ lisp_value lisp_prim_open(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_close(lisp_value, lisp_value args)
+lisp_value lisp_prim_close(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (close file-stream)
@@ -617,7 +617,7 @@ lisp_value lisp_prim_close(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_length(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_length(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-length file-stream)
@@ -630,7 +630,7 @@ lisp_value lisp_prim_file_length(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_ok(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_ok(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-ok file-stream)
@@ -642,7 +642,7 @@ lisp_value lisp_prim_file_ok(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_eof(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_eof(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-eof-p file-stream)
@@ -654,7 +654,7 @@ lisp_value lisp_prim_file_eof(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_mode(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_mode(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-mode file-stream)
@@ -667,7 +667,7 @@ lisp_value lisp_prim_file_mode(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_flush(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_flush(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-flush file-stream)
@@ -679,7 +679,7 @@ lisp_value lisp_prim_file_flush(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-read-byte file-stream)
@@ -691,7 +691,7 @@ lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-peek-byte file-stream)
@@ -703,7 +703,7 @@ lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args)
+lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args, bool &raised_signal)
 {
         /***
             (file-read-character file-stream)
@@ -715,7 +715,7 @@ lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args)
         return LISP_NIL;
 }
 
-lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value)
+lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value, bool &raised_signal)
 {
         /***
             (get-working-directory)
@@ -725,7 +725,7 @@ lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value)
         return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
-lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args)
+lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
             (change-directory path)
@@ -742,7 +742,7 @@ lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args)
         return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
-lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
+lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value, bool &raised_signal)
 {
         /***
             (get-executable-path)
@@ -751,7 +751,7 @@ lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
         return ret;
 }
 
-lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value)
+lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value, bool &raised_signal)
 {
         auto now = std::chrono::high_resolution_clock::now();
         auto duration = now.time_since_epoch();
@@ -759,9 +759,15 @@ lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value)
         return lisp_value(static_cast<int64_t>(microseconds.count()));
 }
 
-lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value)
+lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_signal)
 {
         return lisp_value(static_cast<int64_t>(1000000));
+}
+
+lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
+{
+        raised_signal = true;
+        return args;
 }
 
 static inline
@@ -796,6 +802,7 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%CDR", lisp_prim_cdr);
         BIND_PRIM("%CONS", lisp_prim_cons);
         BIND_PRIM("%EQ", lisp_prim_eq);
+        BIND_PRIM("%SIGNAL", lisp_prim_signal);
         BIND_PRIM("%PUTCHAR", lisp_prim_putchar);
         BIND_PRIM("%TYPE-OF", lisp_prim_type_of);
         BIND_PRIM("%READ", lisp_prim_read);

@@ -173,7 +173,6 @@ namespace lisp {
         lisp_value LISP_SYM_AMP_BODY;
         lisp_value LISP_SYM_AMP_OPTIONAL;
         lisp_value LISP_SYM_HANDLER_CASE;
-        lisp_value LISP_SYM_SIGNAL;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -630,10 +629,57 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
         return params == LISP_NIL;
 }
 
+static inline
+void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args) 
+{
+        bool found_handler = false;
+        lisp_signal_handler handler;
+        if (LISP_SIGNAL_HANDLERS.size() != 0) {
+                for (size_t i = LISP_SIGNAL_HANDLERS.size()-1; i >= 0; --i) {
+                        if (LISP_SIGNAL_HANDLERS[i].tag == LISP_T ||
+                            LISP_SIGNAL_HANDLERS[i].tag == signal_tag) {
+                                found_handler = true;
+                                handler = LISP_SIGNAL_HANDLERS[i];
+                                LISP_SIGNAL_HANDLERS.pop_back();
+                                break;
+                        }
+                        LISP_SIGNAL_HANDLERS.pop_back();
+                }
+        }
+        if (found_handler) {
+                auto params = handler.lambda.params;
+                auto shadowed_env = handler.lambda.env;
+                if (!apply_arguments(shadowed_env, params, signal_args)) {
+                        abort();
+                }
+                auto result = LISP_NIL;
+                auto body = handler.lambda.body;
+                while (body != LISP_NIL) {
+                        result = evaluate(shadowed_env, first(body));
+                        body = rest(body);
+                }
+                throw result;
+        }
+        else {
+                printf("Unhandled signal %s\n", repr(signal_tag).c_str());
+                pretty_print(signal_args);
+                abort();
+        }
+}
+
+
 lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
 {
         if (function.is_lisp_primitive()) {
-                return function.as_lisp_primitive()(env, args);
+                //return function.as_lisp_primitive()(env, args);
+                bool raised_signal = false;
+                auto result = function.as_lisp_primitive()(env, args, raised_signal);
+                if (raised_signal) {
+                        try_handle_lisp_signal(car(result), cdr(result));
+                }
+                else {
+                        return result;
+                }
         }
         else if (function.as_object()->type() == LAMBDA_TYPE) {
                 auto params = function.as_object()->lambda()->params;
@@ -733,49 +779,18 @@ tailcall:
                                 return e;
                         }
                 }
-                else if (thing == LISP_SYM_SIGNAL) {
-                        auto args = evaluate_list(env, rest(obj));
-                        auto signal_tag = car(args);
-                        auto signal_args = cdr(args);
-                        bool found_handler = false;
-                        lisp_signal_handler handler;
-                        if (LISP_SIGNAL_HANDLERS.size() != 0) {
-                                for (size_t i = LISP_SIGNAL_HANDLERS.size()-1; i >= 0; --i) {
-                                        if (LISP_SIGNAL_HANDLERS[i].tag == LISP_T ||
-                                            LISP_SIGNAL_HANDLERS[i].tag == signal_tag) {
-                                                found_handler = true;
-                                                handler = LISP_SIGNAL_HANDLERS[i];
-                                                LISP_SIGNAL_HANDLERS.pop_back();
-                                                break;
-                                        }
-                                        LISP_SIGNAL_HANDLERS.pop_back();
-                                }
-                        }
-                        if (found_handler) {
-                                auto params = handler.lambda.params;
-                                auto shadowed_env = handler.lambda.env;
-                                if (!apply_arguments(shadowed_env, params, signal_args)) {
-                                        abort();
-                                }
-                                auto result = LISP_NIL;
-                                auto body = handler.lambda.body;
-                                while (body != LISP_NIL) {
-                                        result = evaluate(shadowed_env, first(body));
-                                        body = rest(body);
-                                }
-                                throw result;
-                        }
-                        else {
-                                printf("Unhandled signal %s\n", repr(signal_tag).c_str());
-                                pretty_print(signal_args);
-                                abort();
-                        }
-                }
                 else {
                         auto function = evaluate(env, thing);
                         auto args = evaluate_list(env, rest(obj));
                         if (function.is_lisp_primitive()) {
-                                return function.as_lisp_primitive()(env, args);
+                                bool raised_signal = false;
+                                auto result = function.as_lisp_primitive()(env, args, raised_signal);
+                                if (raised_signal) {
+                                        try_handle_lisp_signal(car(result), cdr(result));
+                                }
+                                else {
+                                        return result;
+                                }
                         }
                         else if (function.as_object()->type() == LAMBDA_TYPE) {
                                 auto params = function.as_object()->lambda()->params;
@@ -896,7 +911,6 @@ void initialize_globals()
         INTERN_GLOBAL(QUASIQUOTE);
         INTERN_GLOBAL(UNQUOTE);
         INTERN_GLOBAL(ARRAY);
-        INTERN_GLOBAL(SIGNAL);
 
         LISP_SYM_AMP_REST = intern_symbol("&REST");
         LISP_SYM_AMP_BODY = intern_symbol("&BODY");

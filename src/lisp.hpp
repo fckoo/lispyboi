@@ -34,7 +34,7 @@ namespace lisp {
         struct lisp_cons;
         struct lisp_value;
         std::string repr(const lisp_value *obj);
-        typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args);
+        typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args, bool &raised_signal);
         struct lisp_value {
                 /*
                   Do not be fooled into thinking this is another layer of indirection.
@@ -303,7 +303,6 @@ namespace lisp {
         extern lisp_value LISP_SYM_AMP_BODY;
         extern lisp_value LISP_SYM_AMP_OPTIONAL;
         extern lisp_value LISP_SYM_HANDLER_CASE;
-        extern lisp_value LISP_SYM_SIGNAL;
 
         struct lisp_cons {
                 lisp_value car;

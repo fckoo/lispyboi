@@ -43,6 +43,9 @@
 (defmacro * (&rest vals) (cons '%* vals))
 (defun * (&rest vals) (apply %* vals))
 
+(defmacro / (x y) (list '%* x y))
+(defun / (x y) (/ x y))
+
 (defmacro < (&rest vals) (cons '%< vals))
 (defun < (&rest vals) (apply %< vals))
 
@@ -595,6 +598,12 @@
     (if (test item (car list))
         list
         (member item (cdr list) test))))
+
+(defmacro signal (tag &rest arguments)
+  `(%signal ,tag ,@arguments))
+
+(defun signal (tag &rest arguments)
+  (apply %signal tag arguments))
 
 (defun error (message &rest arguments)
   (print message)
