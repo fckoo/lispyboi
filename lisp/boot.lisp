@@ -537,12 +537,23 @@
   (prog1 (print object stm)
     (putchar #\Newline)))
 
+(defmacro unwind-protect (protected &body cleanup)
+  (let ((args (gensym "ARGS"))
+        (result (gensym "RESULT")))
+    `(let ((,result))
+       (handler-case
+           (progn (setf ,result ,protected)
+                  (signal t))
+         (t (&rest ,args)
+           ,@cleanup))
+       ,result)))
+
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
         (path (second var-path-direction))
         (direction (third var-path-direction)))
     `(let ((,var (open ,path ,direction)))
-       (prog1 (progn ,@body)
+       (unwind-protect (progn ,@body)
          (close ,var)))))
 
 (defmacro file-ok (file-stream) `(%file-ok ,file-stream))
