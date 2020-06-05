@@ -102,10 +102,27 @@
       (cons (car x) (append (cdr x) y))
       y))
 
+(defun foldl (func init list)
+  (if (null list)
+      init
+      (foldl func
+             (func (first list) init)
+             (rest list))))
+
+(defun foldl-for-effect (func list)
+  (when list
+    (func (first list))
+    (foldl-for-effect func (rest list))))
+
+(defun reverse (list)
+  (foldl cons nil list))
+
 (defun map1 (func seq)
+  ;; NOT TAIL RECURSIVE! later definitions are
   (if seq (cons (func (car seq)) (map1 func (cdr seq)))))
 
 (defun map (func &rest seqs)
+  ;; NOT TAIL RECURSIVE! later definitions are
   (if (null (cdr seqs))
       (map1 func (car seqs))
       (if (car seqs)
@@ -145,6 +162,27 @@
                       vals)))
       (cons (cons 'lambda (cons names (append setqs body)))
             (map (lambda (&rest p) nil) names)))))
+
+;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
+;; and we have some friendlier constructs to define them now
+(defun map1 (func seq)
+  (labels ((map1-aux (accum list)
+             (if list
+                 (map1-aux (cons (func (car list)) accum)
+                           (cdr list))
+                 (reverse accum))))
+    (map1-aux nil seq)))
+
+(defun map (func &rest seqs)
+  (if (null (cdr seqs))
+      (map1 func (car seqs))
+      (if (car seqs)
+          (labels ((map-aux (accum lists)
+                     (if (car lists)
+                         (map-aux (cons (apply func (map1 car lists)) accum)
+                                  (map1 cdr lists))
+                         (reverse accum))))
+            (map-aux nil seqs)))))
 
 (defmacro and (&rest exprs)
   (labels ((and-helper (args)
@@ -337,11 +375,12 @@
         (times-name (gensym))
         (times (second var-times))
         (fn-name (gensym)))
-    `(labels ((,fn-name (,var-name ,times-name)
-                (when (< ,var-name ,times-name)
-                  ,@body
-                  (,fn-name (+ ,var-name 1) ,times-name))))
-       (,fn-name 0 ,times))))
+    `(let ((,times-name ,times))
+       (labels ((,fn-name (,var-name)
+                  (when (< ,var-name ,times-name)
+                    ,@body
+                    (,fn-name (+ ,var-name 1)))))
+         (,fn-name 0)))))
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
