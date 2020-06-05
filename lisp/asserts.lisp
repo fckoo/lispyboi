@@ -2,13 +2,15 @@
   (let ((tmp-var-name (gensym)))
     `(let ((,tmp-var-name ,expr))
        (unless ,tmp-var-name
-         (print '(assertion failed for ,expr))))))
+         (print "Assertion failed for ")
+         (print-line ',expr)))))
 
 (defmacro assert-false (expr)
   (let ((tmp-var-name (gensym)))
     `(let ((,tmp-var-name ,expr))
        (when ,tmp-var-name
-         (print '(assertion failed for ,expr))))))
+         (print "Assertion failed for ")
+         (print-line ',expr)))))
 
 (defun assert-%% (test expected actual)
   (let ((actual-var-name (gensym))
@@ -16,8 +18,14 @@
     `(let ((,actual-var-name ,actual)
            (,expected-var-name ,expected))
        (unless (,test ,actual-var-name ,expected-var-name)
-         (print '(,test assertion failed for ,actual))
-         (print (list 'expected 'to 'get ,expected-var-name 'but 'got ,actual-var-name 'instead))))))
+         (print ',test)
+         (print " assertion failed for ")
+         (print-line ',actual)
+         (print "  Expected to get ")
+         (print ,expected-var-name)
+         (print " but got ")
+         (print ,actual-var-name)
+         (print-line " instead.")))))
 
 (defmacro assert-eq (expected actual)
   (assert-%% 'eq expected actual))

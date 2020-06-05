@@ -1,12 +1,18 @@
 (require "asserts")
 (require "time-it")
 
+(defun run-test (path)
+  (print "Running test: ")
+  (print-line path)
+  (load path))
+
 (time-it test-time
          (progn
-           (load "test_equal.lisp")
-           (load "test_math.lisp")
-           (load "test_lists.lisp")
-           (load "test_quasiquote.lisp"))
+           (run-test "test_equal.lisp")
+           (run-test "test_math.lisp")
+           (run-test "test_lists.lisp")
+           (run-test "test_quasiquote.lisp")
+           (run-test "test_handler-case.lisp"))
          (print "Tests completed in ")
          (print test-time)
          (print-line "ms."))
