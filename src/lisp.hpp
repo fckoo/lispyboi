@@ -302,6 +302,8 @@ namespace lisp {
         extern lisp_value LISP_SYM_AMP_REST;
         extern lisp_value LISP_SYM_AMP_BODY;
         extern lisp_value LISP_SYM_AMP_OPTIONAL;
+        extern lisp_value LISP_SYM_HANDLER_CASE;
+        extern lisp_value LISP_SYM_SIGNAL;
 
         struct lisp_cons {
                 lisp_value car;
@@ -310,7 +312,7 @@ namespace lisp {
 
         struct lisp_lambda {
                 lisp_value env;
-                lisp_value args;
+                lisp_value params;
                 lisp_value body;
         };
 
@@ -848,10 +850,12 @@ namespace lisp {
         lisp_value third(lisp_value obj)   { return caddr(obj); }
         FLATTEN static inline
         lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
-
+        
+        lisp_cons *cons_pool_pop();
         FLATTEN static FORCE_INLINE lisp_value cons(lisp_value car, lisp_value cdr)
         {
-                lisp_cons *ret = new lisp_cons();
+                lisp_cons *ret = cons_pool_pop();
+                //lisp_cons *ret = new lisp_cons();
                 ret->car = car;
                 ret->cdr = cdr;
                 return lisp_value(ret);

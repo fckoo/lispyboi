@@ -1,6 +1,6 @@
 CC := g++
 CFLAGS := -std=c++17 -O0 -g3 -rdynamic -fno-omit-frame-pointer
-#CFLAGS := -flto -std=c++17 -O3
+#CFLAGS := -std=c++17 -O3
 LDFLAGS := -lreadline
 
 

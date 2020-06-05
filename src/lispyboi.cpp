@@ -17,6 +17,51 @@
 
 using namespace lisp;
 
+static 
+struct lisp_cons_pool {
+        lisp_cons_pool()
+                : m_pool_index(0)
+                , m_cons_index(0)
+        {
+                m_pools.reserve(10000);
+                m_current_pool = new lisp_cons[pool_size];
+                m_pools.push_back(m_current_pool);
+        }
+        
+        lisp_cons *pop()
+        {
+                if (m_cons_index >= pool_size) {
+                        m_pool_index++;
+                        m_current_pool = new lisp_cons[pool_size];
+                        m_pools.push_back(m_current_pool);
+                        m_cons_index = 0;
+                }
+                return &m_current_pool[m_cons_index++];
+        }
+
+private:
+        static constexpr size_t pool_size = 10000; // number of conses to allocate per pool
+        size_t m_pool_index; // index of current pools
+        size_t m_cons_index; // index next cons
+        lisp_cons *m_current_pool;
+        std::vector<lisp_cons*> m_pools;
+        
+} cons_pool;
+
+lisp_cons *lisp::cons_pool_pop()
+{
+        return cons_pool.pop();
+}
+
+struct lisp_signal_handler {
+        lisp_value tag;
+        lisp_lambda lambda;
+};
+
+// A stack of lisp signal handlers; the last element of this std::vector is the top of the 
+// stack.
+std::vector<lisp_signal_handler> LISP_SIGNAL_HANDLERS;
+
 struct lisp_string_stream : lisp_stream {
         inline
         lisp_string_stream()
@@ -127,6 +172,8 @@ namespace lisp {
         lisp_value LISP_SYM_AMP_REST;
         lisp_value LISP_SYM_AMP_BODY;
         lisp_value LISP_SYM_AMP_OPTIONAL;
+        lisp_value LISP_SYM_HANDLER_CASE;
+        lisp_value LISP_SYM_SIGNAL;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -213,11 +260,11 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                                 break;
                         case LAMBDA_TYPE: {
                                 result += "(LAMBDA ";
-                                if (obj.as_object()->lambda()->args == LISP_NIL) {
+                                if (obj.as_object()->lambda()->params == LISP_NIL) {
                                         result += "() ";
                                 }
                                 else {
-                                        result += repr(obj.as_object()->lambda()->args);
+                                        result += repr(obj.as_object()->lambda()->params);
                                         result += " ";
                                 }
                                 auto body = obj.as_object()->lambda()->body;
@@ -589,7 +636,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
                 return function.as_lisp_primitive()(env, args);
         }
         else if (function.as_object()->type() == LAMBDA_TYPE) {
-                auto params = function.as_object()->lambda()->args;
+                auto params = function.as_object()->lambda()->params;
                 auto shadowed_env = function.as_object()->lambda()->env;
                 if (!apply_arguments(shadowed_env, params, args)) {
                         pretty_print(function);
@@ -617,11 +664,11 @@ tailcall:
                 return obj;
         }
         if (obj.is_cons()) {
-                auto car = first(obj);
-                if (car == LISP_SYM_QUOTE) {
+                auto thing = first(obj);
+                if (thing == LISP_SYM_QUOTE) {
                         return second(obj); // intentionally not evaluated.
                 }
-                else if (car == LISP_SYM_IF) {
+                else if (thing == LISP_SYM_IF) {
                         auto condition = evaluate(env, second(obj));
                         if (condition != LISP_NIL) {
                                 obj = third(obj);
@@ -632,7 +679,7 @@ tailcall:
                                 goto tailcall;
                         }
                 }
-                else if (car == LISP_SYM_DEFMACRO) {
+                else if (thing == LISP_SYM_DEFMACRO) {
                         auto macro_name = second(obj);
                         auto params_list = third(obj);
                         auto body = cdddr(obj);
@@ -640,13 +687,13 @@ tailcall:
                         LISP_MACROS[*(macro_name.as_object()->symbol())] = macro;
                         return macro_name;
                 }
-                else if (car == LISP_SYM_LAMBDA) {
+                else if (thing == LISP_SYM_LAMBDA) {
                         auto args = second(obj);
                         auto body = cddr(obj);
                         auto tmp = lisp_obj::create_lambda(env, args, body);
                         return tmp;
                 }
-                else if (car == LISP_SYM_SETQ) {
+                else if (thing == LISP_SYM_SETQ) {
                         auto variable_name = second(obj);
                         auto value = evaluate(env, third(obj));
                         auto place = symbol_lookup(env, variable_name);
@@ -658,15 +705,80 @@ tailcall:
                         }
                         return value;
                 }
-                else {
-                        auto function = evaluate(env, car);
+                else if (thing == LISP_SYM_HANDLER_CASE) {
+                        auto form = second(obj);
+                        auto cases = cddr(obj);
+                        // We see the handlers in correct order but if you push them on to the
+                        // handler stack in that order, the first signal in the HANDLER-CASE
+                        // won't be at the top of the stack, so we have an intermediate list
+                        // of handlers and we just push them back in reverse later.
+                        std::vector<lisp_signal_handler> handlers_rev;
+                        while (cases != LISP_NIL) {
+                                auto this_case = car(cases);
+                                auto tag = first(this_case);
+                                auto lambda_list = second(this_case);
+                                auto lambda_body = cddr(this_case);
+                                handlers_rev.push_back({tag,
+                                                { env, lambda_list, lambda_body }
+                                        });
+                                cases = cdr(cases);
+                        }
+                        for (auto it = handlers_rev.rbegin(); it != handlers_rev.rend(); ++it) {
+                                LISP_SIGNAL_HANDLERS.push_back(*it);
+                        }
+                        try {
+                                return evaluate(env, form);
+                        } 
+                        catch (lisp_value e) {
+                                return e;
+                        }
+                }
+                else if (thing == LISP_SYM_SIGNAL) {
                         auto args = evaluate_list(env, rest(obj));
-                        //return apply(env, function, args);
+                        auto signal_tag = car(args);
+                        auto signal_args = cdr(args);
+                        bool found_handler = false;
+                        lisp_signal_handler handler;
+                        if (LISP_SIGNAL_HANDLERS.size() != 0) {
+                                for (size_t i = LISP_SIGNAL_HANDLERS.size()-1; i >= 0; --i) {
+                                        if (LISP_SIGNAL_HANDLERS[i].tag == LISP_T ||
+                                            LISP_SIGNAL_HANDLERS[i].tag == signal_tag) {
+                                                found_handler = true;
+                                                handler = LISP_SIGNAL_HANDLERS[i];
+                                                LISP_SIGNAL_HANDLERS.pop_back();
+                                                break;
+                                        }
+                                        LISP_SIGNAL_HANDLERS.pop_back();
+                                }
+                        }
+                        if (found_handler) {
+                                auto params = handler.lambda.params;
+                                auto shadowed_env = handler.lambda.env;
+                                if (!apply_arguments(shadowed_env, params, signal_args)) {
+                                        abort();
+                                }
+                                auto result = LISP_NIL;
+                                auto body = handler.lambda.body;
+                                while (body != LISP_NIL) {
+                                        result = evaluate(shadowed_env, first(body));
+                                        body = rest(body);
+                                }
+                                throw result;
+                        }
+                        else {
+                                printf("Unhandled signal %s\n", repr(signal_tag).c_str());
+                                pretty_print(signal_args);
+                                abort();
+                        }
+                }
+                else {
+                        auto function = evaluate(env, thing);
+                        auto args = evaluate_list(env, rest(obj));
                         if (function.is_lisp_primitive()) {
                                 return function.as_lisp_primitive()(env, args);
                         }
                         else if (function.as_object()->type() == LAMBDA_TYPE) {
-                                auto params = function.as_object()->lambda()->args;
+                                auto params = function.as_object()->lambda()->params;
                                 auto shadowed_env = function.as_object()->lambda()->env;
                                 if (!apply_arguments(shadowed_env, params, args)) {
                                         pretty_print(function);
@@ -784,6 +896,7 @@ void initialize_globals()
         INTERN_GLOBAL(QUASIQUOTE);
         INTERN_GLOBAL(UNQUOTE);
         INTERN_GLOBAL(ARRAY);
+        INTERN_GLOBAL(SIGNAL);
 
         LISP_SYM_AMP_REST = intern_symbol("&REST");
         LISP_SYM_AMP_BODY = intern_symbol("&BODY");
@@ -791,6 +904,8 @@ void initialize_globals()
         
         LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
         LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
+
+        LISP_SYM_HANDLER_CASE = intern_symbol("HANDLER-CASE");
 
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
