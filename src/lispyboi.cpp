@@ -330,10 +330,6 @@ void consume_whitespace(lisp_stream &stream)
 
 lisp_value lisp::parse(lisp_stream &stream)
 {
-        // symbols, ints, a char
-        // symbol = anything not (), is not whitespace, doesnt start with int
-        // an int = series of numbas :^) basically
-        // a char: #\<anything>
         while (!stream.eof()) {
                 consume_whitespace(stream);
                 if (stream.peekc() == ';') {
@@ -443,6 +439,9 @@ lisp_value lisp::parse(lisp_stream &stream)
                         if (symbol == "T")
                                 return LISP_T;
                         return intern_symbol(symbol);
+                }
+                else if (stream.peekc() == ')') {
+                        break;
                 }
                 else if (stream.peekc() == '(') {
                         stream.getc();

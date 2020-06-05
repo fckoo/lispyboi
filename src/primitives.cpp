@@ -82,8 +82,6 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args)
         auto s = repr(obj);
         if (stream) {
                 stream->write(s);
-                stream->write_byte('\n');
-                stream->flush();
         }
         return obj;
 }
@@ -416,6 +414,29 @@ lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args)
                 name += reinterpret_cast<const char*>(&codepoint);
         }
         return lisp_obj::create_symbol(name);
+}
+
+lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args)
+{
+        /***
+            (symbol-name symbol)
+        */
+        return lisp_obj::create_string(*first(args).as_object()->symbol());
+}
+
+lisp_value lisp_prim_intern(lisp_value, lisp_value args)
+{
+        /***
+            (intern symbol-name)
+        */
+        auto symbol_name = first(args);
+        std::string name;
+        auto array = first(args).as_object()->simple_array();
+        for (size_t i = 0; i < array->length(); ++i) {
+                auto codepoint = array->get(i).as_character();
+                name += reinterpret_cast<const char*>(&codepoint);
+        }
+        return intern_symbol(name);
 }
 
 lisp_value lisp_prim_exit(lisp_value, lisp_value args)
@@ -761,6 +782,8 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%GET-ENV", lisp_prim_get_env);
         BIND_PRIM("%GENSYM", lisp_prim_gensym);
         BIND_PRIM("%MAKE-SYMBOL", lisp_prim_make_symbol);
+        BIND_PRIM("%SYMBOL-NAME", lisp_prim_symbol_name);
+        BIND_PRIM("%INTERN", lisp_prim_intern);
         BIND_PRIM("%EXIT", lisp_prim_exit);
         BIND_PRIM("%MAKE-ARRAY", lisp_prim_make_array);
         BIND_PRIM("%AREF", lisp_prim_aref);

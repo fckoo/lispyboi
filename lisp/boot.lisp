@@ -226,9 +226,11 @@
 (defmacro cond (&body body)
   (if (null body)
       nil
-      `(if ,(caar body)
-           (progn ,@(rest (first body)))
-           (cond ,@(rest body)))))
+      (if (eq t (caar body))
+          `(progn ,@(rest (first body)))
+          `(if ,(caar body)
+               (progn ,@(rest (first body)))
+               (cond ,@(rest body))))))
 
 (defun assoc (item alist)
   (when alist
@@ -256,13 +258,12 @@
     (labels ((test-generator (lst)
                (when lst
                  (let ((the-case (car lst)))
-                   (if (eq 't (car the-case))
+                   (if (or (eq 't (car the-case))
+                           (eq 'otherwise (car the-case)))
                        `(progn ,@(cdr the-case))
-                       (if (eq 'otherwise (car the-case))
-                           `(progn ,@(cdr the-case))
-                           `(if ,(test-fn tmp-val-name (car the-case))
-                                (progn ,@(cdr the-case))
-                                ,(test-generator (cdr lst)))))))))
+                       `(if ,(test-fn tmp-val-name (car the-case))
+                            (progn ,@(cdr the-case))
+                            ,(test-generator (cdr lst))))))))
       `(let ((,tmp-val-name ,keyform))
          ,(test-generator body)))))
 
@@ -486,10 +487,13 @@
 (defun print (object &optional (stm *STANDARD-OUTPUT*))
   (cond ((stringp object)
          (dotimes (i (array-length object))
-           (putchar (aref object i) stm))
-         (putchar #\newline stm))
+           (putchar (aref object i) stm)))
         (t (%print object stm)))
   object)
+
+(defun print-line (object &optional (stm *STANDARD-OUTPUT*))
+  (prog1 (print object stm)
+    (putchar #\Newline)))
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
@@ -573,6 +577,15 @@
                      (eval (read file) environment))
               full-path))
         (change-directory here-path)))))
+
+(defmacro symbol-name (symbol) `(%symbol-name ,symbol))
+(defun symbol-name (symbol) (symbol-name symbol))
+
+(defmacro make-symbol (symbol-name) `(%make-symbol ,symbol-name))
+(defun make-symbol (symbol-name) (make-symbol symbol-name))
+
+(defmacro intern (symbol-name) `(%intern ,symbol-name))
+(defun intern (symbol-name) (intern symbol-name))
 
 (load "modules.lisp")
 (provide "boot")
