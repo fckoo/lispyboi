@@ -100,6 +100,15 @@
 (defmacro exit (&optional (n 0)) (list '%exit n))
 (defun exit (&optional (n 0)) (exit n))
 
+(defmacro signal (tag &rest arguments)
+  (cons '%signal (cons tag arguments)))
+
+(defun signal (tag &rest arguments)
+  (apply %signal tag arguments))
+
+(defun error (message &rest arguments)
+  (apply %signal 'error message arguments))
+
 (defun append (x y)
   (if x
       (cons (car x) (append (cdr x) y))
@@ -340,7 +349,7 @@
                (append (list (cdr set-functions))
                        (rest form)))))
           (t
-           ;; @TODO: Need to implement error capabilities in host
+           (error "no SETF expansion for" form)
            nil))))
 
 (defmacro defsetf (access-fn update-fn)
@@ -356,10 +365,7 @@
     (cond ((symbolp expansion)
            `(setq ,expansion ,value))
           ((consp expansion)
-           (append expansion (list value)))
-          (t
-           ;; @TODO: Need to implement error capabilities in host
-           nil))))
+           (append expansion (list value))))))
 
 (defmacro dolist (var-list &body body)
   (let ((var-name (first var-list))
@@ -521,11 +527,6 @@
                (incf start))
         str)))
 
-(defmacro open (file-path direction) `(%open ,file-path ,direction))
-(defun open (file-path direction) (open file-path direction))
-(defmacro close (file-stream) `(%close ,file-stream))
-(defun close (file-stream) (close file-stream))
-
 (defun print (object &optional (stm *STANDARD-OUTPUT*))
   (cond ((stringp object)
          (dotimes (i (array-length object))
@@ -539,43 +540,26 @@
 
 (defmacro unwind-protect (protected &body cleanup)
   (let ((args (gensym "ARGS"))
-        (result (gensym "RESULT")))
+        (result (gensym "RESULT"))
+        (sig (gensym "SIG"))
+        (clean-throw (gensym "CLEAN-THROW")))
     `(let ((,result))
        (handler-case
            (progn (setf ,result ,protected)
-                  (signal t))
-         (t (&rest ,args)
-           ,@cleanup))
+                  (signal ',clean-throw))
+         (t (,sig &rest ,args)
+           ,@cleanup
+           (unless (eq ,sig ',clean-throw)
+             (apply signal ,sig ,args))))
        ,result)))
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
         (path (second var-path-direction))
         (direction (third var-path-direction)))
-    `(let ((,var (open ,path ,direction)))
+    `(let ((,var (%open ,path ,direction)))
        (unwind-protect (progn ,@body)
-         (close ,var)))))
-
-(defmacro file-ok (file-stream) `(%file-ok ,file-stream))
-(defun file-ok (file-stream) (file-ok file-stream))
-
-(defmacro file-eof-p (file-stream) `(%file-eof-p ,file-stream))
-(defun file-eof-p (file-stream) (file-eof-p file-stream))
-
-(defmacro file-length (file-stream) `(%file-length ,file-stream))
-(defun file-length (file-stream) (file-length file-stream))
-
-(defmacro file-flush (file-stream) `(%file-flush ,file-stream))
-(defun file-flush (file-stream) (file-flush file-stream))
-
-(defun file-mode (file-stream)
-  (case (%file-mode file-stream)
-    (0 nil)
-    (1 'read)
-    (2 'overwrite)
-    (3 '(read overwrite))
-    (4 'append)
-    (5 '(read append))))
+         (%close ,var)))))
 
 (defun find-last-of (array value)
   (let ((i (- (length array) 1)))
@@ -610,17 +594,6 @@
         list
         (member item (cdr list) test))))
 
-(defmacro signal (tag &rest arguments)
-  `(%signal ,tag ,@arguments))
-
-(defun signal (tag &rest arguments)
-  (apply %signal tag arguments))
-
-(defun error (message &rest arguments)
-  (print message)
-  (print arguments)
-  (exit 1))
-
 (defun load (file-path &optional (environment (%get-env)))
   (let* ((here-path (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
@@ -629,12 +602,12 @@
          (there-path (change-directory (parent-directory full-path))))
     (push (cons '*FILE-PATH* full-path) environment)
     (when there-path
-      (prog1
-          (with-open-file (file full-path 'read)
-            (when (file-ok file)
-              (until (file-eof-p file)
-                     (eval (read file) environment))
-              full-path))
+      (unwind-protect
+           (with-open-file (file full-path 'read)
+             (when (%file-ok file)
+               (until (%file-eof-p file)
+                      (eval (read file) environment))
+               full-path))
         (change-directory here-path)))))
 
 (defmacro symbol-name (symbol) `(%symbol-name ,symbol))

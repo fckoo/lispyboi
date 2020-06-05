@@ -648,6 +648,9 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
         }
         if (found_handler) {
                 auto params = handler.lambda.params;
+                if (handler.tag == LISP_T) {
+                        signal_args = cons(signal_tag, signal_args);
+                }
                 auto shadowed_env = handler.lambda.env;
                 if (!apply_arguments(shadowed_env, params, signal_args)) {
                         abort();

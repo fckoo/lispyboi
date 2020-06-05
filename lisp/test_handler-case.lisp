@@ -35,17 +35,17 @@
 
 
 (let ((val))
-  (assert-true (equal '(1 2 3 4) (handler-case
-                                     (progn
-                                       (setf val 123)
-                                       (signal 'foo 1 2 3 4)
-                                       (setf val 456))
-                                   (t (&rest args) 
-                                     (setf val 999)
-                                     args)
-                                   (foo (&rest args)
-                                     (setf val 444)
-                                     (reverse args)))))
+  (assert-true (equal '(foo 10 20 30 40) (handler-case
+                                             (progn
+                                               (setf val 123)
+                                               (signal 'foo 10 20 30 40)
+                                               (setf val 456))
+                                           (t (&rest args) 
+                                             (setf val 999)
+                                             args)
+                                           (foo (&rest args)
+                                             (setf val 444)
+                                             (reverse args)))))
   (assert-true (= 999 val)))
 
 

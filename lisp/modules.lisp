@@ -42,9 +42,12 @@
 
 (setf *modules* ())
 
+(defun provide (module-name)
+  (push module-name *modules*))
+
 (defun file-accessible-p (file-path)
   (with-open-file (file file-path 'read)
-    (file-ok file)))
+    (%file-ok file)))
 
 (defun map-find (function list)
   (when list
@@ -63,17 +66,13 @@
                           paths))
               '("" ".lisp" ".module"))))
 
-(defun provide (module-name)
-  (push module-name *modules*))
-
 (defun load-module (module-name path)
-  (cond ((null path)
-         (let ((found-module (find-module module-name)))
-           (unless found-module
-             (error "module not found!" module-name))
-           (and (load found-module) module-name)))
-        (t
-         (and (load path) module-name))))
+  (if path
+      (and (load path) module-name)
+      (let ((found-module (find-module module-name)))
+        (unless found-module
+          (error "module not found!" module-name))
+        (and (load found-module) module-name))))
 
 (defun require (module-name &optional path)
   (if (member module-name *modules* equal)
