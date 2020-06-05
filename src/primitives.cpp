@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <chrono>
 #include "platform.hpp"
 #include "primitives.hpp"
 
@@ -61,6 +62,16 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args)
                 args = cdr(args);
         }
         return lisp_value(result);
+}
+
+lisp_value lisp_prim_divide(lisp_value env, lisp_value args)
+{
+        /***
+            (/ x y)
+        */
+        auto x = first(args).as_fixnum();
+        auto y = second(args).as_fixnum();
+        return lisp_value(x / y);
 }
 
 lisp_value lisp_prim_print(lisp_value env, lisp_value args)
@@ -740,6 +751,19 @@ lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value)
         return ret;
 }
 
+lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value)
+{
+        auto now = std::chrono::high_resolution_clock::now();
+        auto duration = now.time_since_epoch();
+        auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+        return lisp_value(static_cast<int64_t>(microseconds.count()));
+}
+
+lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value)
+{
+        return lisp_value(static_cast<int64_t>(1000000));
+}
+
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
@@ -764,6 +788,7 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%+", lisp_prim_plus);
         BIND_PRIM("%-", lisp_prim_minus);
         BIND_PRIM("%*", lisp_prim_multiply);
+        BIND_PRIM("%/", lisp_prim_divide);
         BIND_PRIM("%<", lisp_prim_num_less);
         BIND_PRIM("%=", lisp_prim_num_equal);
         BIND_PRIM("%>", lisp_prim_num_greater);
@@ -807,6 +832,8 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
         BIND_PRIM("CHANGE-DIRECTORY", lisp_prim_change_directory);
         BIND_PRIM("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
+        BIND_PRIM("GET-CLOCK-TICKS", lisp_prim_get_clock_ticks);
+        BIND_PRIM("CLOCKS-PER-SECOND", lisp_prim_clocks_per_second);
         
         bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
         bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
