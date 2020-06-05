@@ -49,3 +49,84 @@
   (assert-true (= 999 val)))
 
 
+(let ((val 0))
+  (handler-case
+      (handler-case (signal 'foo)
+        (bar ()
+          (setf val 333)))
+    (foo ()
+      (setf val 4545)))
+  (assert= 4545 val))
+
+(let ((val 0))
+  (handler-case
+      (handler-case (signal 'foo)
+        (t (sig)
+          (setf val 333)
+          (signal sig)))
+    (foo ()
+      (setf val 4545)))
+  (assert= 4545 val))
+
+(let ((val 0))
+  (handler-case
+      (handler-case
+          (handler-case
+              (handler-case
+                  (handler-case
+                      (handler-case
+                          (handler-case
+                              (handler-case
+                                  (handler-case (signal 'foo)
+                                    (a () (setf val 1)))
+                                (b () (setf val 2)))
+                            (c () (setf val 3)))
+                        (d () (setf val 4)))
+                    (e () (setf val 5)))
+                (f () (setf val 6)))
+            (g () (setf val 7)))
+        (h () (setf val 8)))
+    (foo ()
+      (setf val 4545)))
+  (assert= 4545 val))
+
+(let ((val 0))
+  (handler-case
+      (handler-case
+          (handler-case
+              (handler-case
+                  (handler-case
+                      (handler-case
+                          (handler-case
+                              (handler-case
+                                  (handler-case (signal 'd)
+                                    (a () (setf val 1)))
+                                (b () (setf val 2)))
+                            (c () (setf val 3)))
+                        (d () (setf val 4)))
+                    (e () (setf val 5)))
+                (f () (setf val 6)))
+            (g () (setf val 7)))
+        (h () (setf val 8)))
+    (foo ()
+      (setf val 4545)))
+  (assert= 4 val))
+
+(let ((val 0))
+  (handler-case
+      (handler-case (signal 'foo)
+        (t (sig)
+          (setf val 333)
+          (signal 'bar)))
+    (bar ()
+      (setf val 4545)))
+  (assert= 4545 val))
+
+(let ((val 0))
+  (handler-case
+      (handler-case (signal 'foo)
+        (t (sig)
+          (error 5555)))
+    (error (n)
+      (setf val n)))
+  (assert= 5555 val))
