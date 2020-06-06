@@ -123,6 +123,16 @@ namespace lisp {
                         return u.fixnum_layout.tag != 0;
                 }
 
+                FORCE_INLINE bool is_byte() const
+                {
+                        return wide_tag_bits() == WTAG_BYTE;
+                }
+
+                FORCE_INLINE bool is_character() const
+                {
+                        return wide_tag_bits() == WTAG_CHAR;
+                }
+
                 FORCE_INLINE bool is_nil() const
                 {
                         return bits() == 0;
@@ -235,16 +245,6 @@ namespace lisp {
                         return wide_tag_bits() == WTAG_INVALID;
                 }
 
-                FORCE_INLINE bool is_byte() const
-                {
-                        return wide_tag_bits() == WTAG_BYTE;
-                }
-
-                FORCE_INLINE bool is_character() const
-                {
-                        return wide_tag_bits() == WTAG_CHAR;
-                }
-
         private:
 
                 union {
@@ -303,6 +303,7 @@ namespace lisp {
         extern lisp_value LISP_SYM_AMP_BODY;
         extern lisp_value LISP_SYM_AMP_OPTIONAL;
         extern lisp_value LISP_SYM_HANDLER_CASE;
+        extern lisp_value LISP_SYM_FILE_STREAM;
 
         struct lisp_cons {
                 lisp_value car;

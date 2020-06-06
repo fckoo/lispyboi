@@ -184,6 +184,7 @@ namespace lisp {
         lisp_value LISP_SYM_AMP_BODY;
         lisp_value LISP_SYM_AMP_OPTIONAL;
         lisp_value LISP_SYM_HANDLER_CASE;
+        lisp_value LISP_SYM_FILE_STREAM;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -935,6 +936,7 @@ void initialize_globals()
         LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
 
         LISP_SYM_HANDLER_CASE = intern_symbol("HANDLER-CASE");
+        LISP_SYM_FILE_STREAM = intern_symbol("FILE-STREAM");
 
         LISP_BASE_ENVIRONMENT = LISP_NIL;
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
@@ -1057,11 +1059,20 @@ int main(int argc, char *argv[])
         }
 
         initialize_globals();
-        for (auto fs : fstreams) {
-                eval_fstream(fs->path(), *fs);
-                fs->close();
-                delete fs;
+        try {
+                for (auto fs : fstreams) {
+                        eval_fstream(fs->path(), *fs);
+                        fs->close();
+                        delete fs;
+                }
         }
+        catch (lisp_exception e) {
+                printf("%s\n", e.msg);
+                if (e.what != LISP_NIL) {
+                        printf("    %s\n", repr(e.what).c_str());
+                }
+        }
+        
 
         if (repl) {
                 static const char *prompt_lisp = "lisp_nasa> ";
