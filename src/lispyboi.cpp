@@ -753,10 +753,9 @@ tailcall:
                         return macro_name;
                 }
                 else if (thing == LISP_SYM_LAMBDA) {
-                        auto args = second(obj);
+                        auto params = second(obj);
                         auto body = cddr(obj);
-                        auto tmp = lisp_obj::create_lambda(env, args, body);
-                        return tmp;
+                        return lisp_obj::create_lambda(env, params, body);
                 }
                 else if (thing == LISP_SYM_SETQ) {
                         auto variable_name = second(obj);

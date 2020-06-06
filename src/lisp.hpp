@@ -8,6 +8,7 @@
 
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
+#if defined(DEBUG) && DEBUG > 1
 #define ENSURE_VALUE(value, expr) do {                                \
                 if (!(expr)) {                                          \
                         fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
@@ -17,6 +18,9 @@
                 }                                                       \
         } while (0)
 
+#else
+#define ENSURE_VALUE(value, expr) ((void)value)
+#endif
 
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
@@ -652,11 +656,11 @@ namespace lisp {
                 }
 
                 static inline
-                lisp_value create_lambda(lisp_value env, lisp_value args, lisp_value body)
+                lisp_value create_lambda(lisp_value env, lisp_value params, lisp_value body)
                 {
                         auto ret = new lisp_obj();
                         ret->m_type = LAMBDA_TYPE;
-                        ret->u.lambda = new lisp_lambda { env, args, body };
+                        ret->u.lambda = new lisp_lambda { env, params, body };
                         return lisp_value(ret);
                 }
 

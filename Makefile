@@ -1,11 +1,16 @@
 CC := g++
-CFLAGS := -std=c++17 -O0 -g3 -rdynamic -fno-omit-frame-pointer
-#CFLAGS := -std=c++17 -O3
+CFLAGS := -std=c++17
 LDFLAGS := -lreadline
 
+.PHONY: all clean debug release
 
-.PHONY: all
-all: clean lispyboi
+all: debug
+
+debug: CFLAGS += -O1 -g3 -fno-omit-frame-pointer -DDEBUG=1
+debug: clean lispyboi
+
+release: CFLAGS += -O3
+release: clean lispyboi
 
 lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o obj/platform.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -16,6 +21,5 @@ obj/%.o: src/%.cpp obj
 obj:
 	mkdir -p $@
 
-.PHONY: clean
 clean:
 	rm -rf obj lispyboi
