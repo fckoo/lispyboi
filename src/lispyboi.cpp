@@ -412,9 +412,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                                         character += stream.getc();
                                 }
                                 if (character.size() == 0) {
-                                        // error
-                                        fprintf(stderr, "character literal of length 0?\n");
-                                        abort();
+                                        character += stream.getc();
                                 }
                                 if (character.size() == 1) {
                                         return lisp_value(static_cast<int32_t>(character[0]));
