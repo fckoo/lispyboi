@@ -58,9 +58,13 @@ struct lisp_signal_handler {
         lisp_lambda lambda;
 };
 
-// A stack of lisp signal handlers; the last element of this std::vector is the top of the 
-// stack.
-std::vector<lisp_signal_handler> LISP_SIGNAL_HANDLERS;
+struct lisp_signal_handler_cases {
+        std::vector<lisp_signal_handler> handlers;
+};
+
+// A stack of handler cases; the last element of this is the most recent HANDLER-CASE
+static 
+std::vector<lisp_signal_handler_cases> LISP_SIGNAL_HANDLER_CASES;
 
 struct lisp_string_stream : lisp_stream {
         inline
@@ -634,16 +638,19 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
 {
         bool found_handler = false;
         lisp_signal_handler handler;
-        if (LISP_SIGNAL_HANDLERS.size() != 0) {
-                for (size_t i = LISP_SIGNAL_HANDLERS.size()-1; i >= 0; --i) {
-                        if (LISP_SIGNAL_HANDLERS[i].tag == LISP_T ||
-                            LISP_SIGNAL_HANDLERS[i].tag == signal_tag) {
-                                found_handler = true;
-                                handler = LISP_SIGNAL_HANDLERS[i];
-                                LISP_SIGNAL_HANDLERS.pop_back();
-                                break;
+        if (LISP_SIGNAL_HANDLER_CASES.size() != 0) {
+                for (size_t i = LISP_SIGNAL_HANDLER_CASES.size()-1; i >= 0; --i) {
+                        auto &handlers = LISP_SIGNAL_HANDLER_CASES[i].handlers;
+                        for (size_t j = 0; j < handlers.size(); ++j) {
+                                if (handlers[j].tag == LISP_T || handlers[j].tag == signal_tag) {
+                                        found_handler = true;
+                                        handler = handlers[j];
+                                        break;
+                                }
                         }
-                        LISP_SIGNAL_HANDLERS.pop_back();
+                        LISP_SIGNAL_HANDLER_CASES.pop_back();
+                        if (found_handler)
+                                break;
                 }
         }
         if (found_handler) {
@@ -757,30 +764,29 @@ tailcall:
                 else if (thing == LISP_SYM_HANDLER_CASE) {
                         auto form = second(obj);
                         auto cases = cddr(obj);
-                        // We see the handlers in correct order but if you push them on to the
-                        // handler stack in that order, the first signal in the HANDLER-CASE
-                        // won't be at the top of the stack, so we have an intermediate list
-                        // of handlers and we just push them back in reverse later.
-                        std::vector<lisp_signal_handler> handlers_rev;
+                        lisp_signal_handler_cases handler_case;
                         while (cases != LISP_NIL) {
                                 auto this_case = car(cases);
                                 auto tag = first(this_case);
                                 auto lambda_list = second(this_case);
                                 auto lambda_body = cddr(this_case);
-                                handlers_rev.push_back({tag,
-                                                { env, lambda_list, lambda_body }
-                                        });
+                                handler_case.handlers.push_back({ tag, { env, lambda_list, lambda_body } });
                                 cases = cdr(cases);
                         }
-                        for (auto it = handlers_rev.rbegin(); it != handlers_rev.rend(); ++it) {
-                                LISP_SIGNAL_HANDLERS.push_back(*it);
-                        }
+                        LISP_SIGNAL_HANDLER_CASES.push_back(handler_case);
+                        lisp_value result;
                         try {
-                                return evaluate(env, form);
+                                result = evaluate(env, form);
+                                // discard the handler after HANDLER-CASE evaluates cleanly, and
+                                // don't over-pop the stack, which may happen due to nested HANDLER-CASEs
+                                if (LISP_SIGNAL_HANDLER_CASES.size() != 0) {
+                                        LISP_SIGNAL_HANDLER_CASES.pop_back();
+                                }
                         } 
                         catch (lisp_value e) {
-                                return e;
+                                result = e;
                         }
+                        return result;
                 }
                 else {
                         auto function = evaluate(env, thing);
