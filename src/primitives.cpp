@@ -40,7 +40,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args, bool &raised_signal)
                 result += tmp.as_fixnum();
                 args = cdr(args);
         }
-        return lisp_value(result);
+        return lisp_value::wrap(result);
 }
 
 lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
@@ -66,7 +66,7 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
                         args = cdr(args);
                 }
         }
-        return lisp_value(result);
+        return lisp_value::wrap(result);
 }
 
 lisp_value lisp_prim_multiply(lisp_value env, lisp_value args, bool &raised_signal)
@@ -81,7 +81,7 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args, bool &raised_sign
                 result *= tmp.as_fixnum();
                 args = cdr(args);
         }
-        return lisp_value(result);
+        return lisp_value::wrap(result);
 }
 
 lisp_value lisp_prim_divide(lisp_value env, lisp_value args, bool &raised_signal)
@@ -93,7 +93,7 @@ lisp_value lisp_prim_divide(lisp_value env, lisp_value args, bool &raised_signal
         CHECK_FIXNUM(second(args));
         auto x = first(args).as_fixnum();
         auto y = second(args).as_fixnum();
-        return lisp_value(x / y);
+        return lisp_value::wrap(x / y);
 }
 
 lisp_value lisp_prim_print(lisp_value env, lisp_value args, bool &raised_signal)
@@ -286,7 +286,7 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signa
                 if (codepoint == '\n')
                         stm->flush();
         }
-        return lisp_value(bytes_written);
+        return lisp_value::wrap(bytes_written);
 }
 
 lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
@@ -315,7 +315,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
                                 auto array = it.as_object()->simple_array();
                                 return list(LISP_SYM_SIMPLE_ARRAY,
                                             array->type(),
-                                            lisp_value(static_cast<int64_t>(array->length())));
+                                            lisp_value::wrap(static_cast<int64_t>(array->length())));
                         };
                         case FILE_STREAM_TYPE: return LISP_SYM_FILE_STREAM;
                                 
@@ -571,7 +571,7 @@ lisp_value lisp_prim_array_length(lisp_value, lisp_value args, bool &raised_sign
         // @TODO: typecheck array in ARRAY-LENGTH primitive
         auto array = first(args);
         if (array.is_type(SIMPLE_ARRAY_TYPE)) {
-                return lisp_value(static_cast<int64_t>(array.as_object()->simple_array()->length()));
+                return lisp_value::wrap(static_cast<int64_t>(array.as_object()->simple_array()->length()));
         }
         return LISP_NIL;
 }
@@ -599,7 +599,7 @@ lisp_value lisp_prim_bits_of(lisp_value, lisp_value args, bool &raised_signal)
         auto bits = obj.bits();
         auto array = ret.as_object()->simple_array();
         for (int i = 0; i < 64; ++i) {
-                array->set(i, lisp_value(static_cast<int64_t>(bits & 1)));
+                array->set(i, lisp_value::wrap(static_cast<int64_t>(bits & 1)));
                 bits >>= 1;
         }
         return ret;
@@ -612,7 +612,7 @@ lisp_value lisp_prim_code_char(lisp_value, lisp_value args, bool &raised_signal)
         */
         CHECK_FIXNUM(car(args));
         auto char_code = car(args).as_fixnum();
-        return lisp_value(static_cast<int32_t>(char_code));
+        return lisp_value::wrap(static_cast<int32_t>(char_code));
 }
 
 lisp_value lisp_prim_char_code(lisp_value, lisp_value args, bool &raised_signal)
@@ -622,7 +622,7 @@ lisp_value lisp_prim_char_code(lisp_value, lisp_value args, bool &raised_signal)
         */
         CHECK_CHARACTER(car(args));
         auto character = car(args).as_character();
-        return lisp_value(static_cast<int64_t>(character));
+        return lisp_value::wrap(static_cast<int64_t>(character));
 }
 
 
@@ -692,7 +692,7 @@ lisp_value lisp_prim_file_length(lisp_value, lisp_value args, bool &raised_signa
         auto it = car(args);
         CHECK_FILE_STREAM(it);
         auto size = it.as_object()->file_stream()->length();
-        return lisp_value(static_cast<int64_t>(size));
+        return lisp_value::wrap(static_cast<int64_t>(size));
 }
 
 lisp_value lisp_prim_file_ok(lisp_value, lisp_value args, bool &raised_signal)
@@ -725,7 +725,7 @@ lisp_value lisp_prim_file_mode(lisp_value, lisp_value args, bool &raised_signal)
         auto it = car(args);
         CHECK_FILE_STREAM(it);
         int64_t mode = it.as_object()->file_stream()->mode();
-        return lisp_value(mode);
+        return lisp_value::wrap(mode);
 }
 
 lisp_value lisp_prim_file_flush(lisp_value, lisp_value args, bool &raised_signal)
@@ -746,7 +746,7 @@ lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args, bool &raised_si
          */
         auto it = car(args);
         CHECK_FILE_STREAM(it);
-        return lisp_value(it.as_object()->file_stream()->read_byte());
+        return lisp_value::wrap(it.as_object()->file_stream()->read_byte());
 }
 
 lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_signal)
@@ -756,7 +756,7 @@ lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_si
          */
         auto it = car(args);
         CHECK_FILE_STREAM(it);
-        return lisp_value(it.as_object()->file_stream()->peek_byte());
+        return lisp_value::wrap(it.as_object()->file_stream()->peek_byte());
 }
 
 lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args, bool &raised_signal)
@@ -766,7 +766,7 @@ lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args, bool &rai
          */
         auto it = car(args);
         CHECK_FILE_STREAM(it);
-        return lisp_value(it.as_object()->file_stream()->read_utf8());
+        return lisp_value::wrap(it.as_object()->file_stream()->read_utf8());
 }
 
 lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value, bool &raised_signal)
@@ -814,7 +814,7 @@ lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value, bool &raised_signal
         auto now = std::chrono::high_resolution_clock::now();
         auto duration = now.time_since_epoch();
         auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration);
-        return lisp_value(static_cast<int64_t>(microseconds.count()));
+        return lisp_value::wrap(static_cast<int64_t>(microseconds.count()));
 }
 
 lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_signal)
@@ -822,7 +822,7 @@ lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_sign
         /***
             (clocks-per-second)
          */
-        return lisp_value(static_cast<int64_t>(1000000));
+        return lisp_value::wrap(static_cast<int64_t>(1000000));
 }
 
 lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
@@ -837,7 +837,7 @@ lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
 static inline
 void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
 {
-        auto prim_object = lisp_value(primitive);
+        auto prim_object = lisp_value::wrap(primitive);
         auto symbol = intern_symbol(symbol_name);
         auto binding = cons(symbol, prim_object);
         environment = cons(binding, environment);

@@ -408,7 +408,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 result *= 10;
                                 result += digit - '0';
                         }
-                        return lisp_value(result);
+                        return lisp_value::wrap(result);
                 }
                 else if (stream.peekc() == '#') {
                         stream.getc();
@@ -422,27 +422,27 @@ lisp_value lisp::parse(lisp_stream &stream)
                                         character += stream.getc();
                                 }
                                 if (character.size() == 1) {
-                                        return lisp_value(static_cast<int32_t>(character[0]));
+                                        return lisp_value::wrap(static_cast<int32_t>(character[0]));
                                 }
                                 else  {
                                         character = str_upper(character);
                                         if (character == "SPACE") {
-                                                return lisp_value(static_cast<int32_t>(' '));
+                                                return lisp_value::wrap(static_cast<int32_t>(' '));
                                         }
                                         else if (character == "RETURN") {
-                                                return lisp_value(static_cast<int32_t>('\r'));
+                                                return lisp_value::wrap(static_cast<int32_t>('\r'));
                                         }
                                         else if (character == "NEWLINE") {
-                                                return lisp_value(static_cast<int32_t>('\n'));
+                                                return lisp_value::wrap(static_cast<int32_t>('\n'));
                                         }
                                         else if (character == "TAB") {
-                                                return lisp_value(static_cast<int32_t>('\t'));
+                                                return lisp_value::wrap(static_cast<int32_t>('\t'));
                                         }
                                         else {
                                                 // @TODO: pooper error handling
                                                 //printf("[ERROR] Unknown character name %s\n", character.c_str());
                                                 auto it = *reinterpret_cast<const int32_t*>(character.c_str());
-                                                return lisp_value(it);
+                                                return lisp_value::wrap(it);
                                         }
                                 }
                         }
