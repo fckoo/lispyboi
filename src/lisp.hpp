@@ -43,48 +43,9 @@ namespace lisp {
         std::string repr(const lisp_value *obj);
         typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args, bool &raised_signal);
         struct lisp_value {
-                /*
-                  Do not be fooled into thinking this is another layer of indirection.
-                  This struct, or rather _value_, is a mere 8-bytes and allows us to
-                  represent several primitive data-types alongside a more general object
-                  structure. On 64-bit arch a pointer is 8 bytes so word-aligned
-                  addresses have the LSB(3) bits set to 0. We can exploit this and give
-                  meaning to those bits.
 
-                  bits 7 6 5 4 3 2 1 0
-                  --------------------
-                       - - - - - - - 1 -> FIXNUM
-                       t t t t t 0 1 0 -> Other immediate; the 5 't' bits are extra tag bits
-                                          this gives us 2^5 = 32 distinct tags and 56 bits
-                                          worth of storage. We can store things like:
-                                          byte literal, utf-8 codepoints, 32-bit floats,
-                                          56-bit bit vector, etc.
-                       - - - - - 1 0 0 -> Cons
-                       - - - - - 1 1 0 -> Primitive Function
-                       - - - - - 0 0 0 -> POINTER/OBJECT
-
-                  You'll notice we don't reuse LSB(0) and that is because we want to
-                  maximize the range of fixnums. This means when there is a 1 at LSB(0)
-                  then the other 63 bits must represent the fixnum.
-
-                  Another side-effect of this decision is that we may represent NIL as
-                  all bits set to 0 which allows for more optimized NIL tests.
-                */
-                static constexpr uint64_t BITS_MASK = 0b111ULL;
-
-                static constexpr uint64_t TAG_OTHER_IMM = 0b010ULL;
-                static constexpr uint64_t TAG_CONS      = 0b100ULL;
-                static constexpr uint64_t TAG_PRIM_FUNC = 0b110ULL;
-                static constexpr uint64_t TAG_POINTER   = 0b000ULL;
-
-                static constexpr uint64_t WTAG_INVALID = (0b00000ULL << 3) | TAG_OTHER_IMM;
-                static constexpr uint64_t WTAG_BYTE    = (0b00001ULL << 3) | TAG_OTHER_IMM;
-                static constexpr uint64_t WTAG_CHAR    = (0b00010ULL << 3) | TAG_OTHER_IMM;
-
-                // An uninitialized lisp_value will be defaulted to NIL
-                
                 FORCE_INLINE lisp_value() = default;
-                
+
                 FORCE_INLINE
                 bool operator==(lisp_value other) const noexcept
                 {
@@ -97,7 +58,7 @@ namespace lisp {
                         return v != other.v;
                 }
 
-                static FORCE_INLINE 
+                static FORCE_INLINE
                 lisp_value wrap(int64_t fixnum) noexcept
                 {
                         union {
@@ -112,7 +73,7 @@ namespace lisp {
                         return lisp_value(u.bits);
                 }
 
-                static FORCE_INLINE 
+                static FORCE_INLINE
                 lisp_value wrap(lisp_obj *pointer) noexcept
                 {
                         union {
@@ -164,7 +125,7 @@ namespace lisp {
                         return lisp_value(u.bits);
                 }
 
-                static FORCE_INLINE 
+                static FORCE_INLINE
                 lisp_value wrap(uint8_t byte) noexcept
                 {
                         union {
@@ -179,47 +140,56 @@ namespace lisp {
                         return lisp_value(u.bits);
                 }
 
-                FORCE_INLINE bool is_fixnum() const noexcept
+                FORCE_INLINE
+                bool is_fixnum() const noexcept
                 {
                         return bits() & 1;
                 }
 
-                FORCE_INLINE bool is_byte() const noexcept
+                FORCE_INLINE
+                bool is_byte() const noexcept
                 {
                         return wide_tag_bits() == WTAG_BYTE;
                 }
 
-                FORCE_INLINE bool is_character() const noexcept
+                FORCE_INLINE
+                bool is_character() const noexcept
                 {
                         return wide_tag_bits() == WTAG_CHAR;
                 }
 
-                FORCE_INLINE bool is_nil() const noexcept
+                FORCE_INLINE
+                bool is_nil() const noexcept
                 {
                         return bits() == 0;
                 }
-                
-                FORCE_INLINE bool is_not_nil() const noexcept
+
+                FORCE_INLINE
+                bool is_not_nil() const noexcept
                 {
                         return bits() != 0;
                 }
 
-                FORCE_INLINE bool is_cons() const noexcept
+                FORCE_INLINE
+                bool is_cons() const noexcept
                 {
                         return tag_bits() == TAG_CONS;
                 }
 
-                FORCE_INLINE bool is_lisp_primitive() const noexcept
+                FORCE_INLINE
+                bool is_lisp_primitive() const noexcept
                 {
                         return tag_bits() == TAG_PRIM_FUNC;
                 }
 
-                FORCE_INLINE bool is_object() const noexcept
+                FORCE_INLINE
+                bool is_object() const noexcept
                 {
                         return tag_bits() == TAG_POINTER;
                 }
 
-                FORCE_INLINE int64_t as_fixnum() const noexcept
+                FORCE_INLINE
+                int64_t as_fixnum() const noexcept
                 {
                         ENSURE_VALUE(this, is_fixnum());
                         union {
@@ -233,7 +203,8 @@ namespace lisp {
                         return u.fixnum.value;
                 }
 
-                FORCE_INLINE int32_t as_character() const noexcept
+                FORCE_INLINE
+                int32_t as_character() const noexcept
                 {
                         ENSURE_VALUE(this, is_character());
                         union {
@@ -247,7 +218,8 @@ namespace lisp {
                         return u.character.codepoint;
                 }
 
-                FORCE_INLINE uint8_t as_byte() const noexcept
+                FORCE_INLINE
+                uint8_t as_byte() const noexcept
                 {
                         ENSURE_VALUE(this, is_byte());
                         union {
@@ -261,7 +233,8 @@ namespace lisp {
                         return u.byte.byte;
                 }
 
-                FORCE_INLINE lisp_obj *as_object() const noexcept
+                FORCE_INLINE
+                lisp_obj *as_object() const noexcept
                 {
                         ENSURE_VALUE(this, is_object());
                         union {
@@ -272,7 +245,8 @@ namespace lisp {
                         return u.obj;
                 }
 
-                FORCE_INLINE const lisp_obj *as_cobject() const noexcept
+                FORCE_INLINE
+                const lisp_obj *as_cobject() const noexcept
                 {
                         ENSURE_VALUE(this, is_object());
                         union {
@@ -283,7 +257,8 @@ namespace lisp {
                         return u.obj;
                 }
 
-                FORCE_INLINE lisp_cons *as_cons() const noexcept
+                FORCE_INLINE
+                lisp_cons *as_cons() const noexcept
                 {
                         ENSURE_VALUE(this, is_cons());
                         union {
@@ -295,7 +270,8 @@ namespace lisp {
                         return u.cons;
                 }
 
-                FORCE_INLINE lisp_primitive as_lisp_primitive() const noexcept
+                FORCE_INLINE
+                lisp_primitive as_lisp_primitive() const noexcept
                 {
                         ENSURE_VALUE(this, is_lisp_primitive());
                         // @HACK: Can we be certain to fit every primitive function in 61 bits?
@@ -308,43 +284,89 @@ namespace lisp {
                         return u.primitive_func;
                 }
 
-                FORCE_INLINE const bool is_type(LISP_OBJ_TYPE type) const;
+                FORCE_INLINE
+                const bool is_type(LISP_OBJ_TYPE type) const;
 
-                FORCE_INLINE uint64_t bits() const noexcept
+                FORCE_INLINE
+                uint64_t bits() const noexcept
                 {
                         return v;
                 }
 
-                FORCE_INLINE uint64_t tag_bits() const noexcept
+                FORCE_INLINE
+                uint64_t tag_bits() const noexcept
                 {
                         return bits() & 0b111ULL;
                 }
 
-                FORCE_INLINE uint64_t wide_tag_bits() const noexcept
+                FORCE_INLINE
+                uint64_t wide_tag_bits() const noexcept
                 {
                         return bits() & 0xFF;
                 }
-                
-                static constexpr lisp_value nil() noexcept
+
+                static constexpr
+                lisp_value nil() noexcept
                 {
                         return lisp_value(0);
                 }
 
-                static FORCE_INLINE lisp_value invalid_object() noexcept
+                static FORCE_INLINE
+                lisp_value invalid_object() noexcept
                 {
                         lisp_value invalid;
                         invalid.v = WTAG_INVALID;
                         return invalid;
                 }
 
-                FORCE_INLINE bool is_invalid() const noexcept
+                FORCE_INLINE bool
+                is_invalid() const noexcept
                 {
                         return wide_tag_bits() == WTAG_INVALID;
                 }
 
         private:
-                constexpr explicit FORCE_INLINE lisp_value(uint64_t bits) noexcept 
-                        : v(bits) 
+                /*
+                  Do not be fooled into thinking this is another layer of indirection.
+                  This struct, or rather _value_, is a mere 8-bytes and allows us to
+                  represent several primitive data-types alongside a more general object
+                  structure. On 64-bit arch a pointer is 8 bytes so word-aligned
+                  addresses have the LSB(3) bits set to 0. We can exploit this and give
+                  meaning to those bits.
+
+                  bits 7 6 5 4 3 2 1 0
+                  --------------------
+                       - - - - - - - 1 -> FIXNUM
+                       t t t t t 0 1 0 -> Other immediate; the 5 't' bits are extra tag bits
+                                          this gives us 2^5 = 32 distinct tags and 56 bits
+                                          worth of storage. We can store things like:
+                                          byte literal, utf-8 codepoints, 32-bit floats,
+                                          56-bit bit vector, etc.
+                       - - - - - 1 0 0 -> Cons
+                       - - - - - 1 1 0 -> Primitive Function
+                       - - - - - 0 0 0 -> POINTER/OBJECT
+
+                  You'll notice we don't reuse LSB(0) and that is because we want to
+                  maximize the range of fixnums. This means when there is a 1 at LSB(0)
+                  then the other 63 bits must represent the fixnum.
+
+                  Another side-effect of this decision is that we may represent NIL as
+                  all bits set to 0 which allows for more optimized NIL tests.
+                */
+                static constexpr uint64_t BITS_MASK = 0b111ULL;
+
+                static constexpr uint64_t TAG_OTHER_IMM = 0b010ULL;
+                static constexpr uint64_t TAG_CONS      = 0b100ULL;
+                static constexpr uint64_t TAG_PRIM_FUNC = 0b110ULL;
+                static constexpr uint64_t TAG_POINTER   = 0b000ULL;
+
+                static constexpr uint64_t WTAG_INVALID = (0b00000ULL << 3) | TAG_OTHER_IMM;
+                static constexpr uint64_t WTAG_BYTE    = (0b00001ULL << 3) | TAG_OTHER_IMM;
+                static constexpr uint64_t WTAG_CHAR    = (0b00010ULL << 3) | TAG_OTHER_IMM;
+
+                constexpr explicit FORCE_INLINE
+                lisp_value(uint64_t bits) noexcept
+                        : v(bits)
                         {}
                 uint64_t v;
         };
@@ -505,7 +527,7 @@ namespace lisp {
                         if (ok())
                                 fflush(m_fp);
                 }
-                
+
                 inline size_t length()
                 {
                         if (!ok()) return 0;
@@ -515,7 +537,7 @@ namespace lisp {
                         fseek(m_fp, original_pos, SEEK_SET);
                         return size;
                 }
-                
+
                 inline io_mode mode() const
                 {
                         return m_mode;
@@ -563,7 +585,7 @@ namespace lisp {
                         return read_byte();
                 }
 
-                int peekc() 
+                int peekc()
                 {
                         return peek_byte();
                 }
@@ -600,8 +622,8 @@ namespace lisp {
                         }
                         return c;
                 }
-                
-                size_t write(const std::string &str) 
+
+                size_t write(const std::string &str)
                 {
                         if (ok())
                                 return fwrite(str.data(), 1, str.size(), m_fp);
@@ -754,7 +776,7 @@ namespace lisp {
                         ret->u.simple_array = new lisp_simple_array(length, type);
                         return lisp_value::wrap(ret);
                 }
-                
+
                 static inline
                 lisp_value create_string(const char *str, size_t len)
                 {
@@ -828,7 +850,7 @@ namespace lisp {
                         lisp_file_stream *file_stream;
                 } u;
         };
-        
+
         static inline std::string lisp_string_to_native_string(lisp_value str)
         {
                 std::string ret;
@@ -873,7 +895,7 @@ namespace lisp {
         lisp_value macro_expand(lisp_value obj);
         lisp_value evaluate(lisp_value env, lisp_value obj);
         lisp_value apply(lisp_value env, lisp_value function, lisp_value obj);
-        
+
         static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
         {
                 cons.as_cons()->car = val;
@@ -898,15 +920,15 @@ namespace lisp {
 
         FLATTEN static inline
         lisp_value cddr(lisp_value obj)    { return cdr(cdr(obj)); }
-        FLATTEN static inline 
+        FLATTEN static inline
         lisp_value cdddr(lisp_value obj)   { return cdr(cdr(cdr(obj))); }
-        FLATTEN static inline 
+        FLATTEN static inline
         lisp_value cadr(lisp_value obj)    { return car(cdr(obj)); }
-        FLATTEN static inline 
+        FLATTEN static inline
         lisp_value caddr(lisp_value obj)   { return car(cdr(cdr(obj))); }
         FLATTEN static inline
         lisp_value cadddr(lisp_value obj)  { return car(cdr(cdr(cdr(obj)))); }
-        FLATTEN static inline 
+        FLATTEN static inline
         lisp_value caar(lisp_value obj)    { return car(car(obj)); }
         FLATTEN static inline
         lisp_value cdar(lisp_value obj)    { return cdr(car(obj)); }
@@ -920,7 +942,7 @@ namespace lisp {
         lisp_value third(lisp_value obj)   { return caddr(obj); }
         FLATTEN static inline
         lisp_value fourth(lisp_value obj)  { return cadddr(obj); }
-        
+
         lisp_cons *cons_pool_pop();
         FLATTEN static FORCE_INLINE lisp_value cons(lisp_value car, lisp_value cdr)
         {

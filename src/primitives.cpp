@@ -318,7 +318,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
                                             lisp_value::wrap(static_cast<int64_t>(array->length())));
                         };
                         case FILE_STREAM_TYPE: return LISP_SYM_FILE_STREAM;
-                                
+
 
                 }
                 return LISP_NIL;
@@ -366,7 +366,7 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args, bool &raised_signal)
         /***
             (eval expr &optional environment)
         */
-        
+
         if (cdr(args).is_not_nil()) {
                 CHECK_CONS(cdr(args));
                 env = second(args);
@@ -626,7 +626,7 @@ lisp_value lisp_prim_char_code(lisp_value, lisp_value args, bool &raised_signal)
 }
 
 
-static 
+static
 lisp_file_stream::io_mode get_mode(lisp_value mode_sym)
 {
         static auto OVERWRITE = intern_symbol("OVERWRITE");
@@ -646,7 +646,7 @@ lisp_value lisp_prim_open(lisp_value, lisp_value args, bool &raised_signal)
         /***
             (open file-path direction)
          */
-        
+
         // @TODO: typecheck FILE-PATH string in OPEN primitive
 
         auto path = lisp_string_to_native_string(first(args));
@@ -791,7 +791,7 @@ lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args, bool &rai
         if (error.value() != 0) {
                 return LISP_NIL;
         }
-        
+
         error.clear();
         auto current_path = plat::get_working_directory(error);
         return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
@@ -899,16 +899,16 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%FILE-READ-BYTE", lisp_prim_file_read_byte);
         BIND_PRIM("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
         BIND_PRIM("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
-        
+
         BIND_PRIM("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
         BIND_PRIM("CHANGE-DIRECTORY", lisp_prim_change_directory);
         BIND_PRIM("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
         BIND_PRIM("GET-CLOCK-TICKS", lisp_prim_get_clock_ticks);
         BIND_PRIM("CLOCKS-PER-SECOND", lisp_prim_clocks_per_second);
-        
+
         bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
         bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
         bind_value(environment, "*STANDARD-ERROR*", lisp_obj::standard_error_stream());
-        
+
         TYPE_ERROR = intern_symbol("TYPE-ERROR");
 }

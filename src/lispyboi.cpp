@@ -17,7 +17,7 @@
 
 using namespace lisp;
 
-static 
+static
 struct lisp_cons_pool {
         lisp_cons_pool()
                 : m_pool_index(0)
@@ -27,7 +27,7 @@ struct lisp_cons_pool {
                 m_current_pool = new lisp_cons[pool_size];
                 m_pools.push_back(m_current_pool);
         }
-        
+
         lisp_cons *pop()
         {
                 if (m_cons_index >= pool_size) {
@@ -45,7 +45,7 @@ private:
         size_t m_cons_index; // index next cons
         lisp_cons *m_current_pool;
         std::vector<lisp_cons*> m_pools;
-        
+
 } cons_pool;
 
 lisp_cons *lisp::cons_pool_pop()
@@ -63,7 +63,7 @@ struct lisp_signal_handler_cases {
 };
 
 // A stack of handler cases; the last element of this is the most recent HANDLER-CASE
-static 
+static
 std::vector<lisp_signal_handler_cases> LISP_SIGNAL_HANDLER_CASES;
 
 struct lisp_exception {
@@ -606,7 +606,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
                 params = rest(params);
                 args = rest(args);
         }
-        
+
         if (params.is_not_nil()) {
                 if (first(params) == LISP_SYM_AMP_REST || first(params) == LISP_SYM_AMP_BODY) {
                         shadowed_env = shadow(shadowed_env, second(params), LISP_NIL);
@@ -616,7 +616,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
                         allowing_optional = true;
                         params = rest(params);
                 }
-        
+
                 if (allowing_optional) {
                         while (params.is_not_nil()) {
                                 auto sym = first(params);
@@ -639,7 +639,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
 }
 
 static inline
-void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args) 
+void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
 {
         bool found_handler = false;
         lisp_signal_handler handler;
@@ -789,7 +789,7 @@ tailcall:
                                 if (LISP_SIGNAL_HANDLER_CASES.size() != 0) {
                                         LISP_SIGNAL_HANDLER_CASES.pop_back();
                                 }
-                        } 
+                        }
                         catch (lisp_signal_exception e) {
                                 result = e.what;
                         }
@@ -929,7 +929,7 @@ void initialize_globals()
         LISP_SYM_AMP_REST = intern_symbol("&REST");
         LISP_SYM_AMP_BODY = intern_symbol("&BODY");
         LISP_SYM_AMP_OPTIONAL = intern_symbol("&OPTIONAL");
-        
+
         LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
         LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
 
@@ -1043,7 +1043,7 @@ int main(int argc, char *argv[])
                         return -1;
                 }
         }
-        
+
         for (auto &path : file_paths) {
                 auto f = new lisp_file_stream();
                 f->open(std::filesystem::absolute(path), lisp_file_stream::io_mode::read);
@@ -1070,7 +1070,7 @@ int main(int argc, char *argv[])
                         printf("    %s\n", repr(e.what).c_str());
                 }
         }
-        
+
 
         if (repl) {
                 static const char *prompt_lisp = "lisp_nasa> ";
