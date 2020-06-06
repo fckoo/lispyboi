@@ -124,6 +124,29 @@
 
 (let ((val 0))
   (handler-case
+      (handler-case
+          (handler-case
+              (handler-case
+                  (handler-case
+                      (handler-case
+                          (handler-case
+                              (handler-case
+                                  (handler-case (signal 'a)
+                                    (a () (setf val 1)))
+                                (b () (setf val 2)))
+                            (c () (setf val 3)))
+                        (d () (setf val 4)))
+                    (e () (setf val 5)))
+                (f () (setf val 6)))
+            (g () (setf val 7)))
+        (h () (setf val 8)))
+    (foo ()
+      (setf val 4545)))
+  (assert= 1 val))
+
+
+(let ((val 0))
+  (handler-case
       (handler-case (signal 'foo)
         (t (sig)
           (setf val 333)
