@@ -66,6 +66,13 @@ struct lisp_signal_handler_cases {
 static 
 std::vector<lisp_signal_handler_cases> LISP_SIGNAL_HANDLER_CASES;
 
+struct lisp_exception {
+        const char *msg;
+        lisp_value what;
+};
+struct lisp_unhandled_exception : lisp_exception {};
+struct lisp_signal_exception : lisp_exception {};
+
 struct lisp_string_stream : lisp_stream {
         inline
         lisp_string_stream()
@@ -636,13 +643,16 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
 {
         bool found_handler = false;
         lisp_signal_handler handler;
-        if (LISP_SIGNAL_HANDLER_CASES.size() != 0) {
-                for (size_t i = LISP_SIGNAL_HANDLER_CASES.size()-1; i >= 0; --i) {
-                        auto &handlers = LISP_SIGNAL_HANDLER_CASES[i].handlers;
-                        for (size_t j = 0; j < handlers.size(); ++j) {
-                                if (handlers[j].tag == LISP_T || handlers[j].tag == signal_tag) {
+        if (!LISP_SIGNAL_HANDLER_CASES.empty()) {
+                int npop = 0;
+                for (auto it = LISP_SIGNAL_HANDLER_CASES.rbegin();
+                     it != LISP_SIGNAL_HANDLER_CASES.rend();
+                     ++it, ++npop) {
+                        auto &handlers = it->handlers;
+                        for (auto &h : handlers) {
+                                if (h.tag == LISP_T || h.tag == signal_tag) {
                                         found_handler = true;
-                                        handler = handlers[j];
+                                        handler = h;
                                         break;
                                 }
                         }
@@ -650,6 +660,10 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
                         if (found_handler)
                                 break;
                 }
+                //if (npop != 0) {
+                //        LISP_SIGNAL_HANDLER_CASES.resize(LISP_SIGNAL_HANDLER_CASES.size() - npop);
+                //}
+
         }
         if (found_handler) {
                 auto params = handler.lambda.params;
@@ -658,7 +672,7 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
                 }
                 auto shadowed_env = handler.lambda.env;
                 if (!apply_arguments(shadowed_env, params, signal_args)) {
-                        abort();
+                        throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(signal_tag, signal_args) };
                 }
                 auto result = LISP_NIL;
                 auto body = handler.lambda.body;
@@ -666,12 +680,10 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
                         result = evaluate(shadowed_env, first(body));
                         body = rest(body);
                 }
-                throw result;
+                throw lisp_signal_exception{ "", result };
         }
         else {
-                printf("Unhandled signal %s\n", repr(signal_tag).c_str());
-                pretty_print(signal_args);
-                abort();
+                throw lisp_unhandled_exception{ "Unhandled SIGNAL: ", cons(signal_tag, signal_args) };
         }
 }
 
@@ -693,8 +705,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
                 auto params = function.as_object()->lambda()->params;
                 auto shadowed_env = function.as_object()->lambda()->env;
                 if (!apply_arguments(shadowed_env, params, args)) {
-                        pretty_print(function);
-                        abort();
+                        throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(function, args) };
                 }
                 auto body = function.as_object()->lambda()->body;
                 auto result = LISP_NIL;
@@ -704,8 +715,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
                 }
                 return result;
         }
-        fprintf(stderr, "not a function: %s\n", repr(function).c_str());
-        abort();
+        throw lisp_unhandled_exception{ "Cannot APPLY because not a FUNCTION: ", function };
 }
 
 lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
@@ -781,8 +791,8 @@ tailcall:
                                         LISP_SIGNAL_HANDLER_CASES.pop_back();
                                 }
                         } 
-                        catch (lisp_value e) {
-                                result = e;
+                        catch (lisp_signal_exception e) {
+                                result = e.what;
                         }
                         return result;
                 }
@@ -803,8 +813,7 @@ tailcall:
                                 auto params = function.as_object()->lambda()->params;
                                 auto shadowed_env = function.as_object()->lambda()->env;
                                 if (!apply_arguments(shadowed_env, params, args)) {
-                                        pretty_print(function);
-                                        abort();
+                                        throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(function, args) };
                                 }
                                 auto body = function.as_object()->lambda()->body;
                                 while (rest(body) != LISP_NIL) {
@@ -825,8 +834,7 @@ tailcall:
                 if (obj == LISP_T) return obj;
                 auto val = symbol_lookup(env, obj);
                 if (val.is_invalid()) {
-                        printf("UNBOUND VARIABLE: %s\n", obj.as_object()->symbol()->c_str()); // @TODO: POOPER ERROR HANDLING
-                        abort();
+                        throw lisp_unhandled_exception{ "Unbound variable: ", obj };
                 }
                 return cdr(val);
         }
@@ -1065,13 +1073,21 @@ int main(int argc, char *argv[])
                         if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
                                 break;
                         }
-                        lisp_value expanded = macro_expand(parsed);
-                        lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
-                        std::string result_sym_name = "$$" + std::to_string(result_counter++);
-                        //bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
-                        //bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
-                        printf("%5s => ", result_sym_name.c_str());
-                        pretty_print(result);
+                        try {
+                                lisp_value expanded = macro_expand(parsed);
+                                lisp_value result = evaluate(LISP_BASE_ENVIRONMENT, expanded);
+                                std::string result_sym_name = "$$" + std::to_string(result_counter++);
+                                //bind(LISP_BASE_ENVIRONMENT, intern_symbol(result_sym_name), result);
+                                //bind(LISP_BASE_ENVIRONMENT, last_result_sym, result);
+                                printf("%5s => ", result_sym_name.c_str());
+                                pretty_print(result);
+                        }
+                        catch (lisp_exception e) {
+                                printf("%s\n", e.msg);
+                                if (e.what != LISP_NIL) {
+                                        printf("    %s\n", repr(e.what).c_str());
+                                }
+                        }
                 }
         }
         return 0;
