@@ -286,19 +286,34 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                         } break;
                         case SIMPLE_ARRAY_TYPE: {
                                 auto array = obj.as_object()->simple_array();
-                                result += "#(";
-                                if (array->length() != 0) {
-                                        size_t i = 0;
-                                        size_t end = array->length() - 1;
-                                        for (; i < end; ++i) {
-                                                result += repr_impl(array->get(i), seen);
-                                                result += " ";
+                                if (array->type() == LISP_SYM_CHARACTER) {
+                                        result += '"';
+                                        for (size_t i = 0; i < array->length(); ++i) {
+                                                auto c = array->get(i).as_character();
+                                                if (c == '"') {
+                                                        result += "\\\"";
+                                                }
+                                                else {
+                                                        result += reinterpret_cast<char*>(&c);
+                                                }
                                         }
-                                        if (i < array->length()) {
-                                                result += repr_impl(array->get(i), seen);
-                                        }
+                                        result += '"';
                                 }
-                                result += ")";
+                                else {
+                                        result += "#(";
+                                        if (array->length() != 0) {
+                                                size_t i = 0;
+                                                size_t end = array->length() - 1;
+                                                for (; i < end; ++i) {
+                                                        result += repr_impl(array->get(i), seen);
+                                                        result += " ";
+                                                }
+                                                if (i < array->length()) {
+                                                        result += repr_impl(array->get(i), seen);
+                                                }
+                                        }
+                                        result += ")";
+                                }
                         } break;
                         case FILE_STREAM_TYPE: {
                                 result += "#<FILE-STREAM ";
@@ -1028,8 +1043,8 @@ int main(int argc, char *argv[])
         if (!repl && file_paths.size() == 0)
                 repl = true;
 
-        std::vector<lisp_file_stream*> fstreams;
 
+        std::vector<lisp_file_stream*> fstreams;
         {
                 auto exe_dir = plat::get_executable_path().parent_path();
                 auto boot_path = exe_dir/"lisp"/"boot.lisp";
@@ -1057,6 +1072,7 @@ int main(int argc, char *argv[])
         }
 
         initialize_globals();
+
         try {
                 for (auto fs : fstreams) {
                         eval_fstream(fs->path(), *fs);
@@ -1069,8 +1085,8 @@ int main(int argc, char *argv[])
                 if (e.what.is_not_nil()) {
                         printf("    %s\n", repr(e.what).c_str());
                 }
+                return 1;
         }
-
 
         if (repl) {
                 static const char *prompt_lisp = "lisp_nasa> ";

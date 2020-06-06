@@ -604,10 +604,12 @@
     (when there-path
       (unwind-protect
            (with-open-file (file full-path 'read)
-             (when (%file-ok file)
-               (until (%file-eof-p file)
-                      (eval (read file) environment))
-               full-path))
+             (if (%file-ok file)
+                 (progn
+                   (until (%file-eof-p file)
+                          (eval (read file) environment))
+                   full-path)
+                 (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-path)))))
 
 (defmacro symbol-name (symbol) `(%symbol-name ,symbol))
