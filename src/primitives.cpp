@@ -34,7 +34,7 @@ lisp_value lisp_prim_plus(lisp_value env, lisp_value args, bool &raised_signal)
             (+ &rest fixnums)
         */
         int64_t result = 0;
-        while (args != LISP_NIL) {
+        while (args.is_not_nil()) {
                 auto tmp = car(args);
                 CHECK_FIXNUM(tmp);
                 result += tmp.as_fixnum();
@@ -49,10 +49,10 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
             (- &rest fixnums)
         */
         int64_t result = 0;
-        if (args == LISP_NIL) {
+        if (args.is_nil()) {
                 ;
         }
-        else if (cdr(args) == LISP_NIL) {
+        else if (cdr(args).is_nil()) {
                 CHECK_FIXNUM(car(args));
                 result = -car(args).as_fixnum();
         }
@@ -60,7 +60,7 @@ lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
                 CHECK_FIXNUM(car(args));
                 result = car(args).as_fixnum();
                 args = cdr(args);
-                while (args != LISP_NIL) {
+                while (args.is_not_nil()) {
                         CHECK_FIXNUM(car(args));
                         result -= car(args).as_fixnum();
                         args = cdr(args);
@@ -75,7 +75,7 @@ lisp_value lisp_prim_multiply(lisp_value env, lisp_value args, bool &raised_sign
             (* &rest fixnums)
         */
         int64_t result = 1;
-        while (args != LISP_NIL) {
+        while (args.is_not_nil()) {
                 auto tmp = car(args);
                 CHECK_FIXNUM(tmp);
                 result *= tmp.as_fixnum();
@@ -103,9 +103,9 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args, bool &raised_signal)
         */
         lisp_file_stream *stream = nullptr;
         auto obj = first(args);
-        if (cdr(args) == LISP_NIL || second(args) == LISP_T) {
+        if (cdr(args).is_nil() || second(args) == LISP_T) {
                 auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
-                if (_stdout != LISP_NIL) {
+                if (_stdout.is_not_nil()) {
                         CHECK_FILE_STREAM(_stdout);
                         stream = _stdout.as_object()->file_stream();
                 }
@@ -134,7 +134,7 @@ lisp_value lisp_prim_num_less(lisp_value env, lisp_value args, bool &raised_sign
         if (result) {
                 args = cddr(args);
                 a = b;
-                while (args != LISP_NIL) {
+                while (args.is_not_nil()) {
                         b = car(args);
                         CHECK_FIXNUM(b);
                         result = a.as_fixnum() < b.as_fixnum();
@@ -161,7 +161,7 @@ lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args, bool &raised_sig
         if (result) {
                 args = cddr(args);
                 a = b;
-                while (args != LISP_NIL) {
+                while (args.is_not_nil()) {
                         b = car(args);
                         CHECK_FIXNUM(b);
                         result = a.as_fixnum() == b.as_fixnum();
@@ -188,7 +188,7 @@ lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args, bool &raised_s
         if (result) {
                 args = cddr(args);
                 a = b;
-                while (args != LISP_NIL) {
+                while (args.is_not_nil()) {
                         b = car(args);
                         CHECK_FIXNUM(b);
                         result = a.as_fixnum() > b.as_fixnum();
@@ -208,7 +208,7 @@ lisp_value lisp_prim_car(lisp_value env, lisp_value args, bool &raised_signal)
             (car obj)
         */
         auto obj = car(args);
-        if (obj == LISP_NIL) return obj;
+        if (obj.is_nil()) return obj;
         CHECK_CONS(obj);
         return car(obj);
 }
@@ -219,7 +219,7 @@ lisp_value lisp_prim_cdr(lisp_value env, lisp_value args, bool &raised_signal)
             (cdr obj)
         */
         auto obj = car(args);
-        if (obj == LISP_NIL) return obj;
+        if (obj.is_nil()) return obj;
         CHECK_CONS(obj);
         return cdr(obj);
 }
@@ -238,7 +238,7 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args, bool &raised_signal)
             (eq x y &rest more-objects)
         */
 
-        if (cdr(args) == LISP_NIL) {
+        if (cdr(args).is_nil()) {
                 return LISP_T;
         }
 
@@ -248,7 +248,7 @@ lisp_value lisp_prim_eq(lisp_value env, lisp_value args, bool &raised_signal)
         if (result) {
                 args = cddr(args);
                 a = b;
-                while (args != LISP_NIL) {
+                while (args.is_not_nil()) {
                         b = car(args);
                         result = a == b;
                         if (result == false) {
@@ -268,9 +268,9 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signa
         */
 
         lisp_file_stream *stm = nullptr;
-        if (cdr(args) == LISP_NIL || second(args) == LISP_T) {
+        if (cdr(args).is_nil() || second(args) == LISP_T) {
                 auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
-                if (_stdout != LISP_NIL) {
+                if (_stdout.is_not_nil()) {
                         CHECK_FILE_STREAM(_stdout);
                         stm = _stdout.as_object()->file_stream();
                 }
@@ -367,7 +367,7 @@ lisp_value lisp_prim_eval(lisp_value env, lisp_value args, bool &raised_signal)
             (eval expr &optional environment)
         */
         
-        if (cdr(args) != LISP_NIL) {
+        if (cdr(args).is_not_nil()) {
                 CHECK_CONS(cdr(args));
                 env = second(args);
         }
@@ -383,14 +383,14 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
 
         auto function = first(args);
         args = rest(args);
-        if (args == LISP_NIL)
+        if (args.is_nil())
                 return lisp::apply(env, function, LISP_NIL);
 
         auto head = LISP_NIL;
         auto current = head;
-        while (args != LISP_NIL) {
-                if (rest(args) == LISP_NIL) break;
-                if (head == LISP_NIL) {
+        while (args.is_not_nil()) {
+                if (rest(args).is_nil()) break;
+                if (head.is_nil()) {
                         head = list(first(args));
                         current = head;
                 }
@@ -400,7 +400,7 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
                 }
                 args = rest(args);
         }
-        if (head == LISP_NIL) {
+        if (head.is_nil()) {
                 head = first(args);
         }
         else {
@@ -450,7 +450,7 @@ lisp_value lisp_prim_gensym(lisp_value, lisp_value args, bool &raised_signal)
         static unsigned int counter = 0;
         auto hint = first(args);
         std::string sym_name;
-        if (hint != LISP_NIL) {
+        if (hint.is_not_nil()) {
                 // @TODO: typecheck for string in GENSYM primitive
                 sym_name = lisp_string_to_native_string(hint);
         }
@@ -509,7 +509,7 @@ lisp_value lisp_prim_exit(lisp_value, lisp_value args, bool &raised_signal)
             (exit n)
         */
         int code = 0;
-        if (car(args) != LISP_NIL) {
+        if (car(args).is_not_nil()) {
                 CHECK_FIXNUM(car(args));
                 code = car(args).as_fixnum();
         }
@@ -525,7 +525,7 @@ lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal
         CHECK_FIXNUM(length);
         // @TODO: Array operations still need type checking
         auto type = second(args);
-        if (type != LISP_NIL) {
+        if (type.is_not_nil()) {
                 return lisp_obj::create_simple_array(length.as_fixnum(), type);
         }
         return lisp_obj::create_simple_array(length.as_fixnum());
@@ -655,7 +655,7 @@ lisp_value lisp_prim_open(lisp_value, lisp_value args, bool &raised_signal)
         int mode = lisp_file_stream::io_mode::invalid;
         if (direction.is_cons()) {
                 auto p = direction;
-                while (p != LISP_NIL) {
+                while (p.is_not_nil()) {
                         CHECK_SYMBOL(car(p));
                         mode |= static_cast<int>(get_mode(car(p)));
                         p = cdr(p);
@@ -701,7 +701,7 @@ lisp_value lisp_prim_file_ok(lisp_value, lisp_value args, bool &raised_signal)
             (file-ok file-stream)
          */
         auto it = car(args);
-        if (it == LISP_NIL) return it;
+        if (it.is_nil()) return it;
         CHECK_FILE_STREAM(it);
         return it.as_object()->file_stream()->ok() ? LISP_T : LISP_NIL;
 }
@@ -712,7 +712,7 @@ lisp_value lisp_prim_file_eof(lisp_value, lisp_value args, bool &raised_signal)
             (file-eof-p file-stream)
          */
         auto it = car(args);
-        if (it == LISP_NIL) return it;
+        if (it.is_nil()) return it;
         CHECK_FILE_STREAM(it);
         return it.as_object()->file_stream()->eof() ? LISP_T : LISP_NIL;
 }

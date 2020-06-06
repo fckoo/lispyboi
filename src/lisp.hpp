@@ -25,6 +25,8 @@
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
 
+#define LISP_NIL (lisp_value::nil())
+
 namespace lisp {
 
         enum LISP_OBJ_TYPE {
@@ -79,6 +81,8 @@ namespace lisp {
                 static constexpr uint64_t WTAG_CHAR    = (0b00010ULL << 3) | TAG_OTHER_IMM;
 
                 // An uninitialized lisp_value will be defaulted to NIL
+                
+                FORCE_INLINE ~lisp_value() {}
                 FORCE_INLINE lisp_value() { u.bits = 0; }
 
                 FORCE_INLINE lisp_value(const lisp_value &other)
@@ -140,6 +144,11 @@ namespace lisp {
                 FORCE_INLINE bool is_nil() const
                 {
                         return bits() == 0;
+                }
+                
+                FORCE_INLINE bool is_not_nil() const
+                {
+                        return bits() != 0;
                 }
 
                 FORCE_INLINE bool is_cons() const
@@ -236,6 +245,11 @@ namespace lisp {
                 {
                         return bits() & 0xFF;
                 }
+                
+                static FORCE_INLINE lisp_value nil()
+                {
+                        return lisp_value();
+                }
 
                 static FORCE_INLINE lisp_value invalid_object()
                 {
@@ -275,13 +289,10 @@ namespace lisp {
 
                         lisp_primitive primitive_func;
                 } u;
-
-
         };
 
         static_assert(sizeof(lisp_value) == 8);
 
-        extern const lisp_value LISP_NIL;
         extern lisp_value LISP_T;
 
         /* Commonly used symbols for easier access without having to call intern */
@@ -806,26 +817,22 @@ namespace lisp {
         
         static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
         {
-                // @TODO: Throw error if not cons.
                 cons.as_cons()->car = val;
         }
 
         static FORCE_INLINE void set_cdr(lisp_value cons, lisp_value val)
         {
-                // @TODO: Throw error if not cons.
                 cons.as_cons()->cdr = val;
         }
 
         static FORCE_INLINE lisp_value car(lisp_value obj)
         {
-                // @TODO: Throw error if not nil or cons.
                 if (obj.is_nil()) return obj;
                 return obj.as_cons()->car;
         }
 
         static FORCE_INLINE lisp_value cdr(lisp_value obj)
         {
-                // @TODO: Throw error if not nil or cons.
                 if (obj.is_nil()) return obj;
                 return obj.as_cons()->cdr;
         }
@@ -885,7 +892,7 @@ namespace lisp {
         static FORCE_INLINE
         lisp_value push(lisp_value item, lisp_value place)
         {
-                if (place == LISP_NIL) {
+                if (place.is_nil()) {
                         return cons(item, LISP_NIL);
                 }
                 auto original = car(place);
@@ -901,7 +908,7 @@ namespace lisp {
                  * ((symbol . value) (symbol . value) (symbol . value))
                  */
                 if (env.is_cons()) {
-                        while (env != LISP_NIL) {
+                        while (env.is_not_nil()) {
                                 auto pair = car(env);
                                 auto s = car(pair);
                                 auto v = cdr(pair);

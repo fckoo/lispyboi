@@ -160,7 +160,6 @@ private:
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
 lisp_value LISP_BASE_ENVIRONMENT;
 namespace lisp {
-        const lisp_value LISP_NIL;
         lisp_value LISP_T;
         lisp_value LISP_SYM_QUOTE;
         lisp_value LISP_SYM_IF;
@@ -217,13 +216,13 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
         else if (obj.is_cons()) {
                 result += "(";
                 result += repr_impl(car(obj), seen);
-                if (cdr(obj) == LISP_NIL) {
+                if (cdr(obj).is_nil()) {
                         /* List with one element */
                         ;
                 }
                 else if (cdr(obj).is_cons()) {
                         lisp_value current = cdr(obj);
-                        while (current != LISP_NIL) {
+                        while (current.is_not_nil()) {
                                 result += " ";
                                 result += repr_impl(car(current), seen);
                                 current = cdr(current);
@@ -271,7 +270,7 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                                 break;
                         case LAMBDA_TYPE: {
                                 result += "(LAMBDA ";
-                                if (obj.as_object()->lambda()->params == LISP_NIL) {
+                                if (obj.as_object()->lambda()->params.is_nil()) {
                                         result += "() ";
                                 }
                                 else {
@@ -279,7 +278,7 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                                         result += " ";
                                 }
                                 auto body = obj.as_object()->lambda()->body;
-                                while (body != LISP_NIL) {
+                                while (body.is_not_nil()) {
                                         result += repr_impl(car(body), seen);
                                         body = cdr(body);
                                 }
@@ -541,13 +540,13 @@ lisp_value lisp::parse(lisp_stream &stream)
 static FORCE_INLINE
 lisp_value evaluate_list(lisp_value env, lisp_value list)
 {
-        if (list == LISP_NIL)
+        if (list.is_nil())
                 return list;
         auto expr = evaluate(env, car(list));
         auto head = cons(expr, LISP_NIL);
         list = cdr(list);
         expr = head;
-        while (list != LISP_NIL) {
+        while (list.is_not_nil()) {
                 auto next_val = evaluate(env, car(list));
                 set_cdr(expr, cons(next_val, LISP_NIL));
                 expr = cdr(expr);
@@ -588,7 +587,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
         // (defun foo (a b &optional c &rest rest)) => two required, one optional, and any number more
         // (defun foo (&optional a b c &rest rest)) => three optional and any number more
         bool allowing_optional = false;
-        while (params != LISP_NIL && args != LISP_NIL) {
+        while (params.is_not_nil() && args.is_not_nil()) {
                 auto sym = first(params);
                 if (allowing_optional && sym.is_cons()) {
                         sym = first(sym);
@@ -608,7 +607,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
                 args = rest(args);
         }
         
-        if (params != LISP_NIL) {
+        if (params.is_not_nil()) {
                 if (first(params) == LISP_SYM_AMP_REST || first(params) == LISP_SYM_AMP_BODY) {
                         shadowed_env = shadow(shadowed_env, second(params), LISP_NIL);
                         return true;
@@ -619,7 +618,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
                 }
         
                 if (allowing_optional) {
-                        while (params != LISP_NIL) {
+                        while (params.is_not_nil()) {
                                 auto sym = first(params);
                                 auto val = LISP_NIL;
                                 if (sym.is_cons()) {
@@ -636,7 +635,7 @@ bool apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value arg
                         }
                 }
         }
-        return params == LISP_NIL;
+        return params.is_nil();
 }
 
 static inline
@@ -677,7 +676,7 @@ void try_handle_lisp_signal(lisp_value signal_tag, lisp_value signal_args)
                 }
                 auto result = LISP_NIL;
                 auto body = handler.lambda.body;
-                while (body != LISP_NIL) {
+                while (body.is_not_nil()) {
                         result = evaluate(shadowed_env, first(body));
                         body = rest(body);
                 }
@@ -710,7 +709,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
                 }
                 auto body = function.as_object()->lambda()->body;
                 auto result = LISP_NIL;
-                while (body != LISP_NIL) {
+                while (body.is_not_nil()) {
                         result = evaluate(shadowed_env, first(body));
                         body = rest(body);
                 }
@@ -735,7 +734,7 @@ tailcall:
                 }
                 else if (thing == LISP_SYM_IF) {
                         auto condition = evaluate(env, second(obj));
-                        if (condition != LISP_NIL) {
+                        if (condition.is_not_nil()) {
                                 obj = third(obj);
                                 goto tailcall;
                         }
@@ -773,7 +772,7 @@ tailcall:
                         auto form = second(obj);
                         auto cases = cddr(obj);
                         lisp_signal_handler_cases handler_case;
-                        while (cases != LISP_NIL) {
+                        while (cases.is_not_nil()) {
                                 auto this_case = car(cases);
                                 auto tag = first(this_case);
                                 auto lambda_list = second(this_case);
@@ -816,7 +815,7 @@ tailcall:
                                         throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(function, args) };
                                 }
                                 auto body = function.as_object()->lambda()->body;
-                                while (rest(body) != LISP_NIL) {
+                                while (rest(body).is_not_nil()) {
                                         evaluate(shadowed_env, first(body));
                                         body = rest(body);
                                 }
@@ -847,13 +846,13 @@ tailcall:
 static
 lisp_value map(lisp_value list, lisp_value (func)(lisp_value))
 {
-        if (list == LISP_NIL)
+        if (list.is_nil())
                 return list;
 
         auto head = cons(func(car(list)), LISP_NIL);
         auto current = head;
         list = cdr(list);
-        while (list != LISP_NIL) {
+        while (list.is_not_nil()) {
                 set_cdr(current, cons(func(car(list)), LISP_NIL));
                 current = cdr(current);
                 list = cdr(list);
@@ -1067,7 +1066,7 @@ int main(int argc, char *argv[])
         }
         catch (lisp_exception e) {
                 printf("%s\n", e.msg);
-                if (e.what != LISP_NIL) {
+                if (e.what.is_not_nil()) {
                         printf("    %s\n", repr(e.what).c_str());
                 }
         }
@@ -1094,7 +1093,7 @@ int main(int argc, char *argv[])
                         }
                         catch (lisp_exception e) {
                                 printf("%s\n", e.msg);
-                                if (e.what != LISP_NIL) {
+                                if (e.what.is_not_nil()) {
                                         printf("    %s\n", repr(e.what).c_str());
                                 }
                         }
