@@ -13,6 +13,7 @@
            (run-test "test_lists.lisp")
            (run-test "test_quasiquote.lisp")
            (run-test "test_handler-case.lisp"))
+           (run-test "test_format.lisp"))
          (print "Tests completed in ")
          (print test-time)
          (print-line "ms."))

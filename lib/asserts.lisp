@@ -12,7 +12,7 @@
          (print "Assertion failed for ")
          (print-line ',expr)))))
 
-(defun assert-%% (test expected actual)
+(defun %assert (test expected actual)
   (let ((actual-var-name (gensym))
         (expected-var-name (gensym)))
     `(let ((,actual-var-name ,actual)
@@ -28,18 +28,24 @@
          (print-line " instead.")))))
 
 (defmacro assert-eq (expected actual)
-  (assert-%% 'eq expected actual))
+  (%assert 'eq expected actual))
 
 (defmacro assert-eql (expected actual)
-  (assert-%% 'eql expected actual))
+  (%assert 'eql expected actual))
 
 (defmacro assert-equal (expected actual)
-  (assert-%% 'equal expected actual))
+  (%assert 'equal expected actual))
 
-(defmacro assert= (expected actual)
-  (assert-%% '= expected actual))
+(defmacro assert-= (expected actual)
+  (%assert '= expected actual))
 
-(defmacro assert/= (expected actual)
-  (assert-%% '/= expected actual))
+(defmacro assert-/= (expected actual)
+  (%assert '/= expected actual))
+
+(defmacro assert-string= (expected actual)
+  (%assert 'string= expected actual))
+
+(defmacro assert-string/= (expected actual)
+  (%assert 'string/= expected actual))
 
 (provide "asserts")

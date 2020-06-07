@@ -1047,7 +1047,7 @@ int main(int argc, char *argv[])
         std::vector<lisp_file_stream*> fstreams;
         {
                 auto exe_dir = plat::get_executable_path().parent_path();
-                auto boot_path = exe_dir/"lisp"/"boot.lisp";
+                auto boot_path = exe_dir/"lib"/"boot.lisp";
                 auto f = new lisp_file_stream();
                 f->open(boot_path, lisp_file_stream::io_mode::read);
                 if (f->ok()) {

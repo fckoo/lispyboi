@@ -1,7 +1,5 @@
 (require "asserts")
-
-(setf +most-positive-fixnum+ 4611686018427387903)
-(setf +most-negative-fixnum+ (- 4611686018427387904))
+(require "math")
 
 (assert-true (= (+) 0))
 (assert-true (= (-) 0))
@@ -35,3 +33,24 @@
 (assert-true (>= 3 2 1))
 (assert-true (>= 3 2 2 1))
 
+(assert-= 10 (floor 10))
+(assert-= 1 (floor 10 10))
+(assert-= 10 (floor 100 10))
+
+(assert-= 1 (rem 1 5))
+(assert-= 2 (rem 2 5))
+(assert-= 3 (rem 3 5))
+(assert-= 4 (rem 4 5))
+(assert-= 0 (rem 5 5))
+(assert-= 1 (rem 6 5))
+
+(assert-= 42 (min 42 42))
+(assert-= 42 (min 42 123))
+(assert-= 42 (min 123 42))
+
+(assert-= 123 (max 123 123))
+(assert-= 123 (max 42 123))
+(assert-= 123 (max 123 42))
+
+(assert-= 123 (abs (- 123)))
+(assert-= 123 (abs 123))

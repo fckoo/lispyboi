@@ -43,7 +43,7 @@
 (defmacro * (&rest vals) (cons '%* vals))
 (defun * (&rest vals) (apply %* vals))
 
-(defmacro / (x y) (list '%* x y))
+(defmacro / (x y) (list '%/ x y))
 (defun / (x y) (/ x y))
 
 (defmacro < (&rest vals) (cons '%< vals))
@@ -292,6 +292,9 @@
   ;; we only support fixnums currently!
   (eq 'fixnum (type-of object)))
 
+(defun fixnump (object)
+  (eq 'fixnum (type-of object)))
+
 (defun eql (x y) (eq x y))
 
 (defun equal (x y)
@@ -500,6 +503,9 @@
 
 (defun stringp (object)
   (eq 'character (array-type object)))
+
+(defun characterp (object)
+  (eq 'character (type-of object)))
 
 (defun string= (x y)
   (when (= (length x) (length y))
