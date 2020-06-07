@@ -59,7 +59,7 @@ namespace lisp {
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(int64_t fixnum) noexcept
+                lisp_value wrap_fixnum(int64_t fixnum) noexcept
                 {
                         union {
                                 struct {
@@ -74,18 +74,18 @@ namespace lisp {
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(lisp_obj *pointer) noexcept
+                lisp_value wrap_object(lisp_obj *object) noexcept
                 {
                         union {
                                 lisp_obj *obj;
                                 uint64_t bits;
                         } u;
-                        u.obj = pointer;
+                        u.obj = object;
                         return lisp_value(u.bits);
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(lisp_cons *cons) noexcept
+                lisp_value wrap_cons(lisp_cons *cons) noexcept
                 {
                         union {
                                 lisp_cons *cons;
@@ -97,7 +97,7 @@ namespace lisp {
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(lisp_primitive func) noexcept
+                lisp_value wrap_primitive(lisp_primitive func) noexcept
                 {
                         union {
                                 lisp_primitive primitive_func;
@@ -111,7 +111,7 @@ namespace lisp {
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(int32_t codepoint) noexcept
+                lisp_value wrap_character(int32_t codepoint) noexcept
                 {
                         union {
                                 struct {
@@ -126,7 +126,7 @@ namespace lisp {
                 }
 
                 static FORCE_INLINE
-                lisp_value wrap(uint8_t byte) noexcept
+                lisp_value wrap_byte(uint8_t byte) noexcept
                 {
                         union {
                                 struct {
@@ -734,7 +734,7 @@ namespace lisp {
                         auto ret = new lisp_obj();
                         ret->m_type = FILE_STREAM_TYPE;
                         ret->u.file_stream = fs;
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -744,7 +744,7 @@ namespace lisp {
                         auto ret = new lisp_obj();
                         ret->m_type = SYM_TYPE;
                         ret->u.symbol = new std::string(name);
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -753,7 +753,7 @@ namespace lisp {
                         auto ret = new lisp_obj();
                         ret->m_type = LAMBDA_TYPE;
                         ret->u.lambda = new lisp_lambda { env, params, body };
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -762,7 +762,7 @@ namespace lisp {
                         auto ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
                         ret->u.simple_array = new lisp_simple_array(length, LISP_T);
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -774,7 +774,7 @@ namespace lisp {
                                 type = LISP_T;
                         }
                         ret->u.simple_array = new lisp_simple_array(length, type);
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -805,13 +805,13 @@ namespace lisp {
                                         cp_len = 1;
                                 }
                                 auto codepoint = (*reinterpret_cast<const int32_t*>(str + i)) & cp_mask;
-                                array->push_back(lisp_value::wrap(codepoint));
+                                array->push_back(lisp_value::wrap_character(codepoint));
                                 i += cp_len;
                         }
                         auto ret = new lisp_obj();
                         ret->m_type = SIMPLE_ARRAY_TYPE;
                         ret->u.simple_array = array;
-                        return lisp_value::wrap(ret);
+                        return lisp_value::wrap_object(ret);
                 }
 
                 static inline
@@ -950,7 +950,7 @@ namespace lisp {
                 //lisp_cons *ret = new lisp_cons();
                 ret->car = car;
                 ret->cdr = cdr;
-                return lisp_value::wrap(ret);
+                return lisp_value::wrap_cons(ret);
         }
 
         static inline lisp_value list()
