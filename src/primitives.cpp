@@ -153,7 +153,7 @@ lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args, bool &raised_sig
         /***
             (= n &rest more-fixnums)
         */
-        
+
         auto n = first(args);
         CHECK_FIXNUM(n);
         args = cdr(args);

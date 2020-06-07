@@ -421,7 +421,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                         while (is_symbol_char(stream.peekc())) {
                                 number_str += stream.getc();
                         }
-g
+
                         if (is_number) {
                                 int64_t result = 0;
                                 for (char digit : number_str)
