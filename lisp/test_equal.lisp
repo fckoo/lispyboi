@@ -48,7 +48,7 @@
       (reader-kanji "京ムヱロ発木しび士懐追トざ極角じ人公めむざ表一ぞぶゅ発日にこ適1院ヘトワル交近エフ車出ニヤシ室改す発廃ずイーみ導道トマ型島30目そくぱ紙計クト困稿卓捨縦でか。芸あルご読備んトぎ答界ヲタミ化95際メケ今亡ヒメケソ憶政写ユワニ略変ヤロメ新開活逆ヤ触注トヘコ択富るす民府リヨム愛35偶凝峡96朝ロ真定青微酸亨拙トの。"))
 
 
-  (assert-true (equal reader-kanji reader-kanji)))
+  (assert-true (equal function-kanji reader-kanji)))
 
 
 (assert-false (equal (make-array 10) (make-array 10)))
