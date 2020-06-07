@@ -151,28 +151,19 @@ lisp_value lisp_prim_num_less(lisp_value env, lisp_value args, bool &raised_sign
 lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
-            (= a b &rest more-fixnums)
+            (= n &rest more-fixnums)
         */
-        auto a = first(args);
-        CHECK_FIXNUM(a);
-        auto b = second(args);
-        CHECK_FIXNUM(b);
-        bool result = a.as_fixnum() == b.as_fixnum();
-        if (result) {
-                args = cddr(args);
-                a = b;
-                while (args.is_not_nil()) {
-                        b = car(args);
-                        CHECK_FIXNUM(b);
-                        result = a.as_fixnum() == b.as_fixnum();
-                        if (result == false) {
-                                break;
-                        }
-                        a = b;
-                        args = cdr(args);
-                }
+        
+        auto n = first(args);
+        CHECK_FIXNUM(n);
+        args = cdr(args);
+        while (args.is_not_nil()) {
+                CHECK_FIXNUM(car(args));
+                if (car(args) != n)
+                        return LISP_NIL;
+                args = cdr(args);
         }
-        return result ? LISP_T : LISP_NIL;
+        return LISP_T;
 }
 
 lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args, bool &raised_signal)
@@ -235,30 +226,11 @@ lisp_value lisp_prim_cons(lisp_value env, lisp_value args, bool &raised_signal)
 lisp_value lisp_prim_eq(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
-            (eq x y &rest more-objects)
+            (eq x y)
         */
-
-        if (cdr(args).is_nil()) {
-                return LISP_T;
-        }
-
-        auto a = first(args);
-        auto b = second(args);
-        bool result = a == b;
-        if (result) {
-                args = cddr(args);
-                a = b;
-                while (args.is_not_nil()) {
-                        b = car(args);
-                        result = a == b;
-                        if (result == false) {
-                                break;
-                        }
-                        a = b;
-                        args = cdr(args);
-                }
-        }
-        return result ? LISP_T : LISP_NIL;
+        auto x = first(args);
+        auto y = second(args);
+        return x == y ? LISP_T : LISP_NIL;
 }
 
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signal)
