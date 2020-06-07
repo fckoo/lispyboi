@@ -8,7 +8,7 @@
 #include <cxxabi.h>
 #include <string>
 
-struct symbol_name 
+struct symbol_name
 {
         std::string name;
         uintptr_t offset;
@@ -43,7 +43,7 @@ symbol_name get_name(const char *symbol)
                         auto sym_name = std::string(symbol + lparen + 1, i - lparen - 1);
                         return { sym_name, offset };
                 }
-                        
+
         }
         return { "", 0 };
 }
@@ -75,7 +75,7 @@ uintptr_t get_address(const char *symbol)
         return 0;
 }
 
-void bt::trace_and_abort(int max_depth) 
+void bt::trace_and_abort(int max_depth)
 {
         auto traces = new void*[max_depth];
         auto size = backtrace(traces, max_depth);
@@ -87,7 +87,7 @@ void bt::trace_and_abort(int max_depth)
                 if (it) {
                         auto name = get_name(it);
                         auto address = get_address(it);
-                        auto realname = abi::__cxa_demangle(name.name.c_str(), 0, 0, &status); 
+                        auto realname = abi::__cxa_demangle(name.name.c_str(), 0, 0, &status);
                         if (realname) {
                                 fprintf(stderr, "\t[bt]: %s+0x%x [0x%lx]\n", realname, name.offset, address);
                                 free(realname);
