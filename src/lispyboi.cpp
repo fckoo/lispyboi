@@ -417,13 +417,23 @@ lisp_value lisp::parse(lisp_stream &stream)
                                 number_str += stream.getc();
                         }
 
-                        int64_t result = 0;
-                        for (char digit : number_str)
-                        {
-                                result *= 10;
-                                result += digit - '0';
+                        bool is_number = !is_symbol_char(stream.peekc());
+                        while (is_symbol_char(stream.peekc())) {
+                                number_str += stream.getc();
                         }
-                        return lisp_value::wrap_fixnum(result);
+g
+                        if (is_number) {
+                                int64_t result = 0;
+                                for (char digit : number_str)
+                                {
+                                        result *= 10;
+                                        result += digit - '0';
+                                }
+                                return lisp_value::wrap_fixnum(result);
+                        }
+                        else {
+                                return intern_symbol(number_str);
+                        }
                 }
                 else if (stream.peekc() == '#') {
                         stream.getc();
