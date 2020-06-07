@@ -454,8 +454,6 @@ lisp_value lisp::parse(lisp_stream &stream)
                                                 return lisp_value::wrap_character('\t');
                                         }
                                         else {
-                                                // @TODO: pooper error handling
-                                                //printf("[ERROR] Unknown character name %s\n", character.c_str());
                                                 auto it = *reinterpret_cast<const int32_t*>(character.c_str());
                                                 return lisp_value::wrap_character(it);
                                         }
