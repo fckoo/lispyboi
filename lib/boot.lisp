@@ -627,5 +627,12 @@
 (defmacro intern (symbol-name) `(%intern ,symbol-name))
 (defun intern (symbol-name) (intern symbol-name))
 
+(defmacro funcall (function &rest args)
+  ;; @HACK: This lets emacs 'M-x run-lisp' C-c C-c work
+  (if (and (consp function)
+           (eq 'compile (first function)))
+      (list (third function))
+    `(,function ,@args)))
+
 (load "modules.lisp")
 (provide "boot")

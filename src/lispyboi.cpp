@@ -151,6 +151,12 @@ struct lisp_string_stream : lisp_stream {
         {
                 m_index = idx;
         };
+        
+        inline
+        std::string substr(size_t start, size_t end)
+        {
+                return m_data.substr(start, end);
+        }
 
 private:
         size_t m_index;
@@ -963,7 +969,7 @@ void initialize_globals()
         primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
 }
 
-bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value)
+bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input)
 {
         static lisp_string_stream stream;
         if (stream.eof()) {
@@ -990,6 +996,9 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
         if (obj.is_invalid()) {
                 stream.clear();
                 return false;
+        }
+        if (out_input) {
+                *out_input = stream.substr(idx, stream.index());
         }
         /* readline doesn't return a string with a line terminator so we end up
            appending one ourselves, this makes it so (+\n1\n2\n) isn't parsed as
@@ -1103,7 +1112,8 @@ int main(int argc, char *argv[])
                 auto last_result_sym = intern_symbol("$$");
                 while (1) {
                         lisp_value parsed;
-                        if (!read_stdin(prompt_lisp, prompt_ws, parsed)) {
+                        std::string input;
+                        if (!read_stdin(prompt_lisp, prompt_ws, parsed, &input)) {
                                 break;
                         }
                         try {
@@ -1120,6 +1130,7 @@ int main(int argc, char *argv[])
                                 if (e.what.is_not_nil()) {
                                         printf("    %s\n", repr(e.what).c_str());
                                 }
+                                printf("    %s\n", input.c_str());
                         }
                 }
         }

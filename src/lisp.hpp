@@ -891,7 +891,7 @@ namespace lisp {
         std::string repr(lisp_value obj);
         // @Audit: Should lisp::parse return a bool like read_stdin and store the parsed value in a passed reference?
         lisp_value parse(lisp_stream &stream);
-        bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value);
+        bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input = nullptr);
         lisp_value macro_expand(lisp_value obj);
         lisp_value evaluate(lisp_value env, lisp_value obj);
         lisp_value apply(lisp_value env, lisp_value function, lisp_value obj);
