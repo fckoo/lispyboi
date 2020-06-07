@@ -21,3 +21,5 @@
 (defsetf third set-caddr)
 (defsetf fourth set-cadddr)
 (defsetf fifth set-caddddr)
+
+(provide "setf")
