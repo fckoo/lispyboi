@@ -866,7 +866,7 @@ void primitives::bind_primitives(lisp_value &environment)
         BIND_PRIM("%FILE-LENGTH", lisp_prim_file_length);
         BIND_PRIM("%FILE-MODE", lisp_prim_file_mode);
         BIND_PRIM("%FILE-EOF-P", lisp_prim_file_eof);
-        BIND_PRIM("%FILE-OK", lisp_prim_file_ok);
+        BIND_PRIM("%FILE-OK-P", lisp_prim_file_ok);
         BIND_PRIM("%FILE-FLUSH", lisp_prim_file_flush);
         BIND_PRIM("%FILE-READ-BYTE", lisp_prim_file_read_byte);
         BIND_PRIM("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);

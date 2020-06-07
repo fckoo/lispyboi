@@ -47,7 +47,7 @@
 
 (defun file-accessible-p (file-path)
   (with-open-file (file file-path 'read)
-    (%file-ok file)))
+    (%file-ok-p file)))
 
 (defun map-find (function list)
   (when list

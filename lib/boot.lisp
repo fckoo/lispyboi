@@ -610,7 +610,7 @@
     (when there-path
       (unwind-protect
            (with-open-file (file full-path 'read)
-             (if (%file-ok file)
+             (if (%file-ok-p file)
                  (progn
                    (until (%file-eof-p file)
                           (eval (read file) environment))

@@ -5,8 +5,8 @@
 (defmacro close (file-stream) `(%close ,file-stream))
 (defun close (file-stream) (close file-stream))
 
-(defmacro file-ok (file-stream) `(%file-ok ,file-stream))
-(defun file-ok (file-stream) (file-ok file-stream))
+(defmacro file-ok-p (file-stream) `(%file-ok-p ,file-stream))
+(defun file-ok-p (file-stream) (file-ok-p file-stream))
 
 (defmacro file-eof-p (file-stream) `(%file-eof-p ,file-stream))
 (defun file-eof-p (file-stream) (file-eof-p file-stream))
