@@ -51,7 +51,7 @@
 
 (defun map-find (function list)
   (when list
-    (let ((val (function (car list))))
+    (let ((val (funcall function (car list))))
       (if val
           val
           (map-find function (cdr list))))))
@@ -75,7 +75,7 @@
         (and (load found-module) module-name))))
 
 (defun require (module-name &optional path)
-  (if (member module-name *modules* equal)
+  (if (member module-name *modules* #'equal)
       module-name
       (load-module module-name path)))
 

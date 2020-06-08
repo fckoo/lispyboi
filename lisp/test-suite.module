@@ -1,5 +1,9 @@
+(print-line "requiring asserts")
 (require "asserts")
+(print-line "requiring time-it")
 (require "time-it")
+
+(print-line "ok.")
 
 (defun run-test (path)
   (print "Running test: ")

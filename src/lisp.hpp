@@ -412,6 +412,11 @@ namespace lisp {
                 lisp_value body;
         };
 
+        struct lisp_symbol {
+                std::string name;
+                lisp_value function;
+        };
+
         struct lisp_simple_array {
                 /* A lisp_simple_array is just an array of lisp_values. */
 
@@ -489,8 +494,7 @@ namespace lisp {
                 virtual int peekc() = 0;
                 virtual bool eof() = 0;
         };
-
-
+        
         struct lisp_file_stream : lisp_stream {
                 enum io_mode {
                         invalid = 0,
@@ -698,7 +702,7 @@ namespace lisp {
                 std::string m_path;
                 io_mode m_mode;
         };
-
+        
         struct lisp_obj {
                 lisp_obj() {}
                 ~lisp_obj() {}
@@ -708,7 +712,7 @@ namespace lisp {
                         return m_type;
                 }
 
-                inline const std::string *symbol() const
+                inline lisp_symbol *symbol() const
                 {
                         return u.symbol;
                 }
@@ -743,7 +747,7 @@ namespace lisp {
                         // create a symbol that has not been interned.
                         auto ret = new lisp_obj();
                         ret->m_type = SYM_TYPE;
-                        ret->u.symbol = new std::string(name);
+                        ret->u.symbol = new lisp_symbol{ name, LISP_NIL };
                         return lisp_value::wrap_object(ret);
                 }
 
@@ -844,7 +848,7 @@ namespace lisp {
         private:
                 LISP_OBJ_TYPE m_type;
                 union {
-                        std::string *symbol;
+                        lisp_symbol *symbol;
                         lisp_lambda *lambda;
                         lisp_simple_array *simple_array;
                         lisp_file_stream *file_stream;

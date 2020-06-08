@@ -176,6 +176,7 @@ namespace lisp {
         lisp_value LISP_SYM_CONS;
         lisp_value LISP_SYM_CHARACTER;
         lisp_value LISP_SYM_FUNCTION;
+        lisp_value LISP_SYM_FUNCALL;
         lisp_value LISP_SYM_SYMBOL;
         lisp_value LISP_SYM_STRING;
         lisp_value LISP_SYM_NULL;
@@ -272,7 +273,7 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
         else if (obj.is_object()) {
                 switch (obj.as_object()->type()) {
                         case SYM_TYPE:
-                                result = *(obj.as_object()->symbol());
+                                result = obj.as_object()->symbol()->name;
                                 break;
                         case LAMBDA_TYPE: {
                                 result += "(LAMBDA ";
@@ -443,7 +444,12 @@ lisp_value lisp::parse(lisp_stream &stream)
                 }
                 else if (stream.peekc() == '#') {
                         stream.getc();
-                        if (stream.peekc() == '\\') {
+                        if (stream.peekc() == '\'') {
+                                stream.getc();
+                                auto func = parse(stream);
+                                return list(LISP_SYM_FUNCTION, func);
+                        }
+                        else if (stream.peekc() == '\\') {
                                 stream.getc();
                                 std::string character;
                                 while (is_symbol_char(stream.peekc())) {
@@ -747,6 +753,12 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
         throw lisp_unhandled_exception{ "Cannot APPLY because not a FUNCTION: ", function };
 }
 
+static FORCE_INLINE
+bool callablep(lisp_value val) 
+{
+        return val.is_lisp_primitive() || val.is_type(LAMBDA_TYPE);
+}
+
 lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
 {
 tailcall:
@@ -777,7 +789,7 @@ tailcall:
                         auto params_list = third(obj);
                         auto body = cdddr(obj);
                         auto macro = lisp_obj::create_lambda(env, params_list, body);
-                        LISP_MACROS[*(macro_name.as_object()->symbol())] = macro;
+                        LISP_MACROS[macro_name.as_object()->symbol()->name] = macro;
                         return macro_name;
                 }
                 else if (thing == LISP_SYM_LAMBDA) {
@@ -824,12 +836,40 @@ tailcall:
                         }
                         return result;
                 }
+                else if (thing == LISP_SYM_FUNCTION) {
+                        auto it = second(obj);
+                        if (it.is_type(SYM_TYPE)) {
+                                return it.as_object()->symbol()->function;
+                        }
+                        // We don't just return it here because it may be an unevaluated lambda which must
+                        // be constructed before it's callable
+                        obj = it;
+                        goto tailcall;
+                }
+                else if (thing == LISP_SYM_FUNCALL) {
+                        thing = evaluate(env, second(obj));
+                        obj = cdr(obj);
+                        goto direct_call;
+                }
                 else {
-                        auto function = evaluate(env, thing);
+                        if (thing.is_type(SYM_TYPE)) {
+                                auto tmp = thing.as_object()->symbol()->function;
+                                if (tmp.is_nil()) {
+                                        throw lisp_unhandled_exception{ "Undefined function: ", thing };
+                                }
+                                thing = tmp;
+                        }
+                        else if (!callablep(thing)) {
+                                thing = evaluate(env, thing);
+                        }
+                direct_call:
+                        if (!callablep(thing)) {
+                                throw lisp_unhandled_exception{ "Not a callable object: ", thing };
+                        }
                         auto args = evaluate_list(env, rest(obj));
-                        if (function.is_lisp_primitive()) {
+                        if (thing.is_lisp_primitive()) {
                                 bool raised_signal = false;
-                                auto result = function.as_lisp_primitive()(env, args, raised_signal);
+                                auto result = thing.as_lisp_primitive()(env, args, raised_signal);
                                 if (raised_signal) {
                                         try_handle_lisp_signal(car(result), cdr(result));
                                 }
@@ -837,13 +877,13 @@ tailcall:
                                         return result;
                                 }
                         }
-                        else if (function.as_object()->type() == LAMBDA_TYPE) {
-                                auto params = function.as_object()->lambda()->params;
-                                auto shadowed_env = function.as_object()->lambda()->env;
+                        else if (thing.as_object()->type() == LAMBDA_TYPE) {
+                                auto params = thing.as_object()->lambda()->params;
+                                auto shadowed_env = thing.as_object()->lambda()->env;
                                 if (!apply_arguments(shadowed_env, params, args)) {
-                                        throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(function, args) };
+                                        throw lisp_unhandled_exception{ "Unable to APPLY arguments: ", cons(thing, args) };
                                 }
-                                auto body = function.as_object()->lambda()->body;
+                                auto body = thing.as_object()->lambda()->body;
                                 while (rest(body).is_not_nil()) {
                                         evaluate(shadowed_env, first(body));
                                         body = rest(body);
@@ -921,7 +961,7 @@ lisp_value lisp::macro_expand(lisp_value obj)
                         auto value = macro_expand(third(obj));
                         return list(LISP_SYM_SETQ, variable_name, value);
                 }
-                auto &sym_name = *car.as_object()->symbol();
+                const auto &sym_name = car.as_object()->symbol()->name;
                 auto it = LISP_MACROS.find(sym_name);
                 if (it != LISP_MACROS.end()) {
                         auto function = it->second;
@@ -947,6 +987,7 @@ void initialize_globals()
         INTERN_GLOBAL(CONS);
         INTERN_GLOBAL(CHARACTER);
         INTERN_GLOBAL(FUNCTION);
+        INTERN_GLOBAL(FUNCALL);
         INTERN_GLOBAL(SYMBOL);
         INTERN_GLOBAL(STRING);
         INTERN_GLOBAL(NULL);

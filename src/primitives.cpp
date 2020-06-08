@@ -456,7 +456,7 @@ lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args, bool &raised_signa
             (symbol-name symbol)
         */
         CHECK_SYMBOL(first(args));
-        return lisp_obj::create_string(*first(args).as_object()->symbol());
+        return lisp_obj::create_string(first(args).as_object()->symbol()->name);
 }
 
 lisp_value lisp_prim_intern(lisp_value, lisp_value args, bool &raised_signal)
@@ -806,13 +806,30 @@ lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
         return args;
 }
 
-static inline
-void bind_primitive(lisp_value &environment, const std::string &symbol_name, lisp_primitive primitive)
+lisp_value lisp_prim_define_function(lisp_value, lisp_value args, bool &raised_signal)
 {
-        auto prim_object = lisp_value::wrap_primitive(primitive);
+        /***
+            (define-function symbol function)
+         */
+        auto sym = first(args);
+        CHECK_SYMBOL(sym);
+        auto func = second(args);
+        if (!func.is_lisp_primitive() && !func.is_type(LAMBDA_TYPE)) {
+                raised_signal = true;
+                return list(TYPE_ERROR, intern_symbol("FUNCTION"), func);
+        }
+        sym.as_object()->symbol()->function = func;
+        return sym;
+}
+
+static inline
+void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
+{
         auto symbol = intern_symbol(symbol_name);
-        auto binding = cons(symbol, prim_object);
-        environment = cons(binding, environment);
+        auto prim_object = lisp_value::wrap_primitive(primitive);
+        symbol.as_object()->symbol()->function = prim_object;
+        //auto binding = cons(symbol, prim_object);
+        //environment = cons(binding, environment);
 }
 
 static inline
@@ -825,58 +842,59 @@ void bind_value(lisp_value &environment, const std::string &symbol_name, lisp_va
 
 void primitives::bind_primitives(lisp_value &environment)
 {
-#define BIND_PRIM(lisp_name, function) bind_primitive(environment, lisp_name, function)
-        BIND_PRIM("%PRINT", lisp_prim_print);
-        BIND_PRIM("%+", lisp_prim_plus);
-        BIND_PRIM("%-", lisp_prim_minus);
-        BIND_PRIM("%*", lisp_prim_multiply);
-        BIND_PRIM("%/", lisp_prim_divide);
-        BIND_PRIM("%<", lisp_prim_num_less);
-        BIND_PRIM("%=", lisp_prim_num_equal);
-        BIND_PRIM("%>", lisp_prim_num_greater);
-        BIND_PRIM("%CAR", lisp_prim_car);
-        BIND_PRIM("%CDR", lisp_prim_cdr);
-        BIND_PRIM("%CONS", lisp_prim_cons);
-        BIND_PRIM("%EQ", lisp_prim_eq);
-        BIND_PRIM("%SIGNAL", lisp_prim_signal);
-        BIND_PRIM("%PUTCHAR", lisp_prim_putchar);
-        BIND_PRIM("%TYPE-OF", lisp_prim_type_of);
-        BIND_PRIM("%READ", lisp_prim_read);
-        BIND_PRIM("%MACRO-EXPAND", lisp_prim_macro_expand);
-        BIND_PRIM("%EVAL", lisp_prim_eval);
-        BIND_PRIM("%APPLY", lisp_prim_apply);
-        BIND_PRIM("%SET-CAR", lisp_prim_set_car);
-        BIND_PRIM("%SET-CDR", lisp_prim_set_cdr);
-        BIND_PRIM("%GET-ENV", lisp_prim_get_env);
-        BIND_PRIM("%GENSYM", lisp_prim_gensym);
-        BIND_PRIM("%MAKE-SYMBOL", lisp_prim_make_symbol);
-        BIND_PRIM("%SYMBOL-NAME", lisp_prim_symbol_name);
-        BIND_PRIM("%INTERN", lisp_prim_intern);
-        BIND_PRIM("%EXIT", lisp_prim_exit);
-        BIND_PRIM("%MAKE-ARRAY", lisp_prim_make_array);
-        BIND_PRIM("%AREF", lisp_prim_aref);
-        BIND_PRIM("%SET-AREF", lisp_prim_set_aref);
-        BIND_PRIM("%ARRAY-LENGTH", lisp_prim_array_length);
-        BIND_PRIM("%ARRAY-TYPE", lisp_prim_array_type);
-        BIND_PRIM("%CHAR-CODE", lisp_prim_char_code);
-        BIND_PRIM("%CODE-CHAR", lisp_prim_code_char);
-        BIND_PRIM("%BITS-OF", lisp_prim_bits_of);
-        BIND_PRIM("%OPEN", lisp_prim_open);
-        BIND_PRIM("%CLOSE", lisp_prim_close);
-        BIND_PRIM("%FILE-LENGTH", lisp_prim_file_length);
-        BIND_PRIM("%FILE-MODE", lisp_prim_file_mode);
-        BIND_PRIM("%FILE-EOF-P", lisp_prim_file_eof);
-        BIND_PRIM("%FILE-OK-P", lisp_prim_file_ok);
-        BIND_PRIM("%FILE-FLUSH", lisp_prim_file_flush);
-        BIND_PRIM("%FILE-READ-BYTE", lisp_prim_file_read_byte);
-        BIND_PRIM("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
-        BIND_PRIM("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
+        bind_primitive("%PRINT", lisp_prim_print);
+        bind_primitive("%+", lisp_prim_plus);
+        bind_primitive("%-", lisp_prim_minus);
+        bind_primitive("%*", lisp_prim_multiply);
+        bind_primitive("%/", lisp_prim_divide);
+        bind_primitive("%<", lisp_prim_num_less);
+        bind_primitive("%=", lisp_prim_num_equal);
+        bind_primitive("%>", lisp_prim_num_greater);
+        bind_primitive("%CAR", lisp_prim_car);
+        bind_primitive("%CDR", lisp_prim_cdr);
+        bind_primitive("%CONS", lisp_prim_cons);
+        bind_primitive("%EQ", lisp_prim_eq);
+        bind_primitive("%SIGNAL", lisp_prim_signal);
+        bind_primitive("%PUTCHAR", lisp_prim_putchar);
+        bind_primitive("%TYPE-OF", lisp_prim_type_of);
+        bind_primitive("%READ", lisp_prim_read);
+        bind_primitive("%MACRO-EXPAND", lisp_prim_macro_expand);
+        bind_primitive("%EVAL", lisp_prim_eval);
+        bind_primitive("%APPLY", lisp_prim_apply);
+        bind_primitive("%SET-CAR", lisp_prim_set_car);
+        bind_primitive("%SET-CDR", lisp_prim_set_cdr);
+        bind_primitive("%GET-ENV", lisp_prim_get_env);
+        bind_primitive("%GENSYM", lisp_prim_gensym);
+        bind_primitive("%MAKE-SYMBOL", lisp_prim_make_symbol);
+        bind_primitive("%SYMBOL-NAME", lisp_prim_symbol_name);
+        bind_primitive("%INTERN", lisp_prim_intern);
+        bind_primitive("%EXIT", lisp_prim_exit);
+        bind_primitive("%MAKE-ARRAY", lisp_prim_make_array);
+        bind_primitive("%AREF", lisp_prim_aref);
+        bind_primitive("%SET-AREF", lisp_prim_set_aref);
+        bind_primitive("%ARRAY-LENGTH", lisp_prim_array_length);
+        bind_primitive("%ARRAY-TYPE", lisp_prim_array_type);
+        bind_primitive("%CHAR-CODE", lisp_prim_char_code);
+        bind_primitive("%CODE-CHAR", lisp_prim_code_char);
+        bind_primitive("%BITS-OF", lisp_prim_bits_of);
+        bind_primitive("%OPEN", lisp_prim_open);
+        bind_primitive("%CLOSE", lisp_prim_close);
+        bind_primitive("%FILE-LENGTH", lisp_prim_file_length);
+        bind_primitive("%FILE-MODE", lisp_prim_file_mode);
+        bind_primitive("%FILE-EOF-P", lisp_prim_file_eof);
+        bind_primitive("%FILE-OK-P", lisp_prim_file_ok);
+        bind_primitive("%FILE-FLUSH", lisp_prim_file_flush);
+        bind_primitive("%FILE-READ-BYTE", lisp_prim_file_read_byte);
+        bind_primitive("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
+        bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
 
-        BIND_PRIM("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
-        BIND_PRIM("CHANGE-DIRECTORY", lisp_prim_change_directory);
-        BIND_PRIM("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
-        BIND_PRIM("GET-CLOCK-TICKS", lisp_prim_get_clock_ticks);
-        BIND_PRIM("CLOCKS-PER-SECOND", lisp_prim_clocks_per_second);
+        bind_primitive("%DEFINE-FUNCTION", lisp_prim_define_function);
+
+        bind_primitive("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
+        bind_primitive("CHANGE-DIRECTORY", lisp_prim_change_directory);
+        bind_primitive("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
+        bind_primitive("GET-CLOCK-TICKS", lisp_prim_get_clock_ticks);
+        bind_primitive("CLOCKS-PER-SECOND", lisp_prim_clocks_per_second);
 
         bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
         bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());

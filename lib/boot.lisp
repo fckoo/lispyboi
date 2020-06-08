@@ -1,10 +1,10 @@
 (defmacro cons (x y) (%cons '%cons (%cons x (%cons y nil))))
-(setq cons (lambda (x y) (cons x y)))
+(%define-function 'cons (lambda (x y) (cons x y)))
 
-(setq list (lambda (&rest lst) lst))
+(%define-function 'list (lambda (&rest lst) lst))
 
 (defmacro defun (name argslist &rest body)
-  (list 'setq name (cons 'lambda (cons argslist body))))
+  (list '%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
 
 (defmacro car (obj) (list '%car obj))
 (defun car (obj) (car obj))
@@ -17,6 +17,10 @@
 
 (defmacro type-of (obj) (list '%type-of obj))
 (defun type-of (obj) (type-of obj))
+
+(defun consp (obj) (eq 'cons (type-of obj)))
+
+(defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defmacro read (stm) (if stm
                          (list '%read stm)
@@ -35,34 +39,34 @@
   (cons '%apply (cons func args)))
 
 (defmacro - (&rest vals) (cons '%- vals))
-(defun - (&rest vals) (apply %- vals))
+(defun - (&rest vals) (apply #'%- vals))
 
 (defmacro + (&rest vals) (cons '%+ vals))
-(defun + (&rest vals) (apply %+ vals))
+(defun + (&rest vals) (apply #'%+ vals))
 
 (defmacro * (&rest vals) (cons '%* vals))
-(defun * (&rest vals) (apply %* vals))
+(defun * (&rest vals) (apply #'%* vals))
 
 (defmacro / (x y) (list '%/ x y))
 (defun / (x y) (/ x y))
 
 (defmacro < (&rest vals) (cons '%< vals))
-(defun < (&rest vals) (apply %< vals))
+(defun < (&rest vals) (apply #'%< vals))
 
 (defmacro = (&rest vals) (cons '%= vals))
-(defun = (&rest vals) (apply %= vals))
+(defun = (&rest vals) (apply #'%= vals))
 
 (defmacro > (&rest vals) (cons '%> vals))
-(defun > (&rest vals) (apply %> vals))
+(defun > (&rest vals) (apply #'%> vals))
 
 (defmacro <= (&rest vals) (list 'not (cons '%> vals)))
-(defun <= (&rest vals) (not (apply %> vals)))
+(defun <= (&rest vals) (not (apply #'%> vals)))
 
 (defmacro >= (&rest vals) (list 'not (cons '%< vals)))
-(defun >= (&rest vals) (not (apply %< vals)))
+(defun >= (&rest vals) (not (apply #'%< vals)))
 
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
-(defun /= (&rest vals) (not (apply %= vals)))
+(defun /= (&rest vals) (not (apply #'%= vals)))
 
 (defmacro putchar (character &optional (stm *STANDARD-OUTPUT*))
   (list '%putchar character stm))
@@ -92,10 +96,17 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (caddddr lst))
 
-(defmacro gensym (&optional (hint "G"))
-  (list '%gensym hint))
-(defun gensym (&optional (hint "G"))
-  (gensym hint))
+(defmacro gensym (&optional (hint "G")) (list '%gensym hint))
+(defun gensym (&optional (hint "G")) (gensym hint))
+
+(defmacro symbol-name (symbol) (list '%symbol-name symbol))
+(defun symbol-name (symbol) (symbol-name symbol))
+
+(defmacro make-symbol (symbol-name) (list '%make-symbol symbol-name))
+(defun make-symbol (symbol-name) (make-symbol symbol-name))
+
+(defmacro intern (symbol-name) (list '%intern symbol-name))
+(defun intern (symbol-name) (intern symbol-name))
 
 (defmacro exit (&optional (n 0)) (list '%exit n))
 (defun exit (&optional (n 0)) (exit n))
@@ -104,10 +115,10 @@
   (cons '%signal (cons tag arguments)))
 
 (defun signal (tag &rest arguments)
-  (apply %signal tag arguments))
+  (apply #'%signal tag arguments))
 
 (defun error (message &rest arguments)
-  (apply %signal 'error message arguments))
+  (apply #'%signal 'error message arguments))
 
 (defun append (x y)
   (if x
@@ -118,71 +129,123 @@
   (if (null list)
       init
       (foldl func
-             (func (first list) init)
+             (funcall func (first list) init)
              (rest list))))
 
 (defun foldl-for-effect (func list)
   (when list
-    (func (first list))
+    (funcall func (first list))
     (foldl-for-effect func (rest list))))
 
 (defun reverse (list)
-  (foldl cons nil list))
+  (foldl #'cons nil list))
 
 (defun map1 (func seq)
   ;; NOT TAIL RECURSIVE! later definitions are
-  (if seq (cons (func (car seq)) (map1 func (cdr seq)))))
+  (if seq (cons (funcall func (car seq))
+                (map1 func (cdr seq)))))
 
 (defun map (func &rest seqs)
   ;; NOT TAIL RECURSIVE! later definitions are
   (if (null (cdr seqs))
       (map1 func (car seqs))
       (if (car seqs)
-          (cons (apply func (map1 car seqs))
-                (apply map func (map1 cdr seqs))))))
+          (cons (apply func (map1 #'car seqs))
+                (apply #'map func (map1 #'cdr seqs))))))
 
 (defmacro let (args &body body)
-  (cons (cons 'lambda (cons (map first args) body))
-        (map second args)))
-
-(defmacro flet (definitions &body body)
-  (let ((names (map first definitions))
-        (lambda-lists (map second definitions))
-        (bodies (map cddr definitions)))
-    (cons (cons 'lambda (cons names body))
-          (map (lambda (ll body) (cons 'lambda (cons ll body)))
-               lambda-lists
-               bodies))))
-
-(defmacro labels (definitions &body body)
-  (let ((names (map first definitions))
-        (lambda-lists (map second definitions))
-        (bodies (map cddr definitions)))
-    (let ((setqs (map (lambda (name ll body)
-                        (list 'setq name (cons 'lambda (cons ll body))))
-                      names
-                      lambda-lists
-                      bodies)))
-      (cons (cons 'lambda (cons names (append setqs body)))
-            (map (lambda (&rest p) nil) names)))))
+  (cons (cons 'lambda (cons (map #'first args) body))
+        (map #'second args)))
 
 (defmacro let* (args &body body)
-  (let ((names (map first args))
-        (vals (map second args)))
+  (let ((names (map #'first args))
+        (vals (map #'second args)))
     (let ((setqs (map (lambda (name val) (list 'setq name val))
                       names
                       vals)))
       (cons (cons 'lambda (cons names (append setqs body)))
             (map (lambda (&rest p) nil) names)))))
 
+(defmacro progn (&body body)
+  (if (null (cdr body))
+      (car body)
+      (cons 'let (cons 'nil body))))
+
+(defmacro when (test &body body)
+  (list 'if test (cons 'progn body) nil))
+
+(defmacro unless (test &body body)
+  (list 'if test nil (cons 'progn body)))
+
+(defun assoc (item alist)
+  (when alist
+    (if (eq item (caar alist))
+        (car alist)
+        (assoc item (cdr alist)))))
+
+
+(defun %flet-transform (old-new-syms expr)
+  (if (not (consp expr))
+      expr
+    (cons (let ((found (assoc (car expr) old-new-syms)))
+            (if found (cdr found) (car expr)))
+          (map (lambda (e) (%flet-transform old-new-syms e)) (cdr expr)))))
+
+(defun %flet-transform-body (old-new-syms body)
+  (map (lambda (e) (%flet-transform old-new-syms e)) body))
+
+
+;; The basic premise for FLET and LABELS is to create new NOT INTERNED symbols for each
+;; function and then walk the form's body and replace instances where the user-defined
+;; name is in the call position with the appropriate uninterned symbol. LABELS does
+;; exactly the same as FLET but it also transforms the body of the function definitions
+;; aswell.
+
+(defmacro flet (definitions &body body)
+  (let* ((names (map #'first definitions))
+         (func-syms (map (lambda (e) (gensym (symbol-name e))) names))
+         (old-new-syms (map #'cons names func-syms))
+         (lambda-lists (map #'second definitions))
+         (bodies (map #'cddr definitions)))
+    (list (cons 'lambda
+                (cons nil
+                      (append (map (lambda (sym ll body)
+                                     (list '%define-function
+                                           (list 'quote sym)
+                                           (cons 'lambda (cons ll body))))
+                                 func-syms
+                                 lambda-lists
+                                 bodies)
+                            (%flet-transform-body old-new-syms body)))))))
+
+(defmacro labels (definitions &body body)
+  (let* ((names (map #'first definitions))
+         (func-syms (map (lambda (e) (gensym (symbol-name e))) names))
+         (old-new-syms (map #'cons names func-syms))
+         (lambda-lists (map #'second definitions))
+         (bodies (map #'cddr definitions)))
+    (list (cons 'lambda
+                (cons nil
+                      (append (map (lambda (sym ll body)
+                                     (list '%define-function (list 'quote sym)
+                                           (cons 'lambda
+                                                 (cons ll
+                                                       (%flet-transform-body old-new-syms body)))))
+                                   func-syms
+                                   lambda-lists
+                                   bodies)
+                              (%flet-transform-body old-new-syms body)))))))
+
+
+
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
 (defun map1 (func seq)
   (labels ((map1-aux (accum list)
-             (if list
-                 (map1-aux (cons (func (car list)) accum)
-                           (cdr list))
-                 (reverse accum))))
+                     (if list
+                         (map1-aux (cons (funcall func (car list)) accum)
+                                   (cdr list))
+                       (reverse accum))))
     (map1-aux nil seq)))
 
 (defun map (func &rest seqs)
@@ -191,8 +254,8 @@
       (if (car seqs)
           (labels ((map-aux (accum lists)
                      (if (car lists)
-                         (map-aux (cons (apply func (map1 car lists)) accum)
-                                  (map1 cdr lists))
+                         (map-aux (cons (apply func (map1 #'car lists)) accum)
+                                  (map1 #'cdr lists))
                          (reverse accum))))
             (map-aux nil seqs)))))
 
@@ -202,10 +265,6 @@
                  (car args)
                  (list 'if (car args) (and-helper (cdr args))))))
     (and-helper exprs)))
-
-(defun consp (obj) (eq 'cons (type-of obj)))
-
-(defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defmacro quasiquote (exp)
   (labels ((qq-list (l)
@@ -227,6 +286,14 @@
                  (list 'quote object))))
     (qq-object exp)))
 
+(defmacro prog1 (&body body)
+  (if (null (cdr body))
+      (car body)
+      (let ((tmp-var-name (gensym)))
+        `(let ((,tmp-var-name ,(car body)))
+           ,@(cdr body)
+           ,tmp-var-name))))
+
 (defmacro or (&rest exprs)
   (labels ((or-helper (args)
              (if (null (cdr args))
@@ -238,22 +305,6 @@
                           ,(or-helper (cdr args))))))))
     (or-helper exprs)))
 
-(defmacro progn (&body body)
-  (if (null (cdr body))
-      (car body)
-      `(let () ,@body)))
-
-(defmacro prog1 (&body body)
-  (if (null (cdr body))
-      (car body)
-      (let ((tmp-var-name (gensym)))
-        `(let ((,tmp-var-name ,(car body)))
-           ,@(cdr body)
-           ,tmp-var-name))))
-
-(defmacro when (test &body body)
-  `(if ,test (progn ,@body) nil))
-
 (defmacro while (expr &body body)
   (let ((fn-name (gensym "WHILE-LOOP")))
     `(labels ((,fn-name ()
@@ -261,9 +312,6 @@
                   ,@body
                   (,fn-name))))
        (,fn-name))))
-
-(defmacro unless (test &body body)
-  `(if ,test nil (progn ,@body)))
 
 (defmacro until (expr &body body)
   (let ((fn-name (gensym "UNTIL-LOOP")))
@@ -281,12 +329,6 @@
           `(if ,(caar body)
                (progn ,@(rest (first body)))
                (cond ,@(rest body))))))
-
-(defun assoc (item alist)
-  (when alist
-    (if (eq item (caar alist))
-        (car alist)
-        (assoc item (cdr alist)))))
 
 (defun numberp (object)
   ;; we only support fixnums currently!
@@ -314,7 +356,7 @@
                    (if (or (eq 't (car the-case))
                            (eq 'otherwise (car the-case)))
                        `(progn ,@(cdr the-case))
-                       `(if ,(test-fn tmp-val-name (car the-case))
+                       `(if ,(funcall test-fn tmp-val-name (car the-case))
                             (progn ,@(cdr the-case))
                             ,(test-generator (cdr lst))))))))
       `(let ((,tmp-val-name ,keyform))
@@ -556,7 +598,7 @@
          (t (,sig &rest ,args)
            ,@cleanup
            (unless (eq ,sig ',clean-throw)
-             (apply signal ,sig ,args))))
+             (apply #'signal ,sig ,args))))
        ,result)))
 
 (defmacro with-open-file (var-path-direction &body body)
@@ -579,8 +621,8 @@
     (when idx (substring path 0 idx))))
 
 (defun concatenate-arrays (&rest arrays)
-  (let* ((lengths (map length arrays))
-         (total-length (apply + lengths))
+  (let* ((lengths (map #'length arrays))
+         (total-length (apply #'+ lengths))
          (new-array (make-array total-length (array-type (first arrays))))
          (new-array-idx 0))
     (dolist (array arrays)
@@ -591,12 +633,12 @@
 
 (defun concatenate (first &rest rest)
   (typecase first
-    (cons (apply append first rest))
-    (array (apply concatenate-arrays first rest))))
+    (cons (apply #'append first rest))
+    (array (apply #'concatenate-arrays first rest))))
 
-(defun member (item list &optional (test eql))
+(defun member (item list &optional (test #'eql))
   (when list
-    (if (test item (car list))
+    (if (funcall test item (car list))
         list
         (member item (cdr list) test))))
 
@@ -621,16 +663,7 @@
                  (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-path)))))
 
-(defmacro symbol-name (symbol) `(%symbol-name ,symbol))
-(defun symbol-name (symbol) (symbol-name symbol))
-
-(defmacro make-symbol (symbol-name) `(%make-symbol ,symbol-name))
-(defun make-symbol (symbol-name) (make-symbol symbol-name))
-
-(defmacro intern (symbol-name) `(%intern ,symbol-name))
-(defun intern (symbol-name) (intern symbol-name))
-
-(defmacro funcall (function &rest args)
+'(defmacro funcall (function &rest args)
   ;; @HACK: This lets emacs 'M-x run-lisp' C-c C-c work
   (if (and (consp function)
            (eq 'compile (first function)))
@@ -639,3 +672,4 @@
 
 (load "modules.lisp")
 (provide "boot")
+
