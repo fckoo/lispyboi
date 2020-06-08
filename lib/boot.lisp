@@ -606,6 +606,9 @@
                         file-path
                         (concatenate here-path "/" file-path)))
          (there-path (change-directory (parent-directory full-path))))
+    ;; The ENVIRONMENT is a plain alist and the PUSH macro is non-destructive
+    ;; so we can safely just "extend" the local environment and get it restored
+    ;; after LOAD returns
     (push (cons '*FILE-PATH* full-path) environment)
     (when there-path
       (unwind-protect
