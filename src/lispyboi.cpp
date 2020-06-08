@@ -200,6 +200,7 @@ lisp_value lisp::intern_symbol(const std::string &symbol_name)
         if (it != interned_symbols.end())
                 return it->second;
         auto symbol = lisp_obj::create_symbol(symbol_name);
+        symbol.as_object()->symbol()->interned = true;
         interned_symbols[symbol_name] = symbol;
         return symbol;
 }
@@ -273,7 +274,14 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
         else if (obj.is_object()) {
                 switch (obj.as_object()->type()) {
                         case SYM_TYPE:
-                                result = obj.as_object()->symbol()->name;
+                                if (obj.as_object()->symbol()->interned == false) {
+                                        ss << "#0x" << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()) << ":" 
+                                           << obj.as_object()->symbol()->name;
+                                        result = ss.str();
+                                }
+                                else {
+                                        result = obj.as_object()->symbol()->name;
+                                }
                                 break;
                         case LAMBDA_TYPE: {
                                 result += "(LAMBDA ";
@@ -594,7 +602,7 @@ static FORCE_INLINE
 lisp_value bind(lisp_value env, lisp_value symbol, lisp_value value)
 {
         auto tmp = symbol_lookup(env, symbol);
-        if (tmp.is_invalid()) {
+        if (tmp.is_nil()) {
                 tmp = cons(symbol, value);
                 push(tmp, env);
         }
@@ -801,7 +809,7 @@ tailcall:
                         auto variable_name = second(obj);
                         auto value = evaluate(env, third(obj));
                         auto place = symbol_lookup(env, variable_name);
-                        if (place.is_invalid()) {
+                        if (place.is_nil()) {
                                 push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
                         }
                         else {
@@ -901,7 +909,7 @@ tailcall:
         if (obj.is_type(SYM_TYPE)) {
                 if (obj == LISP_T) return obj;
                 auto val = symbol_lookup(env, obj);
-                if (val.is_invalid()) {
+                if (val.is_nil()) {
                         throw lisp_unhandled_exception{ "Unbound variable: ", obj };
                 }
                 return cdr(val);
@@ -1063,7 +1071,7 @@ void eval_fstream(const std::filesystem::path filepath, lisp_stream &stm)
         auto variable_name = intern_symbol("*FILE-PATH*");
         auto value = lisp_obj::create_string(filepath);
         auto place = symbol_lookup(LISP_BASE_ENVIRONMENT, variable_name);
-        if (place.is_invalid()) {
+        if (place.is_nil()) {
                 push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
         }
         else {

@@ -415,6 +415,7 @@ namespace lisp {
         struct lisp_symbol {
                 std::string name;
                 lisp_value function;
+                bool interned;
         };
 
         struct lisp_simple_array {
@@ -747,7 +748,7 @@ namespace lisp {
                         // create a symbol that has not been interned.
                         auto ret = new lisp_obj();
                         ret->m_type = SYM_TYPE;
-                        ret->u.symbol = new lisp_symbol{ name, LISP_NIL };
+                        ret->u.symbol = new lisp_symbol{ name, LISP_NIL, false };
                         return lisp_value::wrap_object(ret);
                 }
 
@@ -1002,7 +1003,7 @@ namespace lisp {
                                 env = cdr(env);
                         }
                 }
-                return lisp_value::invalid_object();
+                return LISP_NIL;
         }
 
 }

@@ -187,23 +187,24 @@
 (defun %flet-transform (old-new-syms expr)
   (if (not (consp expr))
       expr
-    (cons (let ((found (assoc (car expr) old-new-syms)))
-            (if found (cdr found) (car expr)))
-          (map (lambda (e) (%flet-transform old-new-syms e)) (cdr expr)))))
+      (cons
+       (if (consp (car expr))
+           (map (lambda (e) (%flet-transform old-new-syms e)) (car expr))
+           (let ((found (assoc (car expr) old-new-syms)))
+             (if found (cdr found) (car expr))))
+       (map (lambda (e) (%flet-transform old-new-syms e)) (cdr expr)))))
 
 (defun %flet-transform-body (old-new-syms body)
   (map (lambda (e) (%flet-transform old-new-syms e)) body))
-
 
 ;; The basic premise for FLET and LABELS is to create new NOT INTERNED symbols for each
 ;; function and then walk the form's body and replace instances where the user-defined
 ;; name is in the call position with the appropriate uninterned symbol. LABELS does
 ;; exactly the same as FLET but it also transforms the body of the function definitions
 ;; aswell.
-
 (defmacro flet (definitions &body body)
   (let* ((names (map #'first definitions))
-         (func-syms (map (lambda (e) (gensym (symbol-name e))) names))
+         (func-syms (map (lambda (e) (%make-symbol (symbol-name e))) names))
          (old-new-syms (map #'cons names func-syms))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
@@ -213,14 +214,14 @@
                                      (list '%define-function
                                            (list 'quote sym)
                                            (cons 'lambda (cons ll body))))
-                                 func-syms
-                                 lambda-lists
-                                 bodies)
-                            (%flet-transform-body old-new-syms body)))))))
+                                   func-syms
+                                   lambda-lists
+                                   bodies)
+                              (%flet-transform-body old-new-syms body)))))))
 
 (defmacro labels (definitions &body body)
   (let* ((names (map #'first definitions))
-         (func-syms (map (lambda (e) (gensym (symbol-name e))) names))
+         (func-syms (map (lambda (e) (%make-symbol (symbol-name e))) names))
          (old-new-syms (map #'cons names func-syms))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
@@ -236,16 +237,14 @@
                                    bodies)
                               (%flet-transform-body old-new-syms body)))))))
 
-
-
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
 (defun map1 (func seq)
   (labels ((map1-aux (accum list)
-                     (if list
-                         (map1-aux (cons (funcall func (car list)) accum)
-                                   (cdr list))
-                       (reverse accum))))
+             (if list
+                 (map1-aux (cons (funcall func (car list)) accum)
+                           (cdr list))
+                 (reverse accum))))
     (map1-aux nil seq)))
 
 (defun map (func &rest seqs)
@@ -399,7 +398,7 @@
 
 (defmacro defsetf (access-fn update-fn)
   (%defsetf access-fn update-fn)
-  `(quote ,access-fn))
+  (list 'quote access-fn))
 
 (defsetf car %set-car)
 
@@ -642,6 +641,11 @@
         list
         (member item (cdr list) test))))
 
+(defun %eval-file (file env)
+  (unless (%file-eof-p file)
+    (eval (read file) env)
+    (%eval-file file env)))
+
 (defun load (file-path &optional (environment (%get-env)))
   (let* ((here-path (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
@@ -657,18 +661,10 @@
            (with-open-file (file full-path 'read)
              (if (%file-ok-p file)
                  (progn
-                   (until (%file-eof-p file)
-                          (eval (read file) environment))
+                   (%eval-file file environment)
                    full-path)
                  (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-path)))))
-
-'(defmacro funcall (function &rest args)
-  ;; @HACK: This lets emacs 'M-x run-lisp' C-c C-c work
-  (if (and (consp function)
-           (eq 'compile (first function)))
-      (list (third function))
-    `(,function ,@args)))
 
 (load "modules.lisp")
 (provide "boot")
