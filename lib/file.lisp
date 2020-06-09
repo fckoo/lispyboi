@@ -35,4 +35,15 @@
 (defmacro file-read-character (file-stream) `(%file-read-character ,file-stream))
 (defun file-read-character (file-stream) (file-read-character file-stream))
 
+(require "string-stream")
+(defun file-read-line (file-stream)
+  (let ((ss (make-string-stream)))
+    (until (or (file-eof-p file-stream)
+               (eql #\newline (code-char (file-peek-byte file-stream))))
+           (string-stream-push ss (file-read-character file-stream)))
+    (when (and (not file-eof-p file-stream)
+               (eql #\newline (code-char (file-peek-byte file-stream))))
+      (file-read-byte file-stream))
+    (string-stream-str ss)))
+
 (provide "file")

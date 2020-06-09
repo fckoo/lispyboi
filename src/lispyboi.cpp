@@ -267,10 +267,6 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                                 break;
                 }
         }
-        else if (obj.is_byte()) {
-                auto byte = obj.as_byte();
-                result = std::to_string(byte);
-        }
         else if (obj.is_object()) {
                 switch (obj.as_object()->type()) {
                         case SYM_TYPE:
@@ -762,7 +758,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args)
 }
 
 static FORCE_INLINE
-bool callablep(lisp_value val) 
+bool is_callable(lisp_value val) 
 {
         return val.is_lisp_primitive() || val.is_type(LAMBDA_TYPE);
 }
@@ -770,12 +766,6 @@ bool callablep(lisp_value val)
 lisp_value lisp::evaluate(lisp_value env, lisp_value obj)
 {
 tailcall:
-        if (obj.is_fixnum()) {
-                return obj;
-        }
-        if (obj.is_nil()) {
-                return obj;
-        }
         if (obj.is_cons()) {
                 auto thing = first(obj);
                 if (thing == LISP_SYM_QUOTE) {
@@ -856,6 +846,9 @@ tailcall:
                 }
                 else if (thing == LISP_SYM_FUNCALL) {
                         thing = evaluate(env, second(obj));
+                        if (thing.is_type(SYM_TYPE)) {
+                                thing = thing.as_object()->symbol()->function;
+                        }
                         obj = cdr(obj);
                         goto direct_call;
                 }
@@ -867,11 +860,11 @@ tailcall:
                                 }
                                 thing = tmp;
                         }
-                        else if (!callablep(thing)) {
+                        else if (!is_callable(thing)) {
                                 thing = evaluate(env, thing);
                         }
                 direct_call:
-                        if (!callablep(thing)) {
+                        if (!is_callable(thing)) {
                                 throw lisp_unhandled_exception{ "Not a callable object: ", thing };
                         }
                         auto args = evaluate_list(env, rest(obj));
@@ -902,6 +895,12 @@ tailcall:
                                 //return result;
                         }
                 }
+        }
+        if (obj.is_fixnum()) {
+                return obj;
+        }
+        if (obj.is_nil()) {
+                return obj;
         }
         if (obj.is_character()) {
                 return obj;

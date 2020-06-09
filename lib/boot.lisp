@@ -646,11 +646,16 @@
     (eval (read file) env)
     (%eval-file file env)))
 
+(defun compile (name definition)
+  (if name
+      (%define-function name definition)
+    definition))
+
 (defun load (file-path &optional (environment (%get-env)))
   (let* ((here-path (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
                         file-path
-                        (concatenate here-path "/" file-path)))
+                      (concatenate here-path "/" file-path)))
          (there-path (change-directory (parent-directory full-path))))
     ;; The ENVIRONMENT is a plain alist and the PUSH macro is non-destructive
     ;; so we can safely just "extend" the local environment and get it restored
@@ -658,12 +663,12 @@
     (push (cons '*FILE-PATH* full-path) environment)
     (when there-path
       (unwind-protect
-           (with-open-file (file full-path 'read)
-             (if (%file-ok-p file)
-                 (progn
-                   (%eval-file file environment)
-                   full-path)
-                 (signal 'load-error "Cannot open file" file-path)))
+          (with-open-file (file full-path 'read)
+                          (if (%file-ok-p file)
+                              (progn
+                                (%eval-file file environment)
+                                full-path)
+                            (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-path)))))
 
 (load "modules.lisp")

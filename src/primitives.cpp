@@ -718,7 +718,7 @@ lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args, bool &raised_si
          */
         auto it = car(args);
         CHECK_FILE_STREAM(it);
-        return lisp_value::wrap_byte(it.as_object()->file_stream()->read_byte());
+        return lisp_value::wrap_fixnum(it.as_object()->file_stream()->read_byte());
 }
 
 lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_signal)
@@ -728,7 +728,7 @@ lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_si
          */
         auto it = car(args);
         CHECK_FILE_STREAM(it);
-        return lisp_value::wrap_byte(it.as_object()->file_stream()->peek_byte());
+        return lisp_value::wrap_fixnum(it.as_object()->file_stream()->peek_byte());
 }
 
 lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args, bool &raised_signal)
@@ -822,6 +822,16 @@ lisp_value lisp_prim_define_function(lisp_value, lisp_value args, bool &raised_s
         return sym;
 }
 
+lisp_value lisp_prim_function_definition(lisp_value, lisp_value args, bool &raised_signal)
+{
+        /***
+            (function-definition symbol)
+         */
+        auto sym = first(args);
+        CHECK_SYMBOL(sym);
+        return sym.as_object()->symbol()->function;
+}
+
 static inline
 void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
 {
@@ -889,6 +899,7 @@ void primitives::bind_primitives(lisp_value &environment)
         bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
 
         bind_primitive("%DEFINE-FUNCTION", lisp_prim_define_function);
+        bind_primitive("%FUNCTION-DEFINITION", lisp_prim_function_definition);
 
         bind_primitive("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
         bind_primitive("CHANGE-DIRECTORY", lisp_prim_change_directory);

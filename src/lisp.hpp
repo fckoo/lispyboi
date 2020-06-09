@@ -125,31 +125,10 @@ namespace lisp {
                         return lisp_value(u.bits);
                 }
 
-                static FORCE_INLINE
-                lisp_value wrap_byte(uint8_t byte) noexcept
-                {
-                        union {
-                                struct {
-                                        int32_t _unused;
-                                        uint8_t byte;
-                                } byte;
-                                uint64_t bits;
-                        } u;
-                        u.bits = WTAG_BYTE;
-                        u.byte.byte = byte;
-                        return lisp_value(u.bits);
-                }
-
                 FORCE_INLINE
                 bool is_fixnum() const noexcept
                 {
                         return bits() & 1;
-                }
-
-                FORCE_INLINE
-                bool is_byte() const noexcept
-                {
-                        return wide_tag_bits() == WTAG_BYTE;
                 }
 
                 FORCE_INLINE
@@ -216,21 +195,6 @@ namespace lisp {
                         } u;
                         u.bits = bits();
                         return u.character.codepoint;
-                }
-
-                FORCE_INLINE
-                uint8_t as_byte() const noexcept
-                {
-                        ENSURE_VALUE(this, is_byte());
-                        union {
-                                struct {
-                                        int32_t _unused;
-                                        uint8_t byte;
-                                } byte;
-                                uint64_t bits;
-                        } u;
-                        u.bits = bits();
-                        return u.byte.byte;
                 }
 
                 FORCE_INLINE
@@ -361,8 +325,7 @@ namespace lisp {
                 static constexpr uint64_t TAG_POINTER   = 0b000ULL;
 
                 static constexpr uint64_t WTAG_INVALID = (0b00000ULL << 3) | TAG_OTHER_IMM;
-                static constexpr uint64_t WTAG_BYTE    = (0b00001ULL << 3) | TAG_OTHER_IMM;
-                static constexpr uint64_t WTAG_CHAR    = (0b00010ULL << 3) | TAG_OTHER_IMM;
+                static constexpr uint64_t WTAG_CHAR    = (0b00001ULL << 3) | TAG_OTHER_IMM;
 
                 constexpr explicit FORCE_INLINE
                 lisp_value(uint64_t bits) noexcept
