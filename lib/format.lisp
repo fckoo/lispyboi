@@ -9,15 +9,17 @@
     new-str))
 
 (defun %format-fixnum (number)
-  (let ((ss (make-string-stream))
-        (neg (< number 0)))
-    (setf number (abs number))
-    (while (/= number 0)
-      (string-stream-push ss (code-char (+ 48 (rem number 10))))
-      (setf number (floor number 10)))
-    (when neg
-      (string-stream-push ss #\-))
-    (reverse-string (string-stream-str ss))))
+  (if (= number 0)
+      (make-string #\0)
+    (let ((ss (make-string-stream))
+          (neg (< number 0)))
+      (setf number (abs number))
+      (while (/= number 0)
+        (string-stream-push ss (code-char (+ 48 (rem number 10))))
+        (setf number (floor number 10)))
+      (when neg
+        (string-stream-push ss #\-))
+      (reverse-string (string-stream-str ss)))))
 
 (defun %format-cons-a (cons)
   (let ((ss (make-string-stream)))
