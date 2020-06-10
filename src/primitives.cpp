@@ -13,6 +13,7 @@ using namespace lisp;
 
 
 static lisp_value TYPE_ERROR;
+static lisp_value INDEX_OUT_OF_BOUNDS_ERROR;
 
 #define TYPE_CHECK(what, typecheck, expected) do {                           \
         if (!(what).typecheck) {                                        \
@@ -498,7 +499,8 @@ lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal
         // @TODO: Array operations still need type checking
         auto type = second(args);
         if (type.is_not_nil()) {
-                return lisp_obj::create_simple_array(length.as_fixnum(), type);
+                if (type == LISP_SYM_CHARACTER || type == LISP_SYM_FIXNUM)
+                        return lisp_obj::create_simple_array(length.as_fixnum(), type);
         }
         return lisp_obj::create_simple_array(length.as_fixnum());
 
@@ -511,11 +513,16 @@ lisp_value lisp_prim_aref(lisp_value, lisp_value args, bool &raised_signal)
         */
 
         // @TODO: typecheck array in AREF primitive
-        auto array = first(args);
+        auto array_val = first(args);
         auto subscript = second(args);
         CHECK_FIXNUM(subscript);
-
-        return array.as_object()->simple_array()->get(subscript.as_fixnum());
+        auto array = array_val.as_object()->simple_array();
+        auto index = subscript.as_fixnum();
+        if (index < 0 || index >= array->length()) {
+                raised_signal = true;
+                return list(INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+        }
+        return array->get(index);
 }
 
 lisp_value lisp_prim_set_aref(lisp_value, lisp_value args, bool &raised_signal)
@@ -525,12 +532,28 @@ lisp_value lisp_prim_set_aref(lisp_value, lisp_value args, bool &raised_signal)
         */
 
         // @TODO: typecheck array in SET-AREF primitive
-        auto array = first(args);
+        auto array_val = first(args);
         auto subscript = second(args);
         CHECK_FIXNUM(subscript);
         auto value = third(args);
-
-        array.as_object()->simple_array()->set(subscript.as_fixnum(), value);
+        auto array = array_val.as_object()->simple_array();
+        auto index = subscript.as_fixnum();
+        if (index < 0 || index >= array->length()) {
+                raised_signal = true;
+                return list(INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+        }
+        auto type = array->type();
+        if (type != LISP_T) {
+                if (type == LISP_SYM_FIXNUM && !value.is_fixnum()) {
+                        raised_signal = true;
+                        return list(TYPE_ERROR, LISP_SYM_FIXNUM, value);
+                }
+                if (type == LISP_SYM_CHARACTER && !value.is_character()) {
+                        raised_signal = true;
+                        return list(TYPE_ERROR, LISP_SYM_CHARACTER, value);
+                }
+        }
+        array->set(index, value);
         return value;
 }
 
@@ -912,4 +935,5 @@ void primitives::bind_primitives(lisp_value &environment)
         bind_value(environment, "*STANDARD-ERROR*", lisp_obj::standard_error_stream());
 
         TYPE_ERROR = intern_symbol("TYPE-ERROR");
+        INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
 }
