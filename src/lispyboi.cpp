@@ -1093,12 +1093,19 @@ void eval_fstream(const std::filesystem::path filepath, lisp_stream &stm)
 int main(int argc, char *argv[])
 {
         bool repl = false;
+        bool use_boot = true;
         std::vector<std::string> file_paths;
 
         for (int i = 1; i < argc; ++i) {
                 const char *arg = argv[i];
                 if (strcmp("-i", arg) == 0) {
                         repl = true;
+                }
+                else if (strcmp("--no-boot", arg) == 0) {
+                        use_boot = false;
+                }
+                else if (strcmp("--boot", arg) == 0) {
+                        use_boot = true;
                 }
                 else {
                         file_paths.push_back(arg);
@@ -1110,7 +1117,7 @@ int main(int argc, char *argv[])
 
 
         std::vector<lisp_file_stream*> fstreams;
-        {
+        if (use_boot) {
                 auto exe_dir = plat::get_executable_path().parent_path();
                 auto boot_path = exe_dir/"lib"/"boot.lisp";
                 auto f = new lisp_file_stream();
