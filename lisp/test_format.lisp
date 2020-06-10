@@ -3,6 +3,10 @@
 
 (assert-string= "" (format nil ""))
 
+(assert-string= "-1" (format nil "~a" (- 1)))
+(assert-string= "0" (format nil "~a" 0))
+(assert-string= "1" (format nil "~a" 1))
+
 (assert-string= "123" (format nil "123"))
 (assert-string= "123" (format nil "~A" 123))
 (assert-string= "123" (format nil "~A" "123"))
