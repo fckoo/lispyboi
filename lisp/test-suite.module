@@ -1,9 +1,5 @@
-(print-line "requiring asserts")
 (require "asserts")
-(print-line "requiring time-it")
 (require "time-it")
-
-(print-line "ok.")
 
 (defun run-test (path)
   (print "Running test: ")
@@ -12,12 +8,15 @@
 
 (time-it test-time
          (progn
+           (run-test "test_aref.lisp")
            (run-test "test_equal.lisp")
-           (run-test "test_math.lisp")
+           (run-test "test_format.lisp")
+           (run-test "test_handler-case.lisp")
            (run-test "test_lists.lisp")
+           (run-test "test_math.lisp")
            (run-test "test_quasiquote.lisp")
-           (run-test "test_handler-case.lisp"))
-           (run-test "test_format.lisp"))
+           (run-test "test_setf.lisp")
+           )
          (print "Tests completed in ")
          (print test-time)
          (print-line "ms."))
