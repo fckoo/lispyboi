@@ -167,8 +167,9 @@ private:
 };
 
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
-lisp_value LISP_BASE_ENVIRONMENT;
 namespace lisp {
+        lisp_value LISP_BASE_ENVIRONMENT;
+
         lisp_value LISP_T;
         lisp_value LISP_SYM_QUOTE;
         lisp_value LISP_SYM_IF;

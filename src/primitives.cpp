@@ -337,15 +337,9 @@ lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args, bool &raised_sign
 lisp_value lisp_prim_eval(lisp_value env, lisp_value args, bool &raised_signal)
 {
         /***
-            (eval expr &optional environment)
+            (eval expr)
         */
-
-        if (cdr(args).is_not_nil()) {
-                CHECK_CONS(cdr(args));
-                env = second(args);
-        }
-
-        return lisp::evaluate(env, car(args));
+        return lisp::evaluate(LISP_BASE_ENVIRONMENT, car(args));
 }
 
 lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)

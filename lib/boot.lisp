@@ -30,10 +30,8 @@
 (defmacro macro-expand (expr) (list '%macro-expand expr))
 (defun macro-expand (expr) (macro-expand expr))
 
-(defun eval (expr &optional environment)
-  (if environment
-      (%eval (macro-expand expr) environment)
-      (%eval (macro-expand expr))))
+(defun eval (expr)
+  (%eval (macro-expand expr)))
 
 (defmacro apply (func &rest args)
   (cons '%apply (cons func args)))
@@ -183,19 +181,51 @@
         (car alist)
         (assoc item (cdr alist)))))
 
+(defun member (item list &optional (test #'eql))
+  (when list
+    (if (funcall test item (car list))
+        list
+        (member item (cdr list) test))))
 
-(defun %flet-transform (old-new-syms expr)
-  (if (not (consp expr))
-      expr
-      (cons
-       (if (consp (car expr))
-           (map (lambda (e) (%flet-transform old-new-syms e)) (car expr))
-           (let ((found (assoc (car expr) old-new-syms)))
-             (if found (cdr found) (car expr))))
-       (map (lambda (e) (%flet-transform old-new-syms e)) (cdr expr)))))
+(defmacro cond (&body body)
+  (if (null body)
+      nil
+      (if (eq t (caar body))
+          (append (list 'progn) (rest (first body)))
+          (list 'if (caar body)
+                (append (list 'progn) (rest (first body)))
+                (append (list 'cond) (rest body))))))
 
-(defun %flet-transform-body (old-new-syms body)
-  (map (lambda (e) (%flet-transform old-new-syms e)) body))
+(defun %and-helper (args)
+  (if (null (cdr args))
+                 (car args)
+                 (list 'if (car args) (%and-helper (cdr args)))))
+
+(defmacro and (&rest exprs)
+  (%and-helper exprs))
+
+(defun %flet-transform (old-new-names expr)
+  ;; %FLET-TRANSFORM visits every leaf of EXPR and replaces any of the old/user symbols
+  ;; in the call position and when referenced by the (FUNCTION SYM) form with its new
+  ;; symbol
+  (if (consp expr)
+      (map (lambda (e)
+             (if (consp e)
+                 (cond ((eq 'function (car e))
+                        (let ((found (assoc (second e) old-new-names)))
+                          (if found
+                              (list 'function (cdr found))
+                              e)))
+                       ((eq 'quote (car e))
+                        e)
+                       (t
+                        (let ((found (assoc (car e) old-new-names)))
+                          (if found
+                              (cons 'funcall (cons (cdr found) (cdr e)))
+                              (%flet-transform old-new-names e)))))
+                 e))
+           expr)
+      expr))
 
 ;; The basic premise for FLET and LABELS is to create new NOT INTERNED symbols for each
 ;; function and then walk the form's body and replace instances where the user-defined
@@ -204,38 +234,30 @@
 ;; aswell.
 (defmacro flet (definitions &body body)
   (let* ((names (map #'first definitions))
-         (func-syms (map (lambda (e) (%make-symbol (symbol-name e))) names))
-         (old-new-syms (map #'cons names func-syms))
+         (new-names (map (lambda (e) (gensym (symbol-name e))) names))
+         (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
-    (list (cons 'lambda
-                (cons nil
-                      (append (map (lambda (sym ll body)
-                                     (list '%define-function
-                                           (list 'quote sym)
-                                           (cons 'lambda (cons ll body))))
-                                   func-syms
-                                   lambda-lists
-                                   bodies)
-                              (%flet-transform-body old-new-syms body)))))))
+    (cons 'let (cons (map (lambda (sym ll body)
+                            (list sym (cons 'lambda (cons ll body))))
+                          new-names
+                          lambda-lists
+                          bodies)
+                     (%flet-transform old-new-names body)))))
+
 
 (defmacro labels (definitions &body body)
   (let* ((names (map #'first definitions))
-         (func-syms (map (lambda (e) (%make-symbol (symbol-name e))) names))
-         (old-new-syms (map #'cons names func-syms))
+         (new-names (map (lambda (e) (gensym (symbol-name e))) names))
+         (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
-    (list (cons 'lambda
-                (cons nil
-                      (append (map (lambda (sym ll body)
-                                     (list '%define-function (list 'quote sym)
-                                           (cons 'lambda
-                                                 (cons ll
-                                                       (%flet-transform-body old-new-syms body)))))
-                                   func-syms
-                                   lambda-lists
-                                   bodies)
-                              (%flet-transform-body old-new-syms body)))))))
+    (cons 'let* (cons (map (lambda (sym ll body)
+                             (list sym (cons 'lambda (cons ll (%flet-transform old-new-names body)))))
+                           new-names
+                           lambda-lists
+                           bodies)
+                      (%flet-transform old-new-names body)))))
 
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
@@ -319,15 +341,6 @@
                   ,@body
                   (,fn-name))))
        (,fn-name))))
-
-(defmacro cond (&body body)
-  (if (null body)
-      nil
-      (if (eq t (caar body))
-          `(progn ,@(rest (first body)))
-          `(if ,(caar body)
-               (progn ,@(rest (first body)))
-               (cond ,@(rest body))))))
 
 (defun numberp (object)
   ;; we only support fixnums currently!
@@ -635,41 +648,30 @@
     (cons (apply #'append first rest))
     (array (apply #'concatenate-arrays first rest))))
 
-(defun member (item list &optional (test #'eql))
-  (when list
-    (if (funcall test item (car list))
-        list
-        (member item (cdr list) test))))
-
-(defun %eval-file (file env)
-  (unless (%file-eof-p file)
-    (eval (read file) env)
-    (%eval-file file env)))
-
 (defun compile (name definition)
   (if name
       (%define-function name definition)
-    definition))
+      definition))
 
-(defun load (file-path &optional (environment (%get-env)))
-  (let* ((here-path (get-working-directory))
+(defun load (file-path)
+  (let* ((here-path *file-path*)
+         (here-dir (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
                         file-path
-                      (concatenate here-path "/" file-path)))
-         (there-path (change-directory (parent-directory full-path))))
-    ;; The ENVIRONMENT is a plain alist and the PUSH macro is non-destructive
-    ;; so we can safely just "extend" the local environment and get it restored
-    ;; after LOAD returns
-    (push (cons '*FILE-PATH* full-path) environment)
-    (when there-path
+                        (concatenate here-dir "/" file-path)))
+         (there-dir (change-directory (parent-directory full-path))))
+    (setq *file-path* full-path)
+    (when there-dir
       (unwind-protect
-          (with-open-file (file full-path 'read)
-                          (if (%file-ok-p file)
-                              (progn
-                                (%eval-file file environment)
-                                full-path)
-                            (signal 'load-error "Cannot open file" file-path)))
-        (change-directory here-path)))))
+           (with-open-file (file full-path 'read)
+             (if (%file-ok-p file)
+                 (progn
+                   (until (%file-eof-p file)
+                          (eval (read file)))
+                   full-path)
+                 (signal 'load-error "Cannot open file" file-path)))
+        (change-directory here-dir)
+        (setq *file-path* here-path)))))
 
 (load "modules.lisp")
 (provide "boot")

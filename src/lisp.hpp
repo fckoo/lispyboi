@@ -337,6 +337,7 @@ namespace lisp {
         static_assert(sizeof(lisp_value) == sizeof(void*), "lisp_value size wrong.");
         static_assert(std::is_trivial<lisp_value>::value, "lisp_value not trivial type.");
 
+        extern lisp_value LISP_BASE_ENVIRONMENT;
         extern lisp_value LISP_T;
 
         /* Commonly used symbols for easier access without having to call intern */
