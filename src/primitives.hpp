@@ -4,7 +4,7 @@
 #include "lisp.hpp"
 
 namespace primitives {
-        void bind_primitives(lisp::lisp_value &environment);
+void bind_primitives(lisp::lisp_value &environment);
 }
 
 #endif

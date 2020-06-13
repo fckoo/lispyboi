@@ -1,0 +1,165 @@
+
+//
+// The virtual machine using this bytecode operates with two stacks known as the:
+// P-stack or "parameter" stack where intermediate values for operations are stored.
+// R-stack or "return" stack where the return address of a funcall opcode intends to
+// return. 
+//
+
+// To use this file, #define BYTECODE_DEF(...) with how you intend to use each attribute
+// and then #include this file. e.g.:
+//    enum byte_code_op {
+//    #define BYTECODE_DEF(name, opcode, noperands, nargs, docstring) name = opcode,
+//            #include "bytecode.def"
+//    #undef BYTECODE_DEF
+//    };
+//
+// The terms represent as follows:
+//    name: a c++ indentifier representing the name of the opcode
+//    opcode: an integer value representing the bytecode/opcode
+//    noperands: the number of operands directly embedded in the bytecode
+//    nargs: the number of values that will be popped from the P-stack
+//    docstring: a c++ string literal representing documentation of the bytecode
+
+#if !defined(BYTECODE_DEF)
+#define BYTECODE_DEF(name, opcode, noperands, nargs, docstring)
+#endif
+
+
+BYTECODE_DEF(funcall, 
+0, // opcode 
+1, // noperands 
+1, // nargs
+"A = pop one values from P-stack as the callable thing\n"
+"B = the (uint32_t)operand as the number of arguments being passed\n"
+"C = pop B values from stack as a list where the last element was the first\n"
+"    popped\n"
+"if A is a symbol:\n"
+"    A = A.function\n"
+"if A is interpreted:\n"
+"    extend A's environment with C\n"
+"    push addr of instruction after this call instruction to R-stack\n"
+"    jump to callable code\n"
+"else:\n"
+"    call native with C")
+
+
+BYTECODE_DEF(return, 
+1, // opcode 
+0, // noperands 
+0, // nargs
+"Pop R-stack and jump to location popped")
+
+
+BYTECODE_DEF(goto,  
+2, // opcode 
+1, // noperands 
+0, // nargs
+"Change PC to (uint32_t)operand")
+
+
+BYTECODE_DEF(pop_jump_if_nil, 
+3, // opcode 
+1, // noperands 
+1, // nargs
+"Pop one value from P-stack\n"
+"  A = the first value popped as the object to test\n"
+"  B = the (uint32_t)operand\n"
+"if A is nil:\n"
+"    goto B\n"
+"else:\n"
+"    continue execution")
+
+
+BYTECODE_DEF(get_value, 
+4, // opcode 
+1, // noperands 
+0, // nargs
+"A = The (lisp_value)operand is a symbol\n"
+"if environment.contains(A):\n"
+"    push environment.get_value(A) to P-stack\n"
+"else:\n"
+"    throw symbol not found exception")
+
+
+BYTECODE_DEF(set_value, 
+5, // opcode 
+0, // noperands 
+2, // nargs
+"Pop one values from P-stack\n"
+"A = the first value popped as the symbol destination\n"
+"B = the top of the P-stack as the value to assign\n"
+"Not B does not pop the top of the stack because the lisp\n"
+"SET function returns the value after assignment\n"
+"if environment.contains(A):\n"
+"    environment.set_value(A, B)\n"
+"else:\n"
+"    base_env.set_value(A, B)")
+
+
+BYTECODE_DEF(function_value, 
+6, // opcode 
+1, // noperands 
+0, // nargs
+"A = the (lisp_value)operand as a symbol\n"
+"if A has a function:\n"
+"    push A.function to P-stack\n"
+"else:\n"
+"    push nil to P-stack")
+
+
+BYTECODE_DEF(define_function, 
+7, // opcode
+0, // noperands
+2, // nargs
+"Pop two values from P-stack\n"
+"A = the first value popped as a symbol\n"
+"B = the second value popped as the value to assign\n"
+"Set A.function = B\n"
+"Push A to P-stack")
+
+
+BYTECODE_DEF(pop,
+8, // opcode
+0, // noperands
+0, // nargs
+"Pop top of P-stack and discard it")
+
+
+BYTECODE_DEF(push_value, 
+9, // opcode
+1, // noperands 
+0, // nargs
+"Push (lisp_value)operand value to P-stack")
+
+
+// The literal values NIL, 0, and 1 are so common they deserve their own opcodes
+
+BYTECODE_DEF(push_nil,
+10, // opcode
+0, // noperands 
+0, // nargs
+"Push nil to P-stack")
+
+
+BYTECODE_DEF(push_fixnum_0,
+11, // opcode
+0, // noperands 
+0, // nargs
+"Push the fixnum 0 to P-stack")
+
+
+BYTECODE_DEF(push_fixnum_1,
+12, // opcode
+0, // noperands 
+0, // nargs
+"Push the fixnum 1 to P-stack")
+
+BYTECODE_DEF(instantiate_lambda,
+13, // opcode
+0, // noperands 
+1, // nargs
+"Pop the top of the P-stack as a lambda, create a copy of it, bind it to the\n"
+"local environment, and push the newly instantiated lambda to the P-stack.")
+
+#undef BYTECODE_DEF

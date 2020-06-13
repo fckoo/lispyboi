@@ -151,6 +151,12 @@
           (cons (apply func (map1 #'car seqs))
                 (apply #'map func (map1 #'cdr seqs))))))
 
+
+(defun %print-line (obj)
+  (%print obj)
+  (%putchar #\newline)
+  obj)
+
 (defmacro let (args &body body)
   (cons (cons 'lambda (cons (map #'first args) body))
         (map #'second args)))
@@ -168,6 +174,7 @@
   (if (null (cdr body))
       (car body)
       (cons 'let (cons 'nil body))))
+
 
 (defmacro when (test &body body)
   (list 'if test (cons 'progn body) nil))
@@ -204,6 +211,8 @@
 (defmacro and (&rest exprs)
   (%and-helper exprs))
 
+
+
 (defun %flet-transform (old-new-names expr)
   ;; %FLET-TRANSFORM visits every leaf of EXPR and replaces any of the old/user symbols
   ;; in the call position and when referenced by the (FUNCTION SYM) form with its new
@@ -238,12 +247,14 @@
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
+    (%print-line (map #'first definitions))
     (cons 'let (cons (map (lambda (sym ll body)
                             (list sym (cons 'lambda (cons ll body))))
                           new-names
                           lambda-lists
                           bodies)
                      (%flet-transform old-new-names body)))))
+
 
 
 (defmacro labels (definitions &body body)
@@ -598,27 +609,14 @@
   (prog1 (print object stm)
     (putchar #\Newline)))
 
-(defmacro unwind-protect (protected &body cleanup)
-  (let ((args (gensym "ARGS"))
-        (result (gensym "RESULT"))
-        (sig (gensym "SIG"))
-        (clean-throw (gensym "CLEAN-THROW")))
-    `(let ((,result))
-       (handler-case
-           (progn (setf ,result ,protected)
-                  (signal ',clean-throw))
-         (t (,sig &rest ,args)
-           ,@cleanup
-           (unless (eq ,sig ',clean-throw)
-             (apply #'signal ,sig ,args))))
-       ,result)))
+
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
         (path (second var-path-direction))
         (direction (third var-path-direction)))
     `(let ((,var (%open ,path ,direction)))
-       (unwind-protect (progn ,@body)
+       (prog1 (progn ,@body)
          (%close ,var)))))
 
 (defun find-last-of (array value)
@@ -662,17 +660,18 @@
          (there-dir (change-directory (parent-directory full-path))))
     (setq *file-path* full-path)
     (when there-dir
-      (unwind-protect
-           (with-open-file (file full-path 'read)
-             (if (%file-ok-p file)
-                 (progn
-                   (until (%file-eof-p file)
-                          (eval (read file)))
-                   full-path)
-                 (signal 'load-error "Cannot open file" file-path)))
-        (change-directory here-dir)
-        (setq *file-path* here-path)))))
+      ;;(unwind-protect)
+      (with-open-file (file full-path 'read)
+        (if (%file-ok-p file)
+            (progn
+              (until (%file-eof-p file)
+                     (eval (read file)))
+              full-path)
+            (signal 'load-error "Cannot open file" file-path)))
+      (change-directory here-dir)
+      (setq *file-path* here-path))))
 
 (load "modules.lisp")
 (provide "boot")
+
 

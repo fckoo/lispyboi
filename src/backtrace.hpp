@@ -2,7 +2,8 @@
 #define _BACKTRACE_HPP_
 
 namespace bt {
-        void trace_and_abort(int max_depth);
+void trace_and_abort(int max_depth);
+void trace(int max_depth);
 }
 
 #endif
