@@ -30,7 +30,6 @@
 ;;;           - the load was unsuccessful -> NIL is returned
 ;;;
 
-
 (let ((exec-dir (parent-directory (get-executable-path))))
   (defun get-executable-directory ()
     exec-dir))
@@ -49,22 +48,22 @@
   (with-open-file (file file-path 'read)
     (%file-ok-p file)))
 
-(defun map-find (function list)
+(defun find-if (predicate list)
   (when list
-    (let ((val (funcall function (car list))))
+    (let ((val (funcall predicate (car list))))
       (if val
           val
-          (map-find function (cdr list))))))
+          (find-if predicate (cdr list))))))
 
 (defun find-module (module-name)
   (let ((paths *module-load-directories*))
-    (map-find (lambda (suffix)
-                (map-find (lambda (path)
-                            (setf path (concatenate path "/" module-name suffix))
-                            (when (file-accessible-p path)
-                              path))
-                          paths))
-              '("" ".lisp" ".module"))))
+    (find-if (lambda (suffix)
+               (find-if (lambda (path)
+                          (setf path (concatenate path "/" module-name suffix))
+                          (when (file-accessible-p path)
+                            path))
+                        paths))
+             '("" ".lisp" ".module"))))
 
 (defun load-module (module-name path)
   (if path
@@ -80,3 +79,5 @@
       (load-module module-name path)))
 
 (provide "modules")
+
+

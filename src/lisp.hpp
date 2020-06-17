@@ -16,7 +16,7 @@
         if (!(expr)) {                                                  \
             fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
             fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr);      \
-            fprintf(stderr, "lisp_value was a [0x%x]: %s\n", value->bits(), lisp::repr(value).c_str()); \
+            fprintf(stderr, "lisp_value was a [0x%zx]: %s\n", value->bits(), lisp::repr(value).c_str()); \
             bt::trace_and_abort(10);                                    \
         }                                                               \
     } while (0)
@@ -32,6 +32,8 @@
 
 namespace lisp {
 
+using fixnum = int64_t;
+
 enum LISP_OBJ_TYPE {
     SYM_TYPE = 0,
     LAMBDA_TYPE,
@@ -45,6 +47,8 @@ struct lisp_value;
 std::string repr(const lisp_value *obj);
 typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args, bool &raised_signal);
 struct lisp_value {
+    
+    using underlying_type = uint64_t;
 
     FORCE_INLINE lisp_value() = default;
 
@@ -61,14 +65,14 @@ struct lisp_value {
     }
 
     static FORCE_INLINE
-    lisp_value wrap_fixnum(int64_t fixnum) noexcept
+    lisp_value wrap_fixnum(fixnum fixnum) noexcept
     {
         union {
             struct {
-                int64_t tag : 1;
-                int64_t value : 63;
+                lisp::fixnum tag : 1;
+                lisp::fixnum value : 63;
             } fixnum;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.fixnum.tag = 1;
         u.fixnum.value = fixnum;
@@ -80,7 +84,7 @@ struct lisp_value {
     {
         union {
             lisp_obj *obj;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.obj = object;
         return lisp_value(u.bits);
@@ -91,7 +95,7 @@ struct lisp_value {
     {
         union {
             lisp_cons *cons;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.cons = cons;
         u.bits |= TAG_CONS;
@@ -103,7 +107,7 @@ struct lisp_value {
     {
         union {
             lisp_primitive primitive_func;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.primitive_func = func;
         // @HACK: Can we be certain to fit every primitive function in 61 bits?
@@ -120,7 +124,7 @@ struct lisp_value {
                 int32_t _unused;
                 int32_t codepoint;
             } character;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = WTAG_CHAR;
         u.character.codepoint = codepoint;
@@ -170,15 +174,15 @@ struct lisp_value {
     }
 
     FORCE_INLINE
-    int64_t as_fixnum() const noexcept
+    fixnum as_fixnum() const noexcept
     {
         ENSURE_VALUE(this, is_fixnum());
         union {
             struct {
-                int64_t tag : 1;
-                int64_t value : 63;
+                lisp::fixnum tag : 1;
+                lisp::fixnum value : 63;
             } fixnum;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         return u.fixnum.value;
@@ -193,7 +197,7 @@ struct lisp_value {
                 int32_t _unused;
                 int32_t codepoint;
             } character;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         return u.character.codepoint;
@@ -205,7 +209,7 @@ struct lisp_value {
         ENSURE_VALUE(this, is_object());
         union {
             lisp_obj *obj;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         return u.obj;
@@ -217,7 +221,7 @@ struct lisp_value {
         ENSURE_VALUE(this, is_object());
         union {
             lisp_obj *obj;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         return u.obj;
@@ -229,7 +233,7 @@ struct lisp_value {
         ENSURE_VALUE(this, is_cons());
         union {
             lisp_cons *cons;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         u.bits &= ~BITS_MASK;
@@ -243,7 +247,7 @@ struct lisp_value {
         // @HACK: Can we be certain to fit every primitive function in 61 bits?
         union {
             lisp_primitive primitive_func;
-            uint64_t bits;
+            underlying_type bits;
         } u;
         u.bits = bits();
         u.bits >>= 3;
@@ -254,19 +258,19 @@ struct lisp_value {
     const bool is_type(LISP_OBJ_TYPE type) const;
 
     FORCE_INLINE
-    uint64_t bits() const noexcept
+    underlying_type bits() const noexcept
     {
         return v;
     }
 
     FORCE_INLINE
-    uint64_t tag_bits() const noexcept
+    underlying_type tag_bits() const noexcept
     {
         return bits() & 0b111ULL;
     }
 
     FORCE_INLINE
-    uint64_t wide_tag_bits() const noexcept
+    underlying_type wide_tag_bits() const noexcept
     {
         return bits() & 0xFF;
     }
@@ -291,6 +295,10 @@ struct lisp_value {
         return wide_tag_bits() == WTAG_INVALID;
     }
 
+    constexpr explicit FORCE_INLINE
+    lisp_value(underlying_type bits) noexcept
+        : v(bits)
+    {}
   private:
     /*
       Do not be fooled into thinking this is another layer of indirection.
@@ -319,21 +327,17 @@ struct lisp_value {
       Another side-effect of this decision is that we may represent NIL as
       all bits set to 0 which allows for more optimized NIL tests.
     */
-    static constexpr uint64_t BITS_MASK = 0b111ULL;
+    static constexpr underlying_type BITS_MASK = 0b111ULL;
 
-    static constexpr uint64_t TAG_OTHER_IMM = 0b010ULL;
-    static constexpr uint64_t TAG_CONS      = 0b100ULL;
-    static constexpr uint64_t TAG_PRIM_FUNC = 0b110ULL;
-    static constexpr uint64_t TAG_POINTER   = 0b000ULL;
+    static constexpr underlying_type TAG_OTHER_IMM = 0b010ULL;
+    static constexpr underlying_type TAG_CONS      = 0b100ULL;
+    static constexpr underlying_type TAG_PRIM_FUNC = 0b110ULL;
+    static constexpr underlying_type TAG_POINTER   = 0b000ULL;
 
-    static constexpr uint64_t WTAG_INVALID = (0b00000ULL << 3) | TAG_OTHER_IMM;
-    static constexpr uint64_t WTAG_CHAR    = (0b00001ULL << 3) | TAG_OTHER_IMM;
+    static constexpr underlying_type WTAG_INVALID = (0b00000ULL << 3) | TAG_OTHER_IMM;
+    static constexpr underlying_type WTAG_CHAR    = (0b00001ULL << 3) | TAG_OTHER_IMM;
 
-    constexpr explicit FORCE_INLINE
-    lisp_value(uint64_t bits) noexcept
-        : v(bits)
-    {}
-    uint64_t v;
+    underlying_type v;
 };
 
 static_assert(sizeof(lisp_value) == sizeof(void*), "lisp_value size wrong.");
@@ -373,15 +377,80 @@ struct lisp_cons {
 };
 
 struct lisp_lambda {
-    lisp_value env;
-    lisp_value params;
-    lisp_value body;
-    std::vector<uint8_t> bytecode;
+    
+    lisp_lambda(lisp_value env, lisp_value params, lisp_value body, 
+                const uint8_t *main_entry, const uint8_t *end,
+                const std::vector<const uint8_t*> &optional_initializers)
+        : m_env(env)
+        , m_params(params)
+        , m_body(body)
+        , m_main_entry(main_entry)
+        , m_endpoint(end)
+        , m_optional_initializers(optional_initializers)
+    {}
+
+    lisp_lambda(lisp_value env, lisp_value params, lisp_value body, 
+                const uint8_t *main_entry, const uint8_t *end,
+                std::vector<const uint8_t*> &&move_optional_initializers)
+        : m_env(env)
+        , m_params(params)
+        , m_body(body)
+        , m_main_entry(main_entry)
+        , m_endpoint(end)
+        , m_optional_initializers(move_optional_initializers)
+    {}
                 
-    lisp_lambda *copy() const
+    lisp_lambda *instantiate(lisp_value env) const
     {
-        return new lisp_lambda { env, params, body, bytecode };
+        return new lisp_lambda(env, m_params, m_body, m_main_entry, m_endpoint, m_optional_initializers);
     }
+    
+    const uint8_t *earliest_entry() const
+    {
+        if (m_optional_initializers.size() == 0)
+            return m_main_entry;
+        return m_optional_initializers[0];
+    }
+    
+    const uint8_t *begin(int idx) const
+    {
+        if (idx < 0)
+            return m_main_entry;
+        return m_optional_initializers[idx];
+    }
+
+    const uint8_t *end() const
+    {
+        return m_endpoint;
+    }
+    
+    lisp_value env() const
+    {
+        return m_env;
+    }
+    
+    lisp_value params() const
+    {
+        return m_params;
+    }
+    
+    lisp_value body() const
+    {
+        return m_body;
+    }
+    
+    const std::vector<const uint8_t*> &optional_initializers()
+    {
+        return m_optional_initializers;
+    }
+  private:
+
+    lisp_value m_env;
+    lisp_value m_params;
+    lisp_value m_body;
+    const uint8_t *m_main_entry;
+    const uint8_t *m_endpoint;
+    std::vector<const uint8_t*> m_optional_initializers;
 };
 
 struct lisp_symbol {
@@ -393,14 +462,14 @@ struct lisp_symbol {
 struct lisp_simple_array {
     /* A lisp_simple_array is just an array of lisp_values. */
 
-    lisp_simple_array(size_t capacity)
+    lisp_simple_array(fixnum capacity)
         : m_values(capacity ? new lisp_value[capacity]() : nullptr)
         , m_type(LISP_T)
         , m_fill_pointer(capacity)
         , m_capacity(capacity)
     {}
 
-    lisp_simple_array(size_t capacity, lisp_value type)
+    lisp_simple_array(fixnum capacity, lisp_value type)
         : m_values(capacity ? new lisp_value[capacity]() : nullptr)
         , m_type(type)
         , m_fill_pointer(capacity)
@@ -414,17 +483,17 @@ struct lisp_simple_array {
         delete[] m_values;
     }
 
-    FORCE_INLINE lisp_value get(int index) const
+    FORCE_INLINE lisp_value get(fixnum index) const
     {
         return m_values[index];
     }
 
-    FORCE_INLINE void set(int index, lisp_value value)
+    FORCE_INLINE void set(fixnum index, lisp_value value)
     {
         m_values[index] = value;
     }
 
-    FORCE_INLINE void set_fill_pointer(size_t new_fill_pointer)
+    FORCE_INLINE void set_fill_pointer(fixnum new_fill_pointer)
     {
         m_fill_pointer = new_fill_pointer;
     }
@@ -432,7 +501,7 @@ struct lisp_simple_array {
     FORCE_INLINE void push_back(lisp_value value)
     {
         if (m_fill_pointer >= m_capacity) {
-            size_t new_cap = m_fill_pointer * 1.5;
+            fixnum new_cap = m_fill_pointer * 1.5;
             auto new_vals = new lisp_value[new_cap];
             auto old_vals = m_values;
             memcpy(new_vals, old_vals, sizeof(m_values[0]) * m_fill_pointer);
@@ -443,7 +512,7 @@ struct lisp_simple_array {
         m_values[m_fill_pointer++] = value;
     }
 
-    FORCE_INLINE size_t length() const
+    FORCE_INLINE fixnum length() const
     {
         return m_fill_pointer;
     }
@@ -457,12 +526,13 @@ struct lisp_simple_array {
 
     lisp_value *m_values;
     lisp_value m_type;
-    size_t m_fill_pointer;
-    size_t m_capacity;
+    fixnum m_fill_pointer;
+    fixnum m_capacity;
 };
 
 struct lisp_stream {
     static const int end_of_file = 0;
+    virtual ~lisp_stream() = default;
     virtual int getc() = 0;
     virtual int peekc() = 0;
     virtual bool eof() = 0;
@@ -505,7 +575,7 @@ struct lisp_file_stream : lisp_stream {
             fflush(m_fp);
     }
 
-    inline size_t length()
+    inline fixnum length()
     {
         if (!ok()) return 0;
         auto original_pos = ftell(m_fp);
@@ -600,21 +670,21 @@ struct lisp_file_stream : lisp_stream {
         return c;
     }
 
-    size_t write(const std::string &str)
+    fixnum write(const std::string &str)
     {
         if (ok())
             return fwrite(str.data(), 1, str.size(), m_fp);
         return 0;
     }
 
-    size_t write_byte(uint8_t b)
+    fixnum write_byte(uint8_t b)
     {
         if (ok())
             return fputc(b, m_fp) != EOF;
         return 0;
     }
 
-    size_t write_utf8(int32_t c)
+    fixnum write_utf8(int32_t c)
     {
         if (ok()) {
             /* unsure if the manual unrolling is better than
@@ -734,19 +804,23 @@ struct lisp_obj {
     }
 
     static inline
-    lisp_value create_lambda(lisp_value params, lisp_value body, std::vector<uint8_t> &&bytecode)
+    lisp_value create_lambda(lisp_value params, lisp_value body, 
+                             const uint8_t *main_entry, const uint8_t *end, 
+                             std::vector<const uint8_t*> &&optionals)
     {
-        return create_lambda(new lisp_lambda { LISP_NIL, params, body, bytecode });
+        return create_lambda(new lisp_lambda(LISP_NIL, params, body, main_entry, end, optionals));
     }
 
     static inline
-    lisp_value create_macro(lisp_value env, lisp_value params, lisp_value body, std::vector<uint8_t> &&bytecode)
+    lisp_value create_macro(lisp_value env, lisp_value params, lisp_value body, 
+                            const uint8_t *main_entry, const uint8_t *end, 
+                            std::vector<const uint8_t*> &&optionals)
     {
-        return create_lambda(new lisp_lambda { env, params, body, bytecode });
+        return create_lambda(new lisp_lambda(env, params, body, main_entry, end, optionals));
     }
 
     static inline
-    lisp_value create_simple_array(size_t length)
+    lisp_value create_simple_array(fixnum length)
     {
         auto ret = new lisp_obj();
         ret->m_type = SIMPLE_ARRAY_TYPE;
@@ -755,7 +829,7 @@ struct lisp_obj {
     }
 
     static inline
-    lisp_value create_simple_array(size_t length, lisp_value type)
+    lisp_value create_simple_array(fixnum length, lisp_value type)
     {
         auto ret = new lisp_obj();
         ret->m_type = SIMPLE_ARRAY_TYPE;
@@ -766,16 +840,15 @@ struct lisp_obj {
         return lisp_value::wrap_object(ret);
     }
 
-    static inline
-    lisp_value create_string(const char *str, size_t len)
+    static
+    lisp_value create_string(const char *str, fixnum len)
     {
         auto array = new lisp_simple_array(8, LISP_SYM_CHARACTER);
         array->set_fill_pointer(0);
         // valid utf-8 codepoint enumeration
-        for(size_t i = 0; i < len;) {
+        for(fixnum i = 0; i < len;) {
             int cp_len = 1;
             int32_t cp_mask = 0x000000ff;
-
             if ((str[i] & 0xf8) == 0xf0) {
                 cp_mask = 0xffffffff;
                 cp_len = 4;
@@ -788,12 +861,19 @@ struct lisp_obj {
                 cp_mask = 0x0000ffff;
                 cp_len = 2;
             }
-
             if ((i + cp_len) > len) {
                 cp_mask = 0x000000ff;
                 cp_len = 1;
             }
-            auto codepoint = (*reinterpret_cast<const int32_t*>(str + i)) & cp_mask;
+
+            int32_t codepoint = 0;
+            switch (cp_len) {
+                // neat use of a fallthrough.
+                case 4: codepoint |= (str[i+3] & 0xff) << 24;
+                case 3: codepoint |= (str[i+2] & 0xff) << 16;
+                case 2: codepoint |= (str[i+1] & 0xff) <<  8;
+                case 1: codepoint |= (str[i+0] & 0xff) <<  0;
+            }
             array->push_back(lisp_value::wrap_character(codepoint));
             i += cp_len;
         }
@@ -803,27 +883,30 @@ struct lisp_obj {
         return lisp_value::wrap_object(ret);
     }
 
-    static inline
+    static
     lisp_value create_string(const std::string &str)
     {
         return create_string(str.data(), str.size());
     }
 
-    static lisp_value standard_input_stream()
+    static
+    lisp_value standard_input_stream()
     {
         static auto lfs = lisp_file_stream::new_stdin();
         static auto obj = create_file_stream(lfs);
         return obj;
     }
 
-    static lisp_value standard_output_stream()
+    static
+    lisp_value standard_output_stream()
     {
         static auto lfs = lisp_file_stream::new_stdout();
         static auto obj = create_file_stream(lfs);
         return obj;
     }
 
-    static lisp_value standard_error_stream()
+    static
+    lisp_value standard_error_stream()
     {
         static auto lfs = lisp_file_stream::new_stderr();
         static auto obj = create_file_stream(lfs);
@@ -844,7 +927,7 @@ static inline std::string lisp_string_to_native_string(lisp_value str)
 {
     std::string ret;
     auto array = str.as_object()->simple_array();
-    for (size_t i = 0; i < array->length(); ++i) {
+    for (fixnum i = 0; i < array->length(); ++i) {
         auto c = array->get(i).as_character();
         if ((c & 0xf8) == 0xf0) {
             ret.push_back(static_cast<char>((c >>  0) & 0xff));
@@ -883,7 +966,7 @@ lisp_value parse(lisp_stream &stream);
 bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input = nullptr);
 lisp_value macro_expand(lisp_value obj);
 lisp_value evaluate(lisp_value env, lisp_value obj);
-lisp_value apply(lisp_value env, lisp_value function, lisp_value obj);
+lisp_value apply(lisp_value env, lisp_value function, lisp_value obj, bool &raised_signal);
 
 static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
 {
@@ -981,7 +1064,6 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
         while (env.is_not_nil()) {
             auto pair = car(env);
             auto s = car(pair);
-            auto v = cdr(pair);
             if (s == symbol)
                 return pair;
             env = cdr(env);
@@ -991,5 +1073,19 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
 }
 
 }
+
+namespace std {
+
+template <>
+struct hash<lisp::lisp_value>
+{
+    std::size_t operator()(const lisp::lisp_value& v) const
+    {
+        return std::hash<lisp::lisp_value::underlying_type>()(v.bits());
+    }
+};
+
+}
+
 
 #endif

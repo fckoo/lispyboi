@@ -15,8 +15,10 @@ void plat::change_directory(const std::filesystem::path &new_dir, std::error_cod
 
 std::filesystem::path plat::get_executable_path()
 {
-    static char path[PATH_MAX];
+    static char path[PATH_MAX]{0};
     static auto len = readlink("/proc/self/exe", path, PATH_MAX);
-    static std::filesystem::path ret = std::string(path, PATH_MAX);
-    return ret;
+    if (len > 0) {
+        return std::string(path, len);
+    }
+    return std::string();
 }

@@ -82,18 +82,18 @@ void bt::trace(int max_depth)
     auto symbols = backtrace_symbols(traces, size);
     int status;
     // start i at one to skip this function
-    for (size_t i = 1; i < size; ++i) {
+    for (int i = 1; i < size; ++i) {
         auto it = symbols[i];
         if (it) {
             auto name = get_name(it);
             auto address = get_address(it);
             auto realname = abi::__cxa_demangle(name.name.c_str(), 0, 0, &status);
             if (realname) {
-                fprintf(stderr, "\t[bt]: %s+0x%x [0x%lx]\n", realname, name.offset, address);
+                fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", realname, name.offset, address);
                 free(realname);
             }
             else if (name.name.size() != 0) {
-                fprintf(stderr, "\t[bt]: %s+0x%x [0x%lx]\n", name.name.c_str(), name.offset, address);
+                fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", name.name.c_str(), name.offset, address);
             }
             else {
                 fprintf(stderr, "\t[bt]: %s\n", it);

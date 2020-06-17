@@ -351,7 +351,7 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
     auto function = first(args);
     args = rest(args);
     if (args.is_nil())
-        return lisp::apply(env, function, LISP_NIL);
+        return lisp::apply(env, function, LISP_NIL, raised_signal);
 
     auto head = LISP_NIL;
     auto current = head;
@@ -373,7 +373,7 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
     else {
         set_cdr(current, first(args));
     }
-    return lisp::apply(env, function, head);
+    return lisp::apply(env, function, head, raised_signal);
 }
 
 lisp_value lisp_prim_set_car(lisp_value env, lisp_value args, bool &raised_signal)
@@ -434,11 +434,10 @@ lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args, bool &raised_signa
     /***
         (make-symbol symbol-name)
     */
-    auto symbol_name = first(args);
     // @TODO: typecheck for string in MAKE-SYMBOL primitive
     std::string name;
     auto array = first(args).as_object()->simple_array();
-    for (size_t i = 0; i < array->length(); ++i) {
+    for (fixnum i = 0; i < array->length(); ++i) {
         auto codepoint = array->get(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
     }
@@ -460,10 +459,9 @@ lisp_value lisp_prim_intern(lisp_value, lisp_value args, bool &raised_signal)
         (intern symbol-name)
     */
     // @TODO: typecheck for string in INTERN primitive
-    auto symbol_name = first(args);
     std::string name;
     auto array = first(args).as_object()->simple_array();
-    for (size_t i = 0; i < array->length(); ++i) {
+    for (fixnum i = 0; i < array->length(); ++i) {
         auto codepoint = array->get(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
     }

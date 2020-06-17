@@ -1,12 +1,15 @@
-CC := g++
-CFLAGS := -std=c++17 -fpic
+CC := clang++
+CFLAGS := -std=c++17 -fpic -Wall
 LDFLAGS := -lreadline
 
 .PHONY: all clean debug release
 
 all: debug
 
-debug: CFLAGS += -O1 -g3 -rdynamic -fno-omit-frame-pointer -DDEBUG=1
+debug: CFLAGS += -O1 -g3 -DDEBUG=2
+debug: CFLAGS += -fsanitize=address -fsanitize-recover=all
+debug: CFLAGS += -fno-omit-frame-pointer -fno-optimize-sibling-calls
+debug: LDFLAGS += -Wl,--export-dynamic
 debug: clean lispyboi
 
 release: CFLAGS += -O3

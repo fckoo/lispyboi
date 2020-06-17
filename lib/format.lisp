@@ -77,7 +77,7 @@
     (string-stream-str ss)))
 
 (defun format (stream format &rest args)
-  "Formats ARGS based on the FORMAT specificer and prints to STREAM.
+  "Formats ARGS based on the FORMAT string and prints to STREAM.
 
 Format specifiers begin with the ~ character and include:
     ~A and ~a : the aesthetic representation of the argument
@@ -94,7 +94,7 @@ NIL is returned."
       (setf stream *STANDARD-OUTPUT*))
     (if stream
         (and (print formatted stream) nil)
-      formatted)))
+        formatted)))
 
 
 (provide "format")

@@ -19,10 +19,11 @@
 //    opcode: an integer value representing the bytecode/opcode
 //    noperands: the number of operands directly embedded in the bytecode
 //    nargs: the number of values that will be popped from the P-stack
+//    size: the size, in bytes, of the instruction
 //    docstring: a c++ string literal representing documentation of the bytecode
 
 #if !defined(BYTECODE_DEF)
-#define BYTECODE_DEF(name, opcode, noperands, nargs, docstring)
+#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring)
 #endif
 
 
@@ -30,6 +31,7 @@ BYTECODE_DEF(funcall,
 0, // opcode 
 1, // noperands 
 1, // nargs
+1+sizeof(uint32_t), // size
 "A = pop one values from P-stack as the callable thing\n"
 "B = the (uint32_t)operand as the number of arguments being passed\n"
 "C = pop B values from stack as a list where the last element was the first\n"
@@ -44,37 +46,50 @@ BYTECODE_DEF(funcall,
 "    call native with C")
 
 
-BYTECODE_DEF(return, 
+BYTECODE_DEF(gotocall,
 1, // opcode 
+1, // noperands 
+1, // nargs
+1+sizeof(uint32_t), // size
+"Exactly like FUNCALL except no return address is pushed to the R-stack\n"
+"This is meant to implement tail call optimization")
+
+
+BYTECODE_DEF(return, 
+2, // opcode 
 0, // noperands 
 0, // nargs
+1, // size
 "Pop R-stack and jump to location popped")
 
 
-BYTECODE_DEF(goto,  
-2, // opcode 
+BYTECODE_DEF(jump,  
+3, // opcode 
 1, // noperands 
 0, // nargs
-"Change PC to (uint32_t)operand")
+1+sizeof(int32_t), // size
+"Add (int32_t)operand to IP")
 
 
 BYTECODE_DEF(pop_jump_if_nil, 
-3, // opcode 
+4, // opcode 
 1, // noperands 
 1, // nargs
+1+sizeof(uint32_t), // size
 "Pop one value from P-stack\n"
 "  A = the first value popped as the object to test\n"
-"  B = the (uint32_t)operand\n"
+"  B = the (int32_t)operand\n"
 "if A is nil:\n"
-"    goto B\n"
+"    Add B to IP\n"
 "else:\n"
 "    continue execution")
 
 
 BYTECODE_DEF(get_value, 
-4, // opcode 
+5, // opcode 
 1, // noperands 
 0, // nargs
+1+sizeof(lisp::lisp_value), // size
 "A = The (lisp_value)operand is a symbol\n"
 "if environment.contains(A):\n"
 "    push environment.get_value(A) to P-stack\n"
@@ -83,9 +98,10 @@ BYTECODE_DEF(get_value,
 
 
 BYTECODE_DEF(set_value, 
-5, // opcode 
+6, // opcode 
 0, // noperands 
 2, // nargs
+1, // size
 "Pop one values from P-stack\n"
 "A = the first value popped as the symbol destination\n"
 "B = the top of the P-stack as the value to assign\n"
@@ -98,9 +114,10 @@ BYTECODE_DEF(set_value,
 
 
 BYTECODE_DEF(function_value, 
-6, // opcode 
+7, // opcode 
 1, // noperands 
 0, // nargs
+1+sizeof(lisp::lisp_value), // size
 "A = the (lisp_value)operand as a symbol\n"
 "if A has a function:\n"
 "    push A.function to P-stack\n"
@@ -109,9 +126,10 @@ BYTECODE_DEF(function_value,
 
 
 BYTECODE_DEF(define_function, 
-7, // opcode
+8, // opcode
 0, // noperands
 2, // nargs
+1, // size
 "Pop two values from P-stack\n"
 "A = the first value popped as a symbol\n"
 "B = the second value popped as the value to assign\n"
@@ -120,46 +138,116 @@ BYTECODE_DEF(define_function,
 
 
 BYTECODE_DEF(pop,
-8, // opcode
+9, // opcode
 0, // noperands
 0, // nargs
+1, // size
 "Pop top of P-stack and discard it")
 
 
 BYTECODE_DEF(push_value, 
-9, // opcode
+10, // opcode
 1, // noperands 
 0, // nargs
+1+sizeof(lisp::lisp_value), // size
 "Push (lisp_value)operand value to P-stack")
 
 
 // The literal values NIL, 0, and 1 are so common they deserve their own opcodes
 
 BYTECODE_DEF(push_nil,
-10, // opcode
+11, // opcode
 0, // noperands 
 0, // nargs
+1, // size
 "Push nil to P-stack")
 
 
 BYTECODE_DEF(push_fixnum_0,
-11, // opcode
+12, // opcode
 0, // noperands 
 0, // nargs
+1, // size
 "Push the fixnum 0 to P-stack")
 
 
 BYTECODE_DEF(push_fixnum_1,
-12, // opcode
-0, // noperands 
-0, // nargs
-"Push the fixnum 1 to P-stack")
-
-BYTECODE_DEF(instantiate_lambda,
 13, // opcode
 0, // noperands 
+0, // nargs
+1, // size
+"Push the fixnum 1 to P-stack")
+
+
+BYTECODE_DEF(instantiate_lambda,
+14, // opcode
+0, // noperands 
 1, // nargs
+1, // size
 "Pop the top of the P-stack as a lambda, create a copy of it, bind it to the\n"
 "local environment, and push the newly instantiated lambda to the P-stack.")
+
+
+BYTECODE_DEF(cons,
+15, // opcode
+0, // noperands 
+2, // nargs
+1, // size
+"A = the first value popped from the P-stack\n"
+"B = the second value popped from the P-stack\n"
+"Push CONS(A, B) to the P-stack")
+
+
+BYTECODE_DEF(car,
+16, // opcode
+0, // noperands 
+1, // nargs
+1, // size
+"Pop top of stack and push its CAR component to P-stack")
+
+
+BYTECODE_DEF(cdr,
+17, // opcode
+0, // noperands 
+1, // nargs
+1, // size
+"Pop top of stack and push its CDR component to P-stack")
+
+
+BYTECODE_DEF(halt,
+18, // opcode
+0, // noperands 
+0, // nargs
+1, // size
+"Halt execution of the VM")
+
+
+BYTECODE_DEF(push_handler_case,
+19, // opcode
+2, // noperands 
+0, // nargs
+1+sizeof(uint32_t)+sizeof(uint32_t), // size
+"A = first (uint32_t)operand\n"
+"B = second (uint32_t)operand\n"
+"Push IP+B to R-stack\n"
+"Pop A*2 from P-stack as handler+tag pairs, the restore state and handlers are pushed\n"
+"to the VM's HANDLER-CASE stack.")
+
+
+BYTECODE_DEF(pop_handler_case,
+20, // opcode
+0, // noperands 
+0, // nargs
+1, // size
+"Pop and restore from R-stack"
+"Pop one HANDLER-CASE from the VM's HANDLER-CASE stack.")
+
+BYTECODE_DEF(raise_signal,
+21, // opcode
+1, // noperands 
+1, // nargs
+1+sizeof(uint32_t), // size
+"")
+
 
 #undef BYTECODE_DEF

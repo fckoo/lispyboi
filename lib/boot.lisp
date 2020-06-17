@@ -22,16 +22,11 @@
 
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
-(defmacro read (stm) (if stm
-                         (list '%read stm)
-                         (list '%read)))
-(defun read (stm) (read stm))
-
-(defmacro macro-expand (expr) (list '%macro-expand expr))
-(defun macro-expand (expr) (macro-expand expr))
+(defun read (&optional (stm *standard-input*))
+  (%read stm))
 
 (defun eval (expr)
-  (%eval (macro-expand expr)))
+  (%eval (%macro-expand expr)))
 
 (defmacro apply (func &rest args)
   (cons '%apply (cons func args)))
@@ -66,9 +61,9 @@
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
 (defun /= (&rest vals) (not (apply #'%= vals)))
 
-(defmacro putchar (character &optional (stm *STANDARD-OUTPUT*))
+(defmacro putchar (character &optional (stm *standard-output*))
   (list '%putchar character stm))
-(defun putchar (character &optional (stm *STANDARD-OUTPUT*))
+(defun putchar (character &optional (stm *standard-output*))
   (putchar character stm))
 
 (defun null (obj) (eq nil obj))
@@ -150,12 +145,6 @@
       (if (car seqs)
           (cons (apply func (map1 #'car seqs))
                 (apply #'map func (map1 #'cdr seqs))))))
-
-
-(defun %print-line (obj)
-  (%print obj)
-  (%putchar #\newline)
-  obj)
 
 (defmacro let (args &body body)
   (cons (cons 'lambda (cons (map #'first args) body))
@@ -247,7 +236,6 @@
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
          (bodies (map #'cddr definitions)))
-    (%print-line (map #'first definitions))
     (cons 'let (cons (map (lambda (sym ll body)
                             (list sym (cons 'lambda (cons ll body))))
                           new-names
@@ -318,6 +306,7 @@
                  (list 'quote object))))
     (qq-object exp)))
 
+
 (defmacro prog1 (&body body)
   (if (null (cdr body))
       (car body)
@@ -338,20 +327,20 @@
     (or-helper exprs)))
 
 (defmacro while (expr &body body)
-  (let ((fn-name (gensym "WHILE-LOOP")))
-    `(labels ((,fn-name ()
-                (when ,expr
-                  ,@body
-                  (,fn-name))))
-       (,fn-name))))
+  (let ((tag-loop (gensym "WHILE-TAG")))
+    `(tagbody
+        ,tag-loop
+        (when ,expr
+          ,@body
+          (go ,tag-loop)))))
 
 (defmacro until (expr &body body)
-  (let ((fn-name (gensym "UNTIL-LOOP")))
-    `(labels ((,fn-name ()
-                (unless ,expr
-                  ,@body
-                  (,fn-name))))
-       (,fn-name))))
+  (let ((tag-loop (gensym "UNTIL-TAG")))
+    `(tagbody
+        ,tag-loop
+        (unless ,expr
+          ,@body
+          (go ,tag-loop)))))
 
 (defun numberp (object)
   ;; we only support fixnums currently!
@@ -438,26 +427,29 @@
 (defmacro dolist (var-list &body body)
   (let ((var-name (first var-list))
         (list (second var-list))
-        (fn-name (gensym))
-        (list-name (gensym)))
-    `(labels ((,fn-name (,list-name)
-                (when ,list-name
-                  (let ((,var-name (car ,list-name)))
-                    ,@body
-                    (,fn-name (cdr ,list-name))))))
-       (,fn-name ,list))))
+        (tag-loop (gensym "TAG-LOOP")))
+    `(let ((,var-name ,list))
+       (tagbody
+          ,tag-loop
+          (when ,var-name
+            (let ((,var-name (car ,var-name)))
+              ,@body)
+            (setf ,var-name (cdr ,var-name))
+            (go ,tag-loop))))))
 
 (defmacro dotimes (var-times &body body)
   (let ((var-name (first var-times))
         (times-name (gensym))
         (times (second var-times))
-        (fn-name (gensym)))
-    `(let ((,times-name ,times))
-       (labels ((,fn-name (,var-name)
-                  (when (< ,var-name ,times-name)
-                    ,@body
-                    (,fn-name (+ ,var-name 1)))))
-         (,fn-name 0)))))
+        (tag-loop (gensym "TAG-LOOP")))
+    `(let ((,times-name ,times)
+           (,var-name 0))
+       (tagbody
+          ,tag-loop
+          (when (< ,var-name ,times-name)
+            ,@body
+            (incf ,var-name)
+            (go ,tag-loop))))))
 
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
@@ -598,32 +590,46 @@
                (incf start))
         str)))
 
-(defun print (object &optional (stm *STANDARD-OUTPUT*))
+(defun print (object &optional (stm *standard-output*))
   (cond ((stringp object)
          (dotimes (i (array-length object))
            (putchar (aref object i) stm)))
         (t (%print object stm)))
   object)
 
-(defun print-line (object &optional (stm *STANDARD-OUTPUT*))
-  (prog1 (print object stm)
-    (putchar #\Newline)))
+(defun print-line (object &optional (stm *standard-output*))
+  (print object stm)
+  (putchar #\Newline)
+  object)
 
-
+(defmacro unwind-protect (protected &body cleanup)
+  (let ((args (gensym "ARGS"))
+        (result (gensym "RESULT"))
+        (sig (gensym "SIG"))
+        (clean-throw (gensym "CLEAN-THROW")))
+    `(let ((,result))
+       (handler-case
+           (progn (setf ,result ,protected)
+                  (signal ',clean-throw))
+         (t (,sig &rest ,args)
+           ,@cleanup
+           (unless (eq ,sig ',clean-throw)
+             (apply #'signal ,sig ,args))))
+       ,result)))
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))
         (path (second var-path-direction))
         (direction (third var-path-direction)))
     `(let ((,var (%open ,path ,direction)))
-       (prog1 (progn ,@body)
+       (unwind-protect (progn ,@body)
          (%close ,var)))))
 
 (defun find-last-of (array value)
   (let ((i (- (length array) 1)))
     (while (and (>= i 0)
                 (not (eql value (aref array i))))
-           (decf i))
+      (decf i))
     (if (< i 0) nil i)))
 
 (defun parent-directory (path)
@@ -660,18 +666,16 @@
          (there-dir (change-directory (parent-directory full-path))))
     (setq *file-path* full-path)
     (when there-dir
-      ;;(unwind-protect)
-      (with-open-file (file full-path 'read)
-        (if (%file-ok-p file)
-            (progn
-              (until (%file-eof-p file)
-                     (eval (read file)))
-              full-path)
-            (signal 'load-error "Cannot open file" file-path)))
-      (change-directory here-dir)
-      (setq *file-path* here-path))))
+      (unwind-protect
+           (with-open-file (file full-path 'read)
+             (if (%file-ok-p file)
+                 (until (%file-eof-p file)
+                   (%eval (%read file)))
+                 (signal 'load-error "Cannot open file" file-path)))
+        (change-directory here-dir)
+        (setq *file-path* here-path)))))
 
 (load "modules.lisp")
-(provide "boot")
 
+(provide "boot")
 
