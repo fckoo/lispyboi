@@ -413,6 +413,14 @@
   (%defsetf access-fn update-fn)
   (list 'quote access-fn))
 
+(defun %set-car (cons obj)
+  (%rplaca cons obj)
+  obj)
+
+(defun %set-cdr (cons obj)
+  (%rplacd cons obj)
+  obj)
+
 (defsetf car %set-car)
 
 (defsetf cdr %set-cdr)
@@ -484,7 +492,7 @@
 
 (defun aref (array subscript) (aref array subscript))
 
-(defsetf aref %set-aref)
+(defsetf aref %aset)
 
 (defmacro array-length (array) (list '%array-length array))
 

@@ -370,6 +370,8 @@ extern lisp_value LISP_SYM_AMP_BODY;
 extern lisp_value LISP_SYM_AMP_OPTIONAL;
 extern lisp_value LISP_SYM_HANDLER_CASE;
 extern lisp_value LISP_SYM_FILE_STREAM;
+extern lisp_value LISP_SYM_TYPE_ERROR;
+extern lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
 
 struct lisp_cons {
     lisp_value car;

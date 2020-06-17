@@ -189,6 +189,8 @@ lisp_value LISP_SYM_AMP_BODY;
 lisp_value LISP_SYM_AMP_OPTIONAL;
 lisp_value LISP_SYM_HANDLER_CASE;
 lisp_value LISP_SYM_FILE_STREAM;
+lisp_value LISP_SYM_TYPE_ERROR;
+lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -367,7 +369,7 @@ bool is_digit(int c)
 static FORCE_INLINE
 bool is_hex_digit(int c)
 {
-    return (c >= '0' && c <= '9') 
+    return (c >= '0' && c <= '9')
         || (c >= 'A' && c <= 'F')
         || (c >= 'a' && c <= 'f');
 }
@@ -584,7 +586,7 @@ lisp_value lisp::parse(lisp_stream &stream)
 
 
 struct bytecode_emitter {
-    
+
     void emit_push_value(lisp_value val);
     void emit_push_nil();
     void emit_push_fixnum_0();
@@ -595,36 +597,41 @@ struct bytecode_emitter {
     void emit_gotocall(lisp_value what, uint32_t how_many);
     void emit_return();
 
-    void emit_raise_signal(uint32_t how_many);
-    
     // These branch emitters return the bytecode offset of their 'where' component,
     // this is useful for backfilling labels upon their location discovery
     int32_t emit_jump(int32_t where);
     int32_t emit_jump();
     int32_t emit_pop_jump_if_nil(int32_t where);
     int32_t emit_pop_jump_if_nil();
-    
+
     void emit_get_value(lisp_value symbol);
     void emit_set_value();
     void emit_set_value(lisp_value symbol, lisp_value val);
-    
+
     void emit_function_value(lisp_value symbol);
     void emit_define_function(lisp_value symbol, lisp_value val);
     void emit_define_function();
 
     void emit_pop();
-    
+
     void emit_instantiate_lambda(lisp_value lambda);
     void emit_instantiate_lambda();
-    
+
     void emit_cons();
     void emit_car();
     void emit_cdr();
     void emit_halt();
-    
+
     int32_t emit_push_handler_case(uint32_t how_many);
     void emit_pop_handler_case();
-    
+    void emit_raise_signal(uint32_t how_many);
+
+    void emit_eq();
+    void emit_rplaca();
+    void emit_rplacd();
+    void emit_aref();
+    void emit_aset();
+
     void set_raw_8(size_t offset, uint8_t v);
     void set_raw_16(size_t offset, uint16_t v);
     void set_raw_32(size_t offset, uint32_t v);
@@ -634,7 +641,7 @@ struct bytecode_emitter {
     int32_t position() const;
     const std::vector<uint8_t> &bytecode() const;
     std::vector<uint8_t> &&move_bytecode();
-    
+
     void push_labels();
     void pop_labels();
     bool get_label(lisp_value tag, int32_t &out_offset);
@@ -671,14 +678,14 @@ void bytecode_emitter::push_labels()
 void bytecode_emitter::pop_labels()
 {
     assert(m_labels.size() != 0);
-    
+
     {
         auto it = m_backfills.begin();
         while (it != m_backfills.end()) {
             int32_t label_offs;
             if (get_label(it->tag, label_offs)) {
                 auto set_offs = it->offs;
-            
+
                 set_raw_s32(set_offs, label_offs - (set_offs - 1));
 
                 it = m_backfills.erase(it);
@@ -688,7 +695,7 @@ void bytecode_emitter::pop_labels()
             }
         }
     }
-    
+
     m_labels.pop_back();
     if (m_labels.size() == 0 && !m_backfills.empty()) {
         for (auto const &it : m_backfills) {
@@ -724,7 +731,7 @@ void bytecode_emitter::backfill(int32_t offset, lisp_value tag)
     m_backfills.push_back({offset, tag});
 }
 
-void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position = false); 
+void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position = false);
 
 struct vm_return_state {
     lisp_value env;
@@ -766,48 +773,48 @@ struct lisp_vm_state {
 
     vm_return_state *return_stack_bottom;
     vm_return_state *return_stack_top;
-    
+
     const uint8_t *execute(const uint8_t *ip, lisp_value env);
-    
+
     void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const;
-    
+
 
     FORCE_INLINE
-    void push_param(lisp_value val) 
+    void push_param(lisp_value val)
     {
-        *param_stack_top++ = val; 
+        *param_stack_top++ = val;
     }
 
     FORCE_INLINE
-    lisp_value pop_param() 
-    { 
-        return *--param_stack_top; 
-    }
-
-    FORCE_INLINE
-    lisp_value &param_top() 
+    lisp_value pop_param()
     {
-        return *(param_stack_top-1); 
+        return *--param_stack_top;
     }
 
     FORCE_INLINE
-    void push_return(lisp_value env, const uint8_t *addr) 
+    lisp_value &param_top()
     {
-        *return_stack_top++ = { env, addr }; 
+        return *(param_stack_top-1);
     }
 
     FORCE_INLINE
-    vm_return_state pop_return() 
+    void push_return(lisp_value env, const uint8_t *addr)
     {
-        return *--return_stack_top; 
+        *return_stack_top++ = { env, addr };
     }
-    
+
+    FORCE_INLINE
+    vm_return_state pop_return()
+    {
+        return *--return_stack_top;
+    }
+
     FORCE_INLINE
     fixnum num_handlers()
     {
         return static_cast<fixnum>(m_handler_cases.size());
     }
-    
+
     struct handler_case {
         lisp_value env;
         lisp_value *param_stack_top;
@@ -816,13 +823,13 @@ struct lisp_vm_state {
     };
 
   private:
-    
+
     FORCE_INLINE
     void push_handler_case(lisp_value env, lisp_value handlers)
     {
         m_handler_cases.push_back({ env, param_stack_top, return_stack_top, handlers });
     }
-    
+
     FORCE_INLINE
     void pop_handler_case()
     {
@@ -830,7 +837,7 @@ struct lisp_vm_state {
             m_handler_cases.pop_back();
         }
     }
-    
+
     bool find_handler(lisp_value tag, bool auto_pop, handler_case &out_case_state, lisp_value &out_handler);
 
     lisp_value *m_params;
@@ -938,7 +945,7 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args, boo
         auto ip = lambda->begin(idx);
         lisp_vm_state vm;
         vm.execute(ip, shadowed);
-        auto result = vm.param_top(); 
+        auto result = vm.param_top();
         return result;
     }
     throw lisp_unhandleable_exception{ {function}, "Cannot APPLY because not a FUNCTION: " };
@@ -1052,10 +1059,22 @@ enum class bytecode_op : uint8_t {
 constexpr size_t bytecode_op_size(bytecode_op op)
 {
     switch (op) {
-#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) case bytecode_op::op_ ## name: return size;
+#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) \
+        case bytecode_op::op_ ## name: return size;
 #include "bytecode.def"
     }
     return 1;
+}
+
+static
+std::string bytecode_op_name(bytecode_op op)
+{
+    switch (op) {
+#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) \
+        case bytecode_op::op_ ## name: return #name;
+#include "bytecode.def"
+    }
+    return "??";
 }
 
 template<>
@@ -1127,23 +1146,23 @@ void bytecode_emitter::emit_push_value(lisp_value val)
     }
 }
 
-void bytecode_emitter::emit_push_nil() 
+void bytecode_emitter::emit_push_nil()
 {
     append(bytecode_op::op_push_nil);
 }
 
-void bytecode_emitter::emit_push_fixnum_0() 
+void bytecode_emitter::emit_push_fixnum_0()
 {
     append(bytecode_op::op_push_fixnum_0);
 }
 
-void bytecode_emitter::emit_push_fixnum_1() 
+void bytecode_emitter::emit_push_fixnum_1()
 {
     append(bytecode_op::op_push_fixnum_1);
 }
 
 
-void bytecode_emitter::emit_funcall(uint32_t how_many) 
+void bytecode_emitter::emit_funcall(uint32_t how_many)
 {
     append(bytecode_op::op_funcall);
     append(how_many);
@@ -1154,7 +1173,7 @@ void bytecode_emitter::emit_funcall(lisp_value what, uint32_t how_many)
     emit_funcall(how_many);
 }
 
-void bytecode_emitter::emit_gotocall(uint32_t how_many) 
+void bytecode_emitter::emit_gotocall(uint32_t how_many)
 {
     append(bytecode_op::op_gotocall);
     append(how_many);
@@ -1163,13 +1182,6 @@ void bytecode_emitter::emit_gotocall(lisp_value what, uint32_t how_many)
 {
     emit_push_value(what);
     emit_gotocall(how_many);
-}
-
-
-void bytecode_emitter::emit_raise_signal(uint32_t how_many)
-{
-    append(bytecode_op::op_raise_signal);
-    append(how_many);
 }
 
 void bytecode_emitter::emit_return()
@@ -1281,6 +1293,33 @@ void bytecode_emitter::emit_pop_handler_case()
     append(bytecode_op::op_pop_handler_case);
 }
 
+void bytecode_emitter::emit_raise_signal(uint32_t how_many)
+{
+    append(bytecode_op::op_raise_signal);
+    append(how_many);
+}
+
+void bytecode_emitter::emit_eq()
+{
+    append(bytecode_op::op_eq);
+}
+void bytecode_emitter::emit_rplaca()
+{
+    append(bytecode_op::op_rplaca);
+}
+void bytecode_emitter::emit_rplacd()
+{
+    append(bytecode_op::op_rplacd);
+}
+void bytecode_emitter::emit_aref()
+{
+    append(bytecode_op::op_aref);
+}
+void bytecode_emitter::emit_aset()
+{
+    append(bytecode_op::op_aset);
+}
+
 static
 void put_bytes(std::ostream &out, const uint8_t *bytes, size_t nbytes, size_t min_width=10*3)
 {
@@ -1289,7 +1328,7 @@ void put_bytes(std::ostream &out, const uint8_t *bytes, size_t nbytes, size_t mi
         out << std::setfill('0') << std::setw(2) << std::hex << (int)bytes[i] << ' ';
         column += 3;
     }
-    
+
     for (; column < min_width; ++column) {
         out << ' ';
     }
@@ -1307,85 +1346,38 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
     }
     out << std::setfill('0') << std::setw(8) << std::hex << reinterpret_cast<uintptr_t>(ip) << std::setfill(' ') << "  ";
     auto size = bytecode_op_size(opcode);
+    auto name = bytecode_op_name(opcode);
     switch (opcode) {
         default: {
             put_bytes(out, ip, size);
-            out << "??";
+            out << name;
             ip += size;
         } break;
 
-        case bytecode_op::op_funcall: {
-            auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-            put_bytes(out, ip, size);
-            out << "FUNCALL " << nargs;
-            ip += size;
-        } break;
-
+        case bytecode_op::op_raise_signal:
+        case bytecode_op::op_funcall:
         case bytecode_op::op_gotocall: {
             auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
             put_bytes(out, ip, size);
-            out << "GOTOCALL " << nargs;
+            out << name << " " << nargs;
             ip += size;
         } break;
 
-        case bytecode_op::op_return: {
-            put_bytes(out, ip, size);
-            out << "RETURN";
-            ip += size;
-        } break;
 
-        case bytecode_op::op_jump: {
-            auto offs = *reinterpret_cast<const int32_t*>(ip+1);
-            put_bytes(out, ip, size);
-            out << "JUMP " << offs << " -> " << reinterpret_cast<uintptr_t>(ip+offs);
-            ip += size;
-        } break;
-
+        case bytecode_op::op_jump:
         case bytecode_op::op_pop_jump_if_nil: {
             auto offs = *reinterpret_cast<const int32_t*>(ip+1);
             put_bytes(out, ip, size);
-            out << "POP_JUMP_IF_NIL " << offs << " -> " << reinterpret_cast<uintptr_t>(ip+offs);
+            out << name << " " << offs << " -> " << reinterpret_cast<uintptr_t>(ip+offs);
             ip += size;
         } break;
 
-        case bytecode_op::op_get_value: {
-            auto sym = *reinterpret_cast<const lisp_value*>(ip+1);
-            put_bytes(out, ip, size);
-            out << "GET_VALUE " << sym.bits();
-            out << "  [" << repr(sym) << "]";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_set_value: {
-            put_bytes(out, ip, 1);
-            out << "SET_VALUE";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_function_value: {
-            auto obj = *reinterpret_cast<const lisp_value*>(ip+1);
-            put_bytes(out, ip, size);
-            out << "FUNCTION_VALUE " << obj.bits();
-            out << "  (" << repr(obj) << ")";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_define_function: {
-            put_bytes(out, ip, size);
-            out << "DEFINE_FUNCTION";
-            ip += size;
-        } break;
-            
-        case bytecode_op::op_pop: {
-            put_bytes(out, ip, size);
-            out << "POP";
-            ip += size;
-        } break;
-
+        case bytecode_op::op_function_value:
+        case bytecode_op::op_get_value:
         case bytecode_op::op_push_value: {
             auto obj = *reinterpret_cast<const lisp_value*>(ip+1);
             put_bytes(out, ip, size);
-            out << "PUSH_VALUE " << obj.bits();
+            out << name << " " << obj.bits();
             auto obj_repr = repr(obj);
             const int n = 25;
             if (obj_repr.size() < n) {
@@ -1397,73 +1389,35 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
             ip += size;
         } break;
 
-        case bytecode_op::op_push_nil: {
-            put_bytes(out, ip, size);
-            out << "PUSH NIL";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_push_fixnum_0: {
-            put_bytes(out, ip, size);
-            out << "PUSH 0";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_push_fixnum_1: {
-            put_bytes(out, ip, size);
-            out << "PUSH 1";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_instantiate_lambda: {
-            put_bytes(out, ip, size);
-            out << "INSTANTIATE_LAMBDA";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_cons: {
-            put_bytes(out, ip, size);
-            out << "CONS";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_car: {
-            put_bytes(out, ip, size);
-            out << "CAR";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_cdr: {
-            put_bytes(out, ip, size);
-            out << "CDR";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_halt: {
-            put_bytes(out, ip, size);
-            out << "HALT";
-            ip += size;
-        } break;
-
         case bytecode_op::op_push_handler_case: {
             put_bytes(out, ip, size);
             auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
             auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
-            out << "PUSH_HANDLER_CASE " << how_many << ", " << branch 
+            out << "PUSH_HANDLER_CASE " << how_many << ", " << branch
                 << " -> " << reinterpret_cast<uintptr_t>(ip+branch);
             ip += size;
         } break;
 
-        case bytecode_op::op_pop_handler_case: {
+        case bytecode_op::op_return:
+        case bytecode_op::op_set_value:
+        case bytecode_op::op_define_function:
+        case bytecode_op::op_pop:
+        case bytecode_op::op_push_nil:
+        case bytecode_op::op_push_fixnum_0:
+        case bytecode_op::op_push_fixnum_1:
+        case bytecode_op::op_instantiate_lambda:
+        case bytecode_op::op_cons:
+        case bytecode_op::op_car:
+        case bytecode_op::op_cdr:
+        case bytecode_op::op_halt:
+        case bytecode_op::op_pop_handler_case:
+        case bytecode_op::op_eq:
+        case bytecode_op::op_rplaca:
+        case bytecode_op::op_rplacd:
+        case bytecode_op::op_aref:
+        case bytecode_op::op_aset: {
             put_bytes(out, ip, size);
-            out << "POP_HANDLER_CASE";
-            ip += size;
-        } break;
-
-        case bytecode_op::op_raise_signal: {
-            auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-            put_bytes(out, ip, size);
-            out << "RAISE_SIGNAL " << nargs;
+            out << name;
             ip += size;
         } break;
     }
@@ -1527,9 +1481,9 @@ void disassemble(std::ostream &out, const std::string &tag, const bytecode_emitt
 //        indices.push_back(ip);
 //        ip += bytecode_op_size(static_cast<bytecode_op>(bytecode[ip]));
 //    }
-//    
+//
 //    auto start = std::max(0, here_idx + before);
-//    
+//
 //    if (found_here && start < indices.size()) {
 //        out << "Disassembly for \"" << tag << "\"\n";
 //        for (size_t ip = indices[start]; ip < bytecode.size();) {
@@ -1543,9 +1497,9 @@ void disassemble(std::ostream &out, const std::string &tag, const bytecode_emitt
 //}
 
 static
-void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt, 
-                 const vm_return_state *rb, const vm_return_state *rt, 
-                 size_t n) 
+void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
+                 const vm_return_state *rb, const vm_return_state *rt,
+                 size_t n)
 {
     auto r_stack_delta = rt - rb;
     out << std::setfill(' ') << std::dec;
@@ -1560,7 +1514,7 @@ void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
             out << "| " << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(rt->address) << " |";
             rt--;
         }
-        
+
         if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) {
             out << " ***";
         }
@@ -1583,14 +1537,29 @@ void lisp_vm_state::debug_dump(std::ostream &out, const std::string &tag, const 
 {
     //disassemble_up_to(out, tag, e.bytecode(), ip, -15, 15);
     disassemble1(std::cout, ip, true);
-    stack_dumps(out, 
-                param_stack_bottom, param_stack_top-1, 
-                return_stack_bottom, return_stack_top-1, 
+    stack_dumps(out,
+                param_stack_bottom, param_stack_top-1,
+                return_stack_bottom, return_stack_top-1,
                 15);
 }
 
 const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
 {
+
+#define TYPE_CHECK(what, typecheck, expected) do {                      \
+        if (!(what).typecheck) {                                        \
+            signal_args = list(LISP_SYM_TYPE_ERROR, (expected), (what)); \
+            goto raise_signal;                                         \
+        }                                                               \
+    } while (0)
+
+#define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), LISP_SYM_FIXNUM)
+#define CHECK_CONS(what) TYPE_CHECK(what, is_cons(), LISP_SYM_CONS)
+#define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), LISP_SYM_CHARACTER)
+#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_CHARACTER)
+#define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
+
+
     static_assert(sizeof(*ip) == 1, "pointer arithmetic will not work as expected.");
     lisp_value signal_args;
     while (1) {
@@ -1741,8 +1710,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 ip += 1;
             } break;
             case bytecode_op::op_cons: {
-                auto a = pop_param();
                 auto b = pop_param();
+                auto a = pop_param();
                 push_param(cons(a, b));
                 ip += 1;
             } break;
@@ -1817,10 +1786,73 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     throw lisp_unhandleable_exception{ {signal_args}, "Unhandled signal: " };
                 }
             } break;
+
+            case bytecode_op::op_eq: {
+                auto b = pop_param();
+                auto a = pop_param();
+                if (a == b) {
+                    push_param(LISP_T);
+                }
+                else {
+                    push_param(LISP_NIL);
+                }
+                ip += 1;
+            } break;
+            case bytecode_op::op_rplaca: {
+                auto b = pop_param();
+                auto a = param_top();
+                CHECK_CONS(a);
+                set_car(a, b);
+                ip += 1;
+            } break;
+            case bytecode_op::op_rplacd: {
+                auto b = pop_param();
+                auto a = param_top();
+                CHECK_CONS(a);
+                set_cdr(a, b);
+                ip += 1;
+            } break;
+            case bytecode_op::op_aref: {
+                auto subscript = pop_param();
+                CHECK_FIXNUM(subscript);
+                auto array_val = pop_param(); // @TODO: typecheck array_val in AREF primitive
+                auto array = array_val.as_object()->simple_array();
+                auto index = subscript.as_fixnum();
+                if (index < 0 || index >= array->length()) {
+                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+                    goto raise_signal;
+                }
+                push_param(array->get(index));
+                ip += 1;
+            } break;
+            case bytecode_op::op_aset: {
+                auto value = pop_param();
+                auto subscript = pop_param();
+                CHECK_FIXNUM(subscript);
+                auto array_val = pop_param(); // @TODO: typecheck array_val in SET-AREF primitive
+                auto array = array_val.as_object()->simple_array();
+                auto index = subscript.as_fixnum();
+                if (index < 0 || index >= array->length()) {
+                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+                    goto raise_signal;
+                }
+                auto type = array->type();
+                if (type != LISP_T) {
+                    if (type == LISP_SYM_FIXNUM && !value.is_fixnum()) {
+                        CHECK_FIXNUM(value);
+                    }
+                    if (type == LISP_SYM_CHARACTER && !value.is_character()) {
+                        CHECK_CHARACTER(value);
+                    }
+                }
+                array->set(index, value);
+                push_param(value);
+                ip += 1;
+            } break;
         }
     }
     done:
-    
+
     return ip;
     error_and_abort:
     std::cout << "IP @ " << std::hex << ip << '\n';
@@ -1906,6 +1938,9 @@ void initialize_globals()
     LISP_SYM_HANDLER_CASE = intern_symbol("HANDLER-CASE");
     LISP_SYM_FILE_STREAM = intern_symbol("FILE-STREAM");
 
+    LISP_SYM_TYPE_ERROR = intern_symbol("TYPE-ERROR");
+    LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
+
     LISP_BASE_ENVIRONMENT = LISP_NIL;
     primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
 
@@ -1975,14 +2010,14 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     auto lambda_list = macro ? third(expr) : second(expr);
     auto body = macro ? cdddr(expr) : cddr(expr);
     auto obody = body;
-    
+
     bytecode_emitter function;
     // Optionals are a little tricky because we allow for any expression to be the default value
     // to an optional, this even means that a default value may refer to an earlier parameter eg:
     //     (defun substring (string start &optional (end (length string))) ...)
     // In this example, end has not only a default value but it's a call to a function using a
     // local variable.
-    // 
+    //
     // We'll solve this by generating the equivalent to a bunch of SETQs for the defaults and
     // storing the address of each one, then at runtime we'll figure out which one of these
     // to jump to.
@@ -2008,7 +2043,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
                 param = second(cur);
                 cur = LISP_NIL;
             }
-            
+
             optional_offsets.push_back(function.position());
 
             if (param.is_cons()) {
@@ -2035,7 +2070,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     }
     compile(function, car(body), false, true);
     function.emit_return();
-    
+
     auto size = function.bytecode().size();
     auto p = new uint8_t[size];
     memcpy(p, function.bytecode().data(), size);
@@ -2046,33 +2081,38 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     }
 
     if (macro) {
-        auto macro = lisp_obj::create_macro(LISP_BASE_ENVIRONMENT, 
-                                            lambda_list, obody, 
+        auto macro = lisp_obj::create_macro(LISP_BASE_ENVIRONMENT,
+                                            lambda_list, obody,
                                             lambda_address, p+size,
                                             std::move(optional_initializers));
         LISP_MACROS[name.as_object()->symbol()->name] = macro;
     }
     else if (toplevel) {
         auto lambda = lisp_obj::create_macro(LISP_BASE_ENVIRONMENT,
-                                             lambda_list, obody, 
+                                             lambda_list, obody,
                                              lambda_address, p+size,
                                              std::move(optional_initializers));
         e.emit_push_value(lambda);
     }
     else {
-        auto lambda_template = lisp_obj::create_lambda(lambda_list, obody, 
+        auto lambda_template = lisp_obj::create_lambda(lambda_list, obody,
                                                        lambda_address, p+size,
                                                        std::move(optional_initializers));
         e.emit_instantiate_lambda(lambda_template);
     }
 }
 
-void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position) 
+void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position)
 {
     static auto perc_SIGNAL = intern_symbol("%SIGNAL");
     static auto perc_CONS = intern_symbol("%CONS");
     static auto perc_CAR = intern_symbol("%CAR");
     static auto perc_CDR = intern_symbol("%CDR");
+    static auto perc_EQ = intern_symbol("%EQ");
+    static auto perc_RPLACA = intern_symbol("%RPLACA");
+    static auto perc_RPLACD = intern_symbol("%RPLACD");
+    static auto perc_AREF = intern_symbol("%AREF");
+    static auto perc_ASET = intern_symbol("%ASET");
     static auto TAGBODY = intern_symbol("TAGBODY");
     static auto GO = intern_symbol("GO");
     if (expr.is_cons()) {
@@ -2112,7 +2152,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             auto label_alt = e.position();
             compile(e, alternative, toplevel, tail_position);
             auto label_out = e.position();
-            
+
             e.set_raw_s32(out_offs, label_out - (out_offs-1));
             e.set_raw_s32(alt_offs, label_alt - (alt_offs-1));
         }
@@ -2184,8 +2224,8 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             }
         }
         else if (thing == perc_CONS) {
-            compile(e, third(expr), toplevel);
             compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
             e.emit_cons();
         }
         else if (thing == perc_CAR) {
@@ -2208,6 +2248,32 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, tag, toplevel);
             e.emit_raise_signal(nargs);
         }
+        else if (thing == perc_EQ) {
+            compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
+            e.emit_eq();
+        }
+        else if (thing == perc_RPLACA) {
+            compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
+            e.emit_rplaca();
+        }
+        else if (thing == perc_RPLACD) {
+            compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
+            e.emit_rplacd();
+        }
+        else if (thing == perc_AREF) {
+            compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
+            e.emit_aref();
+        }
+        else if (thing == perc_ASET) {
+            compile(e, second(expr), toplevel);
+            compile(e, third(expr), toplevel);
+            compile(e, fourth(expr), toplevel);
+            e.emit_aset();
+        }
         else {
             auto func = first(expr);
             auto args = rest(expr);
@@ -2219,7 +2285,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             }
             if (func.is_cons() && first(func) == LISP_SYM_LAMBDA) {
                 if (second(func).is_nil()) {
-                    // calling a lambda that takes no arguments is directly inlinable, 
+                    // calling a lambda that takes no arguments is directly inlinable,
                     // no call needed... :)
                     auto body = cddr(func);
                     while (cdr(body).is_not_nil()) {
@@ -2267,7 +2333,7 @@ lisp_value lisp::evaluate(lisp_value env, lisp_value expr)
     auto expanded = macro_expand_impl(expr, LISP_BASE_ENVIRONMENT);
     compile(e, expanded, true);
     e.emit_halt();
-    
+
     lisp_vm_state vm;
     vm.execute(e.bytecode().data(), env);
     return vm.param_top();
@@ -2320,7 +2386,7 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
 {
     static const char *prompt_lisp = "LISP-NASA> ";
     static const char *prompt_ws   = ".......... ";
-    
+
     while (1) {
         lisp_value parsed;
         std::string input;
@@ -2337,7 +2403,7 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
             auto end = start + e.bytecode().size();
             disassemble(std::cout, input, start, end, ip);
         }
-            
+
         auto stack_before = vm.param_stack_top;
         try {
             vm.execute(ip, LISP_BASE_ENVIRONMENT);

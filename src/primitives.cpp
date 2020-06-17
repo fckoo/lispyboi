@@ -12,14 +12,11 @@ using namespace lisp;
     } while (0)
 
 
-static lisp_value TYPE_ERROR;
-static lisp_value INDEX_OUT_OF_BOUNDS_ERROR;
-
-#define TYPE_CHECK(what, typecheck, expected) do {          \
-        if (!(what).typecheck) {                            \
-            raised_signal = true;                           \
-            return list(TYPE_ERROR, (expected), (what));    \
-        }                                                   \
+#define TYPE_CHECK(what, typecheck, expected) do {                  \
+        if (!(what).typecheck) {                                    \
+            raised_signal = true;                                   \
+            return list(LISP_SYM_TYPE_ERROR, (expected), (what));   \
+        }                                                           \
     } while (0)
 
 #define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), LISP_SYM_FIXNUM)
@@ -194,46 +191,6 @@ lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args, bool &raised_s
     return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_car(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (car obj)
-    */
-    auto obj = car(args);
-    if (obj.is_nil()) return obj;
-    CHECK_CONS(obj);
-    return car(obj);
-}
-
-lisp_value lisp_prim_cdr(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (cdr obj)
-    */
-    auto obj = car(args);
-    if (obj.is_nil()) return obj;
-    CHECK_CONS(obj);
-    return cdr(obj);
-}
-
-lisp_value lisp_prim_cons(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (cons x y)
-    */
-    return cons(first(args), second(args));
-}
-
-lisp_value lisp_prim_eq(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (eq x y)
-    */
-    auto x = first(args);
-    auto y = second(args);
-    return x == y ? LISP_T : LISP_NIL;
-}
-
 lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signal)
 {
     /***
@@ -376,31 +333,6 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
     return lisp::apply(env, function, head, raised_signal);
 }
 
-lisp_value lisp_prim_set_car(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (set-car cons value)
-    */
-
-    auto obj = first(args);
-    CHECK_CONS(obj);
-    auto val = second(args);
-    set_car(obj, val);
-    return val;
-}
-
-lisp_value lisp_prim_set_cdr(lisp_value env, lisp_value args, bool &raised_signal)
-{
-    /***
-        (set-cdr cons value)
-    */
-    auto obj = first(args);
-    CHECK_CONS(obj);
-    auto val = second(args);
-    set_cdr(obj, val);
-    return val;
-}
-
 lisp_value lisp_prim_get_env(lisp_value env, lisp_value, bool &raised_signal)
 {
     /***
@@ -496,57 +428,6 @@ lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal
     }
     return lisp_obj::create_simple_array(length.as_fixnum());
 
-}
-
-lisp_value lisp_prim_aref(lisp_value, lisp_value args, bool &raised_signal)
-{
-    /***
-        (aref array subscript)
-    */
-
-    // @TODO: typecheck array in AREF primitive
-    auto array_val = first(args);
-    auto subscript = second(args);
-    CHECK_FIXNUM(subscript);
-    auto array = array_val.as_object()->simple_array();
-    auto index = subscript.as_fixnum();
-    if (index < 0 || index >= array->length()) {
-        raised_signal = true;
-        return list(INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
-    }
-    return array->get(index);
-}
-
-lisp_value lisp_prim_set_aref(lisp_value, lisp_value args, bool &raised_signal)
-{
-    /***
-        (set-aref array subscript value)
-    */
-
-    // @TODO: typecheck array in SET-AREF primitive
-    auto array_val = first(args);
-    auto subscript = second(args);
-    CHECK_FIXNUM(subscript);
-    auto value = third(args);
-    auto array = array_val.as_object()->simple_array();
-    auto index = subscript.as_fixnum();
-    if (index < 0 || index >= array->length()) {
-        raised_signal = true;
-        return list(INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
-    }
-    auto type = array->type();
-    if (type != LISP_T) {
-        if (type == LISP_SYM_FIXNUM && !value.is_fixnum()) {
-            raised_signal = true;
-            return list(TYPE_ERROR, LISP_SYM_FIXNUM, value);
-        }
-        if (type == LISP_SYM_CHARACTER && !value.is_character()) {
-            raised_signal = true;
-            return list(TYPE_ERROR, LISP_SYM_CHARACTER, value);
-        }
-    }
-    array->set(index, value);
-    return value;
 }
 
 lisp_value lisp_prim_array_length(lisp_value, lisp_value args, bool &raised_signal)
@@ -812,15 +693,6 @@ lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_sign
     return lisp_value::wrap_fixnum(1000000);
 }
 
-lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
-{
-    /***
-        (signal datum &rest arguments)
-    */
-    raised_signal = true;
-    return args;
-}
-
 lisp_value lisp_prim_define_function(lisp_value, lisp_value args, bool &raised_signal)
 {
     /***
@@ -831,7 +703,7 @@ lisp_value lisp_prim_define_function(lisp_value, lisp_value args, bool &raised_s
     auto func = second(args);
     if (!func.is_lisp_primitive() && !func.is_type(LAMBDA_TYPE)) {
         raised_signal = true;
-        return list(TYPE_ERROR, intern_symbol("FUNCTION"), func);
+        return list(LISP_SYM_TYPE_ERROR, LISP_SYM_FUNCTION, func);
     }
     sym.as_object()->symbol()->function = func;
     return sym;
@@ -853,8 +725,6 @@ void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
     auto symbol = intern_symbol(symbol_name);
     auto prim_object = lisp_value::wrap_primitive(primitive);
     symbol.as_object()->symbol()->function = prim_object;
-    //auto binding = cons(symbol, prim_object);
-    //environment = cons(binding, environment);
 }
 
 static inline
@@ -875,19 +745,12 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%<", lisp_prim_num_less);
     bind_primitive("%=", lisp_prim_num_equal);
     bind_primitive("%>", lisp_prim_num_greater);
-    bind_primitive("%CAR", lisp_prim_car);
-    bind_primitive("%CDR", lisp_prim_cdr);
-    bind_primitive("%CONS", lisp_prim_cons);
-    bind_primitive("%EQ", lisp_prim_eq);
-    bind_primitive("%SIGNAL", lisp_prim_signal);
     bind_primitive("%PUTCHAR", lisp_prim_putchar);
     bind_primitive("%TYPE-OF", lisp_prim_type_of);
     bind_primitive("%READ", lisp_prim_read);
     bind_primitive("%MACRO-EXPAND", lisp_prim_macro_expand);
     bind_primitive("%EVAL", lisp_prim_eval);
     bind_primitive("%APPLY", lisp_prim_apply);
-    bind_primitive("%SET-CAR", lisp_prim_set_car);
-    bind_primitive("%SET-CDR", lisp_prim_set_cdr);
     bind_primitive("%GET-ENV", lisp_prim_get_env);
     bind_primitive("%GENSYM", lisp_prim_gensym);
     bind_primitive("%MAKE-SYMBOL", lisp_prim_make_symbol);
@@ -895,8 +758,6 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%INTERN", lisp_prim_intern);
     bind_primitive("%EXIT", lisp_prim_exit);
     bind_primitive("%MAKE-ARRAY", lisp_prim_make_array);
-    bind_primitive("%AREF", lisp_prim_aref);
-    bind_primitive("%SET-AREF", lisp_prim_set_aref);
     bind_primitive("%ARRAY-LENGTH", lisp_prim_array_length);
     bind_primitive("%ARRAY-TYPE", lisp_prim_array_type);
     bind_primitive("%CHAR-CODE", lisp_prim_char_code);
@@ -926,6 +787,4 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
     bind_value(environment, "*STANDARD-ERROR*", lisp_obj::standard_error_stream());
 
-    TYPE_ERROR = intern_symbol("TYPE-ERROR");
-    INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
 }
