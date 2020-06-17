@@ -930,7 +930,9 @@ static inline std::string lisp_string_to_native_string(lisp_value str)
     std::string ret;
     auto array = str.as_object()->simple_array();
     for (fixnum i = 0; i < array->length(); ++i) {
-        auto c = array->get(i).as_character();
+        auto obj = array->get(i);
+        if (!obj.is_character()) break;
+        auto c = obj.as_character();
         if ((c & 0xf8) == 0xf0) {
             ret.push_back(static_cast<char>((c >>  0) & 0xff));
             ret.push_back(static_cast<char>((c >>  8) & 0xff));

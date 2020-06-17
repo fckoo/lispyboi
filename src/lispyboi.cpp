@@ -1819,7 +1819,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 auto array = array_val.as_object()->simple_array();
                 auto index = subscript.as_fixnum();
                 if (index < 0 || index >= array->length()) {
-                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
                     goto raise_signal;
                 }
                 push_param(array->get(index));
@@ -1833,7 +1833,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 auto array = array_val.as_object()->simple_array();
                 auto index = subscript.as_fixnum();
                 if (index < 0 || index >= array->length()) {
-                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, array_val, subscript);
+                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
                     goto raise_signal;
                 }
                 auto type = array->type();

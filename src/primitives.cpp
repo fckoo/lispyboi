@@ -91,6 +91,11 @@ lisp_value lisp_prim_divide(lisp_value env, lisp_value args, bool &raised_signal
     CHECK_FIXNUM(second(args));
     auto x = first(args).as_fixnum();
     auto y = second(args).as_fixnum();
+    if (y == 0) {
+        static auto DIVIDE_BY_ZERO_ERROR = intern_symbol("DIVIDE-BY-ZERO-ERROR");
+        raised_signal = true;
+        return list(DIVIDE_BY_ZERO_ERROR, first(args), second(args));
+    }
     return lisp_value::wrap_fixnum(x / y);
 }
 
