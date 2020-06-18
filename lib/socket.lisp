@@ -11,16 +11,6 @@
                (ai-canonname char*)
                (ai-next addrinfo*))
 
-;;(print-line (list 'ai-flags (ffi-offset-of addrinfo ai-flags)))
-;;(print-line (list 'ai-family (ffi-offset-of addrinfo ai-family)))
-;;(print-line (list 'ai-socktype (ffi-offset-of addrinfo ai-socktype)))
-;;(print-line (list 'ai-protocol (ffi-offset-of addrinfo ai-protocol)))
-;;(print-line (list 'ai-addrlen (ffi-offset-of addrinfo ai-addrlen)))
-;;(print-line (list 'ai-addr (ffi-offset-of addrinfo ai-addr)))
-;;(print-line (list 'ai-canonname (ffi-offset-of addrinfo ai-canonname)))
-;;(print-line (list 'ai-next (ffi-offset-of addrinfo ai-next)))
-;;
-;;(print-line (ffi-sizeof addrinfo))
 
 (let* ((libc (ffi-open "libc.so.6"))
 
