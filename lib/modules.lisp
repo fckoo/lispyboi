@@ -71,7 +71,8 @@
       (let ((found-module (find-module module-name)))
         (unless found-module
           (error "module not found!" module-name))
-        (and (load found-module) module-name))))
+        (load found-module)
+        module-name)))
 
 (defun require (module-name &optional path)
   (if (member module-name *modules* #'equal)

@@ -622,8 +622,13 @@
          (t (,sig &rest ,args)
            ,@cleanup
            (unless (eq ,sig ',clean-throw)
-             (apply #'signal ,sig ,args))))
+             (apply #'%signal ,sig ,args))))
        ,result)))
+
+(defmacro ignore-errors (&body body)
+  `(handler-case (progn ,@body)
+     (t (&rest args)
+       (list nil args))))
 
 (defmacro with-open-file (var-path-direction &body body)
   (let ((var (first var-path-direction))

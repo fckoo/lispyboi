@@ -66,9 +66,7 @@ struct lisp_exception {
 struct lisp_unhandleable_exception : lisp_exception {
     const char *msg;
 };
-struct lisp_signal_exception : lisp_exception {
-    size_t popped;
-};
+struct lisp_signal_exception : lisp_exception {};
 
 struct lisp_string_stream : lisp_stream {
     inline
@@ -949,7 +947,13 @@ lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args, boo
         auto idx = apply_arguments(shadowed, lambda->params(), args);
         auto ip = lambda->begin(idx);
         lisp_vm_state vm;
-        vm.execute(ip, shadowed);
+        try {
+            vm.execute(ip, shadowed);
+        }
+        catch (lisp_signal_exception e) {
+            raised_signal = true;
+            return e.what;
+        }
         auto result = vm.param_top();
         return result;
     }
@@ -1788,7 +1792,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     ip = lambda->begin(idx);
                 }
                 else {
-                    throw lisp_unhandleable_exception{ {signal_args}, "Unhandled signal: " };
+                    throw lisp_signal_exception{ {signal_args} };
                 }
             } break;
 
@@ -2424,6 +2428,10 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
             printf("%s\n", e.msg);
             printf("    %s\n", repr(e.what).c_str());
         }
+        catch (lisp_signal_exception e) {
+            printf("Unhandled signal:\n");
+            printf("    %s\n", repr(e.what).c_str());
+        }
 
         if (vm.param_stack_top != stack_before) {
             auto result = vm.pop_param();
@@ -2506,6 +2514,13 @@ int main(int argc, char *argv[])
     }
     catch (lisp_unhandleable_exception e) {
         printf("%s\n", e.msg);
+        if (e.what.is_not_nil()) {
+            printf("    %s\n", repr(e.what).c_str());
+        }
+        return 1;
+    }
+    catch (lisp_signal_exception e) {
+        printf("Unhandled signal:\n");
         if (e.what.is_not_nil()) {
             printf("    %s\n", repr(e.what).c_str());
         }
