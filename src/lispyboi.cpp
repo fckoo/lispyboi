@@ -191,6 +191,7 @@ lisp_value LISP_SYM_HANDLER_CASE;
 lisp_value LISP_SYM_FILE_STREAM;
 lisp_value LISP_SYM_TYPE_ERROR;
 lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
+lisp_value LISP_SYM_SYSTEM_POINTER;
 }
 
 lisp_value lisp::intern_symbol(const std::string &symbol_name)
@@ -326,6 +327,10 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                 result += " :EOF ";
                 result += obj.as_object()->file_stream()->eof() ? "T" : "NIL";
                 result += ">";
+            } break;
+            case SYSTEM_POINTER_TYPE: {
+                ss << "#<SYSTEM-POINTER 0x" << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->ptr()) << ">";
+                result = ss.str();
             } break;
         }
     }
@@ -1793,6 +1798,11 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 if (a == b) {
                     push_param(LISP_T);
                 }
+                // @Audit: is this necessary, does it make sense to identity compare objects?
+                else if (a.is_object() && b.is_object() && 
+                         (a.as_object()->ptr() == b.as_object()->ptr())) {
+                    push_param(LISP_T);
+                }
                 else {
                     push_param(LISP_NIL);
                 }
@@ -1940,6 +1950,8 @@ void initialize_globals()
 
     LISP_SYM_TYPE_ERROR = intern_symbol("TYPE-ERROR");
     LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
+
+    LISP_SYM_SYSTEM_POINTER = intern_symbol("SYSTEM-POINTER");
 
     LISP_BASE_ENVIRONMENT = LISP_NIL;
     primitives::bind_primitives(LISP_BASE_ENVIRONMENT);

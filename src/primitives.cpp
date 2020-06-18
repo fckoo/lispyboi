@@ -2,6 +2,7 @@
 #include <chrono>
 #include "platform.hpp"
 #include "primitives.hpp"
+#include "ffi.hpp"
 
 using namespace lisp;
 
@@ -24,6 +25,7 @@ using namespace lisp;
 #define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), LISP_SYM_CHARACTER)
 #define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_CHARACTER)
 #define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
+#define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(SYSTEM_POINTER_TYPE), LISP_SYM_SYSTEM_POINTER)
 
 
 lisp_value lisp_prim_plus(lisp_value env, lisp_value args, bool &raised_signal)
@@ -253,8 +255,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
                             lisp_value::wrap_fixnum(array->length()));
             };
             case FILE_STREAM_TYPE: return LISP_SYM_FILE_STREAM;
-
-
+            case SYSTEM_POINTER_TYPE: return LISP_SYM_SYSTEM_POINTER;
         }
         return LISP_NIL;
     }
@@ -416,6 +417,15 @@ lisp_value lisp_prim_exit(lisp_value, lisp_value args, bool &raised_signal)
         code = car(args).as_fixnum();
     }
     exit(code);
+}
+
+lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (signal tag &rest args)
+    */
+    raised_signal = true;
+    return args;
 }
 
 lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal)
@@ -724,6 +734,273 @@ lisp_value lisp_prim_function_definition(lisp_value, lisp_value args, bool &rais
     return sym.as_object()->symbol()->function;
 }
 
+lisp_value lisp_prim_ffi_open(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-open dll-path)
+     */
+    auto lib = car(args);
+    if (!lib.is_type(SIMPLE_ARRAY_TYPE)) {
+        raised_signal = true;
+        return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), lib);
+    }
+    auto array = lib.as_object()->simple_array();
+    if (array->type() != LISP_SYM_CHARACTER) {
+        raised_signal = true;
+        return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), lib);
+    }
+    
+    auto lib_str = lisp_string_to_native_string(lib);
+    auto handle = ffi::open(lib_str.c_str());
+    
+    return lisp_obj::wrap_pointer(handle);
+}
+
+lisp_value lisp_prim_ffi_close(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-close dll-handle)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    ffi::close(first(args).as_object()->ptr());
+    return LISP_NIL;
+}
+
+lisp_value lisp_prim_ffi_get_symbol(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-get-symbol dll-handle symbol-name)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto symbol = second(args);
+    if (!symbol.is_type(SIMPLE_ARRAY_TYPE)) {
+        raised_signal = true;
+        return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), symbol);
+    }
+    auto array = symbol.as_object()->simple_array();
+    if (array->type() != LISP_SYM_CHARACTER) {
+        raised_signal = true;
+        return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), symbol);
+    }
+    auto handle = first(args).as_object()->ptr();
+    auto symbol_str = lisp_string_to_native_string(symbol);
+
+    auto func = ffi::getsym(handle, symbol_str.c_str());
+    return lisp_obj::wrap_pointer(func);
+}
+
+lisp_value lisp_prim_ffi_call(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-call c-function &rest args)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto func = first(args).as_object()->ptr();
+    auto result = ffi::call(func, rest(args));
+    return lisp_obj::wrap_pointer(result);
+}
+
+lisp_value lisp_prim_ffi_nullptr(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-nullptr)
+     */
+    return lisp_obj::wrap_pointer(nullptr);
+}
+
+lisp_value lisp_prim_ffi_alloc(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-alloc size)
+     */
+    CHECK_FIXNUM(first(args));
+    auto size = first(args).as_fixnum();
+    return lisp_obj::wrap_pointer(ffi::alloc_mem(size));
+}
+
+lisp_value lisp_prim_ffi_zero_alloc(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-zero-alloc size)
+     */
+    CHECK_FIXNUM(first(args));
+    auto size = first(args).as_fixnum();
+    return lisp_obj::wrap_pointer(ffi::calloc_mem(size));
+}
+
+lisp_value lisp_prim_ffi_free(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-free pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = first(args).as_object()->ptr();
+    ffi::free_mem(ptr);
+    first(args).as_object()->ptr(nullptr);
+    return LISP_T;
+}
+
+lisp_value lisp_prim_ffi_ref(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-ref pointer offset)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    if (rest(args).is_nil()) {
+        return lisp_obj::wrap_pointer(first(args).as_object()->ptr_ref());
+    }
+    else {
+        auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
+        CHECK_FIXNUM(second(args));
+        auto offset = second(args).as_fixnum();
+        return lisp_obj::wrap_pointer(ptr + offset);
+    }
+}
+
+lisp_value lisp_prim_ffi_ref_8(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-ref-8 pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
+    return lisp_value::wrap_fixnum(*ptr);
+}
+
+lisp_value lisp_prim_ffi_ref_16(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-ref-16 pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint16_t*>(first(args).as_object()->ptr());
+    return lisp_value::wrap_fixnum(*ptr);
+}
+
+lisp_value lisp_prim_ffi_ref_32(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-ref-32 pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint32_t*>(first(args).as_object()->ptr());
+    return lisp_value::wrap_fixnum(*ptr);
+}
+
+lisp_value lisp_prim_ffi_ref_64(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-ref-64 pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint64_t*>(first(args).as_object()->ptr());
+    return lisp_value::wrap_fixnum(*ptr);
+}
+
+lisp_value lisp_prim_ffi_set_ref(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref pointer offset value value-size)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
+    CHECK_FIXNUM(second(args));
+    auto offset = second(args).as_fixnum();
+    CHECK_SYSTEM_POINTER(third(args));
+    auto value = reinterpret_cast<uint8_t*>(third(args).as_object()->ptr());
+    CHECK_FIXNUM(fourth(args));
+    auto value_size = fourth(args).as_fixnum();
+    
+    memcpy(ptr + offset, value, value_size);
+    return third(args);
+}
+
+lisp_value lisp_prim_ffi_set_ref_8(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-8 pointer value)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
+    CHECK_FIXNUM(second(args));
+    auto value = second(args).as_fixnum() & 0xff;
+    *ptr = value;
+    return lisp_value::wrap_fixnum(value);
+}
+
+lisp_value lisp_prim_ffi_set_ref_16(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-16 pointer index value)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint16_t*>(first(args).as_object()->ptr());
+    CHECK_FIXNUM(second(args));
+    auto value = second(args).as_fixnum() & 0xffff;
+    *ptr = value;
+    return lisp_value::wrap_fixnum(value);
+}
+
+lisp_value lisp_prim_ffi_set_ref_32(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-32 pointer index value)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint32_t*>(first(args).as_object()->ptr());
+    CHECK_FIXNUM(second(args));
+    auto value = second(args).as_fixnum() & 0xffffffff;
+    *ptr = value;
+    return lisp_value::wrap_fixnum(value);
+}
+
+lisp_value lisp_prim_ffi_set_ref_64(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-64 pointer index value)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<uint64_t*>(first(args).as_object()->ptr());
+    CHECK_FIXNUM(second(args));
+    auto value = second(args).as_fixnum();
+    *ptr = value;
+    return lisp_value::wrap_fixnum(value);
+}
+
+lisp_value lisp_prim_ffi_marshal(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-marshal object)
+     */
+    return lisp_obj::wrap_pointer(ffi::marshal(first(args)));
+}
+
+lisp_value lisp_prim_ffi_coerce_fixnum(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-fixnum system-pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<fixnum>(first(args).as_object()->ptr());
+    return lisp_value::wrap_fixnum(ptr);
+}
+
+lisp_value lisp_prim_ffi_coerce_string(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-string system-pointer &optional length)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = reinterpret_cast<const char*>(first(args).as_object()->ptr());
+    if (second(args).is_nil()) {
+        return lisp_obj::create_string(ptr);
+    }
+    CHECK_FIXNUM(second(args));
+    auto len = second(args).as_fixnum();
+    return lisp_obj::create_string(ptr, len);
+}
+
+
 static inline
 void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
 {
@@ -762,6 +1039,7 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%SYMBOL-NAME", lisp_prim_symbol_name);
     bind_primitive("%INTERN", lisp_prim_intern);
     bind_primitive("%EXIT", lisp_prim_exit);
+    bind_primitive("%SIGNAL", lisp_prim_signal);
     bind_primitive("%MAKE-ARRAY", lisp_prim_make_array);
     bind_primitive("%ARRAY-LENGTH", lisp_prim_array_length);
     bind_primitive("%ARRAY-TYPE", lisp_prim_array_type);
@@ -787,6 +1065,28 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("GET-EXECUTABLE-PATH", lisp_prim_get_executable_path);
     bind_primitive("GET-CLOCK-TICKS", lisp_prim_get_clock_ticks);
     bind_primitive("CLOCKS-PER-SECOND", lisp_prim_clocks_per_second);
+    
+    bind_primitive("FFI-OPEN", lisp_prim_ffi_open);
+    bind_primitive("FFI-CLOSE", lisp_prim_ffi_close);
+    bind_primitive("FFI-GET-SYMBOL", lisp_prim_ffi_get_symbol);
+    bind_primitive("FFI-CALL", lisp_prim_ffi_call);
+    bind_primitive("FFI-NULLPTR", lisp_prim_ffi_nullptr);
+    bind_primitive("FFI-ALLOC", lisp_prim_ffi_alloc);
+    bind_primitive("FFI-ZERO-ALLOC", lisp_prim_ffi_zero_alloc);
+    bind_primitive("FFI-FREE", lisp_prim_ffi_free);
+    bind_primitive("FFI-MARSHAL", lisp_prim_ffi_marshal);
+    bind_primitive("FFI-COERCE-FIXNUM", lisp_prim_ffi_coerce_fixnum);
+    bind_primitive("FFI-COERCE-STRING", lisp_prim_ffi_coerce_string);
+    bind_primitive("FFI-REF", lisp_prim_ffi_ref);
+    bind_primitive("FFI-REF-8", lisp_prim_ffi_ref_8);
+    bind_primitive("FFI-REF-16", lisp_prim_ffi_ref_16);
+    bind_primitive("FFI-REF-32", lisp_prim_ffi_ref_32);
+    bind_primitive("FFI-REF-64", lisp_prim_ffi_ref_64);
+    bind_primitive("FFI-SET-REF", lisp_prim_ffi_set_ref);
+    bind_primitive("FFI-SET-REF-8", lisp_prim_ffi_set_ref_8);
+    bind_primitive("FFI-SET-REF-16", lisp_prim_ffi_set_ref_16);
+    bind_primitive("FFI-SET-REF-32", lisp_prim_ffi_set_ref_32);
+    bind_primitive("FFI-SET-REF-64", lisp_prim_ffi_set_ref_64);
 
     bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
     bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());

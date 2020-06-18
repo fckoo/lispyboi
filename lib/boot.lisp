@@ -462,7 +462,7 @@
 (defmacro push (obj place)
   `(setf ,place (cons ,obj ,place)))
 
-(defun push (obj place)
+(defun push! (obj place)
   (let ((original (car place)))
     (setf (car place) obj)
     (setf (cdr place) (cons original (cdr place)))
@@ -472,7 +472,7 @@
   `(prog1 (car ,place)
      (setf ,place (cdr ,place))))
 
-(defun pop (place)
+(defun pop! (place)
   (let ((val (car place)))
     (setf (car place) (second place))
     (setf (cdr place) (cddr place))

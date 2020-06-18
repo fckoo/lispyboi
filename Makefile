@@ -1,6 +1,6 @@
 CC := clang++
 CFLAGS := -std=c++17 -fpic -Wall
-LDFLAGS := -lreadline
+LDFLAGS := -lreadline -ldl
 
 .PHONY: all clean debug release
 
@@ -15,7 +15,7 @@ debug: clean lispyboi
 release: CFLAGS += -O3
 release: clean lispyboi
 
-lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o obj/platform.o
+lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o obj/platform.o obj/ffi.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 obj/%.o: src/%.cpp obj

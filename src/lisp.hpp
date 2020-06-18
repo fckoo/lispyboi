@@ -9,9 +9,13 @@
 #include <stdint.h>
 #include "backtrace.hpp"
 
+#if !defined(DEBUG)
+#define DEBUG 0
+#endif
+
 #define XSTR(x) #x
 #define STR(x) XSTR(x)
-#if defined(DEBUG) && DEBUG > 1
+#if DEBUG > 1
 #define ENSURE_VALUE(value, expr) do {                                  \
         if (!(expr)) {                                                  \
             fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
@@ -25,10 +29,15 @@
 #define ENSURE_VALUE(value, expr) ((void)value)
 #endif
 
+#if DEBUG > 1
+#define FORCE_INLINE inline
+#define FLATTEN
+#else
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
+#endif
 
-#define LISP_NIL (lisp_value::nil())
+#define LISP_NIL (lisp::lisp_value::nil())
 
 namespace lisp {
 
@@ -38,7 +47,8 @@ enum LISP_OBJ_TYPE {
     SYM_TYPE = 0,
     LAMBDA_TYPE,
     SIMPLE_ARRAY_TYPE,
-    FILE_STREAM_TYPE
+    FILE_STREAM_TYPE,
+    SYSTEM_POINTER_TYPE
 };
 
 struct lisp_obj;
@@ -170,7 +180,7 @@ struct lisp_value {
     FORCE_INLINE
     bool is_object() const noexcept
     {
-        return tag_bits() == TAG_POINTER;
+        return is_not_nil() && (tag_bits() == TAG_POINTER);
     }
 
     FORCE_INLINE
@@ -370,6 +380,7 @@ extern lisp_value LISP_SYM_AMP_BODY;
 extern lisp_value LISP_SYM_AMP_OPTIONAL;
 extern lisp_value LISP_SYM_HANDLER_CASE;
 extern lisp_value LISP_SYM_FILE_STREAM;
+extern lisp_value LISP_SYM_SYSTEM_POINTER;
 extern lisp_value LISP_SYM_TYPE_ERROR;
 extern lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
 
@@ -776,6 +787,30 @@ struct lisp_obj {
     {
         return u.file_stream;
     }
+    
+    inline void *ptr()
+    {
+        return u.ptr;
+    }
+
+    inline void *ptr_ref()
+    {
+        return &u.ptr;
+    }
+
+    inline void ptr(void *p)
+    {
+        u.ptr = p;
+    }
+    
+    static inline
+    lisp_value wrap_pointer(void *ptr)
+    {
+        auto ret = new lisp_obj();
+        ret->m_type = SYSTEM_POINTER_TYPE;
+        ret->u.ptr = ptr;
+        return lisp_value::wrap_object(ret);
+    }
 
     static inline
     lisp_value create_file_stream(lisp_file_stream *fs)
@@ -850,21 +885,16 @@ struct lisp_obj {
         // valid utf-8 codepoint enumeration
         for(fixnum i = 0; i < len;) {
             int cp_len = 1;
-            int32_t cp_mask = 0x000000ff;
             if ((str[i] & 0xf8) == 0xf0) {
-                cp_mask = 0xffffffff;
                 cp_len = 4;
             }
             else if ((str[i] & 0xf0) == 0xe0) {
-                cp_mask = 0x00ffffff;
                 cp_len = 3;
             }
             else if ((str[i] & 0xe0) == 0xc0) {
-                cp_mask = 0x0000ffff;
                 cp_len = 2;
             }
             if ((i + cp_len) > len) {
-                cp_mask = 0x000000ff;
                 cp_len = 1;
             }
 
@@ -922,6 +952,7 @@ struct lisp_obj {
         lisp_lambda *lambda;
         lisp_simple_array *simple_array;
         lisp_file_stream *file_stream;
+        void *ptr;
     } u;
 };
 
@@ -957,9 +988,7 @@ static inline std::string lisp_string_to_native_string(lisp_value str)
 
 inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
 {
-    return !is_nil() &&
-        is_object() &&
-        as_object()->type() == type;
+    return is_object() && as_object()->type() == type;
 }
 
 lisp_value intern_symbol(const std::string &symbol_name);
