@@ -1,5 +1,6 @@
 
 (require "ffi")
+(require "format")
 
 (ffi-defstruct addrinfo
                (ai-flags int)
@@ -38,7 +39,8 @@
       (addrinfo-set-ai-flags hints +ai-passive+)
 
       (unwind-protect
-           (let ((rc (ffi-coerce-fixnum (ffi-call c-fn-getaddrinfo host port hints (ffi-ref result)))))
+           (let ((rc (ffi-coerce-int
+                      (ffi-call c-fn-getaddrinfo host port hints (ffi-ref result)))))
              (when (< rc 0)
                (signal 'socket-error "getaddrinfo failed with code: " rc))
              (unwind-protect
@@ -46,11 +48,10 @@
                                            (addrinfo-get-ai-family result)
                                            (addrinfo-get-ai-socktype result)
                                            (addrinfo-get-ai-protocol result)))
-                         (socket-fixnum (ffi-coerce-fixnum socket)))
-                    (when (< socket-fixnum 0)
+                         (rc (ffi-coerce-int socket)))
+                    (when (< rc 0)
                       (signal 'socket-error "socket acquisition failed"))
-
-                    (let ((rc (ffi-coerce-fixnum
+                    (let ((rc (ffi-coerce-int
                                (ffi-call c-fn-connect
                                          socket
                                          (addrinfo-get-ai-addr result)
@@ -58,13 +59,11 @@
                       (when (< rc 0)
                         (signal 'socket-error "connect failed with code: " rc)))
                     socket)
-               (print-line "doing freeaddrinfo")
                (ffi-call c-fn-freeaddrinfo result)))
-        (print-line "doing ffi-free")
         (ffi-free hints))))
 
   (defun socket-close (socket)
-    (let ((rc (ffi-coerce-fixnum (ffi-call c-fn-close socket))))
+    (let ((rc (ffi-coerce-int (ffi-call c-fn-close socket))))
       (when (< rc 0)
         (signal 'socket-error "failed to close socket with code: " rc))
       t))

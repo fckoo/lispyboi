@@ -985,6 +985,16 @@ lisp_value lisp_prim_ffi_coerce_fixnum(lisp_value, lisp_value args, bool &raised
     return lisp_value::wrap_fixnum(ptr);
 }
 
+lisp_value lisp_prim_ffi_coerce_int(lisp_value, lisp_value args, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-int system-pointer)
+     */
+    CHECK_SYSTEM_POINTER(first(args));
+    auto ptr = static_cast<int>(reinterpret_cast<uintptr_t>(first(args).as_object()->ptr()));
+    return lisp_value::wrap_fixnum(ptr);
+}
+
 lisp_value lisp_prim_ffi_coerce_string(lisp_value, lisp_value args, bool &raised_signal)
 {
     /***
@@ -1076,6 +1086,7 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("FFI-FREE", lisp_prim_ffi_free);
     bind_primitive("FFI-MARSHAL", lisp_prim_ffi_marshal);
     bind_primitive("FFI-COERCE-FIXNUM", lisp_prim_ffi_coerce_fixnum);
+    bind_primitive("FFI-COERCE-INT", lisp_prim_ffi_coerce_int);
     bind_primitive("FFI-COERCE-STRING", lisp_prim_ffi_coerce_string);
     bind_primitive("FFI-REF", lisp_prim_ffi_ref);
     bind_primitive("FFI-REF-8", lisp_prim_ffi_ref_8);
