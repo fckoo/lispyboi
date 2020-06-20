@@ -6,15 +6,18 @@
 
 using namespace lisp;
 
-#define NYI(fmt, ...) do {                                              \
+#define NYI(fmt, ...)                                                   \
+    do {                                                                \
         fprintf(stderr, "NYI: " __FILE__ ":" STR(__LINE__) "\n\tin %s\n", __PRETTY_FUNCTION__); \
         fprintf(stderr, fmt "\n", ##__VA_ARGS__);                       \
         abort();                                                        \
     } while (0)
 
 
-#define TYPE_CHECK(what, typecheck, expected) do {                  \
+#define TYPE_CHECK(what, typecheck, expected)                       \
+    do {                                                            \
         if (!(what).typecheck) {                                    \
+            bt::trace();                                            \
             raised_signal = true;                                   \
             return list(LISP_SYM_TYPE_ERROR, (expected), (what));   \
         }                                                           \
@@ -23,92 +26,120 @@ using namespace lisp;
 #define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), LISP_SYM_FIXNUM)
 #define CHECK_CONS(what) TYPE_CHECK(what, is_cons(), LISP_SYM_CONS)
 #define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), LISP_SYM_CHARACTER)
-#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_CHARACTER)
+#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_SYMBOL)
 #define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
 #define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(SYSTEM_POINTER_TYPE), LISP_SYM_SYSTEM_POINTER)
 
+#define CHECK_FUNCTION(what)                                            \
+    do {                                                                \
+        if (!(what).is_lisp_primitive() && !(what).is_type(LAMBDA_TYPE)) { \
+            bt::trace();                                                \
+            raised_signal = true;                                       \
+            return list(LISP_SYM_TYPE_ERROR, LISP_SYM_FUNCTION, (what)); \
+        }                                                               \
+    } while (0)
 
-lisp_value lisp_prim_plus(lisp_value env, lisp_value args, bool &raised_signal)
+#define CHECK_AT_LEAST_N(what, n)                                       \
+    do {                                                                \
+        if ((what) < (n)) {                                             \
+            bt::trace();                                                \
+            raised_signal = true;                                       \
+            return list(intern_symbol("ARGUMENT-COUNT-MISMATCH"), lisp_value::wrap_fixnum(n), lisp_value::wrap_fixnum(what)); \
+        }                                                               \
+    } while (0)
+
+#define CHECK_EXACTLY_N(what, n)                                        \
+    do {                                                                \
+        if ((what) != (n)) {                                            \
+            bt::trace();                                                \
+            raised_signal = true;                                       \
+            return list(intern_symbol("ARGUMENT-COUNT-MISMATCH"), lisp_value::wrap_fixnum(n), lisp_value::wrap_fixnum(what)); \
+        }                                                               \
+    } while (0)
+
+
+
+
+
+lisp_value lisp_prim_plus(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (+ &rest fixnums)
     */
     int64_t result = 0;
-    while (args.is_not_nil()) {
-        auto tmp = car(args);
+    for (uint32_t i = 0; i < nargs; ++i) {
+        auto tmp = args[i];
         CHECK_FIXNUM(tmp);
         result += tmp.as_fixnum();
-        args = cdr(args);
     }
     return lisp_value::wrap_fixnum(result);
 }
 
-lisp_value lisp_prim_minus(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_minus(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (- &rest fixnums)
     */
     int64_t result = 0;
-    if (args.is_nil()) {
+    if (nargs == 0) {
         ;
     }
-    else if (cdr(args).is_nil()) {
-        CHECK_FIXNUM(car(args));
-        result = -car(args).as_fixnum();
+    else if (nargs == 1) {
+        CHECK_FIXNUM(args[0]);
+        result = -args[0].as_fixnum();
     }
     else {
-        CHECK_FIXNUM(car(args));
-        result = car(args).as_fixnum();
-        args = cdr(args);
-        while (args.is_not_nil()) {
-            CHECK_FIXNUM(car(args));
-            result -= car(args).as_fixnum();
-            args = cdr(args);
+        CHECK_FIXNUM(args[0]);
+        result = args[0].as_fixnum();
+        for (uint32_t i = 1; i < nargs; ++i) {
+            CHECK_FIXNUM(args[i]);
+            result -= args[i].as_fixnum();
         }
     }
     return lisp_value::wrap_fixnum(result);
 }
 
-lisp_value lisp_prim_multiply(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_multiply(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (* &rest fixnums)
     */
     int64_t result = 1;
-    while (args.is_not_nil()) {
-        auto tmp = car(args);
+    for (uint32_t i = 0; i < nargs; ++i) {
+        auto tmp = args[i];
         CHECK_FIXNUM(tmp);
         result *= tmp.as_fixnum();
-        args = cdr(args);
     }
     return lisp_value::wrap_fixnum(result);
 }
 
-lisp_value lisp_prim_divide(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_divide(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (/ x y)
     */
-    CHECK_FIXNUM(first(args));
-    CHECK_FIXNUM(second(args));
-    auto x = first(args).as_fixnum();
-    auto y = second(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
     if (y == 0) {
         static auto DIVIDE_BY_ZERO_ERROR = intern_symbol("DIVIDE-BY-ZERO-ERROR");
         raised_signal = true;
-        return list(DIVIDE_BY_ZERO_ERROR, first(args), second(args));
+        return list(DIVIDE_BY_ZERO_ERROR, args[0], args[1]);
     }
     return lisp_value::wrap_fixnum(x / y);
 }
 
-lisp_value lisp_prim_print(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_print(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (print obj &optional stream)
     */
+    CHECK_AT_LEAST_N(nargs, 1);
     lisp_file_stream *stream = nullptr;
-    auto obj = first(args);
-    if (cdr(args).is_nil() || second(args) == LISP_T) {
+    auto obj = args[0];
+    if (nargs == 1 || args[1] == LISP_T) {
         auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
         if (_stdout.is_not_nil()) {
             CHECK_FILE_STREAM(_stdout);
@@ -116,96 +147,94 @@ lisp_value lisp_prim_print(lisp_value env, lisp_value args, bool &raised_signal)
         }
     }
     else {
-        CHECK_FILE_STREAM(second(args));
-        stream = second(args).as_object()->file_stream();
+        CHECK_FILE_STREAM(args[1]);
+        stream = args[1].as_object()->file_stream();
     }
-    auto s = repr(obj);
     if (stream) {
+        auto s = repr(obj);
         stream->write(s);
     }
     return obj;
 }
 
-lisp_value lisp_prim_num_less(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_num_less(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (< a b &rest more-fixnums)
     */
-    auto a = first(args);
+    CHECK_AT_LEAST_N(nargs, 2);
+    auto a = args[0];
     CHECK_FIXNUM(a);
-    auto b = second(args);
+    auto b = args[1];
     CHECK_FIXNUM(b);
     bool result = a.as_fixnum() < b.as_fixnum();
     if (result) {
-        args = cddr(args);
         a = b;
-        while (args.is_not_nil()) {
-            b = car(args);
+        for (uint32_t i = 2; i < nargs; ++i) {
+            b = args[i];
             CHECK_FIXNUM(b);
             result = a.as_fixnum() < b.as_fixnum();
             if (result == false) {
                 break;
             }
             a = b;
-            args = cdr(args);
         }
     }
     return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_num_equal(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_num_equal(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (= n &rest more-fixnums)
     */
-
-    auto n = first(args);
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto n = args[0];
     CHECK_FIXNUM(n);
-    args = cdr(args);
-    while (args.is_not_nil()) {
-        CHECK_FIXNUM(car(args));
-        if (car(args) != n)
+    for (uint32_t i = 1; i < nargs; ++i) {
+        CHECK_FIXNUM(args[i]);
+        if (args[i] != n)
             return LISP_NIL;
-        args = cdr(args);
     }
     return LISP_T;
 }
 
-lisp_value lisp_prim_num_greater(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_num_greater(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (> a b &rest more-fixnums)
     */
-    auto a = first(args);
+    CHECK_AT_LEAST_N(nargs, 2);
+    auto a = args[0];
     CHECK_FIXNUM(a);
-    auto b = second(args);
+    auto b = args[1];
     CHECK_FIXNUM(b);
     bool result = a.as_fixnum() > b.as_fixnum();
     if (result) {
-        args = cddr(args);
         a = b;
-        while (args.is_not_nil()) {
-            b = car(args);
+        for (uint32_t i = 2; i < nargs; ++i) {
+            b = args[i];
             CHECK_FIXNUM(b);
             result = a.as_fixnum() > b.as_fixnum();
             if (result == false) {
                 break;
             }
             a = b;
-            args = cdr(args);
         }
     }
     return result ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_putchar(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (putchar character &optional stm)
     */
 
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_CHARACTER(args[0]);
     lisp_file_stream *stm = nullptr;
-    if (cdr(args).is_nil() || second(args) == LISP_T) {
+    if (nargs == 1 || args[1] == LISP_T) {
         auto _stdout = cdr(symbol_lookup(env, intern_symbol("*STANDARD-OUTPUT*")));
         if (_stdout.is_not_nil()) {
             CHECK_FILE_STREAM(_stdout);
@@ -213,12 +242,12 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signa
         }
     }
     else {
-        CHECK_FILE_STREAM(second(args));
-        stm = second(args).as_object()->file_stream();
+        CHECK_FILE_STREAM(args[1]);
+        stm = args[1].as_object()->file_stream();
     }
-    auto codepoint = car(args).as_character();
     int64_t bytes_written = 0;
     if (stm) {
+        auto codepoint = args[0].as_character();
         bytes_written = stm->write_utf8(codepoint);
         if (codepoint == '\n')
             stm->flush();
@@ -226,12 +255,13 @@ lisp_value lisp_prim_putchar(lisp_value env, lisp_value args, bool &raised_signa
     return lisp_value::wrap_fixnum(bytes_written);
 }
 
-lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_type_of(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (type-of object)
     */
-    auto it = car(args);
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto it = args[0];
     if (it.is_fixnum()) {
         return LISP_SYM_FIXNUM;
     }
@@ -269,53 +299,56 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value args, bool &raised_signal)
     return list(intern_symbol("UNKNOWN-TYPE"), it);
 }
 
-lisp_value lisp_prim_read(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_read(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (read &optional file-stream)
     */
 
-    if (args.is_nil()) {
+    if (nargs == 0) {
         lisp_value result;
         if (!read_stdin(">>> ", "... ", result))
             return LISP_NIL;
         return result;
     }
     else {
-        CHECK_FILE_STREAM(car(args));
-        return parse(*car(args).as_object()->file_stream());
+        CHECK_FILE_STREAM(args[0]);
+        return parse(*args[0].as_object()->file_stream());
     }
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_macro_expand(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_macro_expand(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (macro-expand expr)
     */
-
-    return macro_expand(car(args));
+    CHECK_EXACTLY_N(nargs, 1);
+    return macro_expand(args[0]);
 }
 
-lisp_value lisp_prim_eval(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_eval(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (eval expr)
     */
-    return lisp::evaluate(LISP_BASE_ENVIRONMENT, car(args));
+    CHECK_EXACTLY_N(nargs, 1);
+    return lisp::evaluate(LISP_BASE_ENVIRONMENT, args[0]);
 }
 
-lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_apply(lisp_value env, lisp_value *real_args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (apply func &rest args args-list)
     */
+    CHECK_AT_LEAST_N(nargs, 1);
 
-    auto function = first(args);
-    args = rest(args);
-    if (args.is_nil())
-        return lisp::apply(env, function, LISP_NIL, raised_signal);
-
+    auto function = real_args[0];
+    if (nargs == 1) {
+        return lisp::apply(env, function, nullptr, 0, raised_signal);
+    }
+    
+    auto args = to_list(real_args+1, nargs-1);
     auto head = LISP_NIL;
     auto current = head;
     while (args.is_not_nil()) {
@@ -336,27 +369,29 @@ lisp_value lisp_prim_apply(lisp_value env, lisp_value args, bool &raised_signal)
     else {
         set_cdr(current, first(args));
     }
-    return lisp::apply(env, function, head, raised_signal);
+    auto vec = to_vector(head);
+    return lisp::apply(env, function, vec.data(), vec.size(), raised_signal);   
 }
 
-lisp_value lisp_prim_get_env(lisp_value env, lisp_value, bool &raised_signal)
+lisp_value lisp_prim_get_env(lisp_value env, lisp_value*, uint32_t nargs, bool &raised_signal)
 {
     /***
         (get-env)
     */
+    CHECK_EXACTLY_N(nargs, 0);
     return env;
 }
 
-lisp_value lisp_prim_gensym(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_gensym(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (gensym &optional hint)
     */
     static unsigned int counter = 0;
-    auto hint = first(args);
     std::string sym_name;
-    if (hint.is_not_nil()) {
+    if (nargs != 0) {
         // @TODO: typecheck for string in GENSYM primitive
+        auto hint = args[0];
         sym_name = lisp_string_to_native_string(hint);
     }
     else {
@@ -367,14 +402,15 @@ lisp_value lisp_prim_gensym(lisp_value, lisp_value args, bool &raised_signal)
     return lisp_obj::create_symbol(sym_name);
 }
 
-lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_make_symbol(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (make-symbol symbol-name)
     */
+    CHECK_EXACTLY_N(nargs, 1);
     // @TODO: typecheck for string in MAKE-SYMBOL primitive
     std::string name;
-    auto array = first(args).as_object()->simple_array();
+    auto array = args[0].as_object()->simple_array();
     for (fixnum i = 0; i < array->length(); ++i) {
         auto codepoint = array->get(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
@@ -382,23 +418,25 @@ lisp_value lisp_prim_make_symbol(lisp_value, lisp_value args, bool &raised_signa
     return lisp_obj::create_symbol(name);
 }
 
-lisp_value lisp_prim_symbol_name(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_symbol_name(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (symbol-name symbol)
     */
-    CHECK_SYMBOL(first(args));
-    return lisp_obj::create_string(first(args).as_object()->symbol()->name);
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYMBOL(args[0]);
+    return lisp_obj::create_string(args[0].as_object()->symbol()->name);
 }
 
-lisp_value lisp_prim_intern(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_intern(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (intern symbol-name)
     */
+    CHECK_EXACTLY_N(nargs, 1);
     // @TODO: typecheck for string in INTERN primitive
     std::string name;
-    auto array = first(args).as_object()->simple_array();
+    auto array = args[0].as_object()->simple_array();
     for (fixnum i = 0; i < array->length(); ++i) {
         auto codepoint = array->get(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
@@ -406,38 +444,40 @@ lisp_value lisp_prim_intern(lisp_value, lisp_value args, bool &raised_signal)
     return intern_symbol(name);
 }
 
-lisp_value lisp_prim_exit(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_exit(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (exit n)
+        (exit &optional n)
     */
     int code = 0;
-    if (car(args).is_not_nil()) {
-        CHECK_FIXNUM(car(args));
-        code = car(args).as_fixnum();
+    if (nargs != 0) {
+        CHECK_FIXNUM(args[0]);
+        code = args[0].as_fixnum();
     }
     exit(code);
 }
 
-lisp_value lisp_prim_signal(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_signal(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (signal tag &rest args)
     */
+    CHECK_AT_LEAST_N(nargs, 1);
     raised_signal = true;
-    return args;
+    return to_list(args, nargs);
 }
 
-lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_make_array(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (make-array length &optional type)
     */
-    auto length = first(args);
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto length = args[0];
     CHECK_FIXNUM(length);
     // @TODO: Array operations still need type checking
-    auto type = second(args);
-    if (type.is_not_nil()) {
+    if (nargs != 1) {
+        auto type = args[1];
         if (type == LISP_SYM_CHARACTER || type == LISP_SYM_FIXNUM)
             return lisp_obj::create_simple_array(length.as_fixnum(), type);
     }
@@ -445,39 +485,44 @@ lisp_value lisp_prim_make_array(lisp_value, lisp_value args, bool &raised_signal
 
 }
 
-lisp_value lisp_prim_array_length(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_array_length(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (array-length array)
     */
+    CHECK_EXACTLY_N(nargs, 1);
 
     // @TODO: typecheck array in ARRAY-LENGTH primitive
-    auto array = first(args);
+    auto array = args[0];
     if (array.is_type(SIMPLE_ARRAY_TYPE)) {
         return lisp_value::wrap_fixnum(array.as_object()->simple_array()->length());
     }
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_array_type(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_array_type(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (array-type array)
     */
+    CHECK_EXACTLY_N(nargs, 1);
+
     // @TODO: typecheck array in ARRAY-TYPE primitive
-    auto array = first(args);
+    auto array = args[0];
     if (array.is_type(SIMPLE_ARRAY_TYPE)) {
         return array.as_object()->simple_array()->type();
     }
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_bits_of(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_bits_of(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (bits-of object)
     */
-    auto obj = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+
+    auto obj = args[0];
     auto ret = lisp_obj::create_simple_array(64, intern_symbol("BIT"));
     auto bits = obj.bits();
     auto array = ret.as_object()->simple_array();
@@ -488,23 +533,25 @@ lisp_value lisp_prim_bits_of(lisp_value, lisp_value args, bool &raised_signal)
     return ret;
 }
 
-lisp_value lisp_prim_code_char(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_code_char(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (code-char integer)
     */
-    CHECK_FIXNUM(car(args));
-    auto char_code = car(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto char_code = args[0].as_fixnum();
     return lisp_value::wrap_character(char_code);
 }
 
-lisp_value lisp_prim_char_code(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_char_code(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (char-code character)
     */
-    CHECK_CHARACTER(car(args));
-    auto character = car(args).as_character();
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_CHARACTER(args[0]);
+    auto character = args[0].as_character();
     return lisp_value::wrap_fixnum(character);
 }
 
@@ -524,16 +571,17 @@ lisp_file_stream::io_mode get_mode(lisp_value mode_sym)
     return lisp_file_stream::io_mode::invalid;
 }
 
-lisp_value lisp_prim_open(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_open(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (open file-path direction)
     */
+    CHECK_EXACTLY_N(nargs, 2);
 
     // @TODO: typecheck FILE-PATH string in OPEN primitive
 
-    auto path = lisp_string_to_native_string(first(args));
-    auto direction = second(args);
+    auto path = lisp_string_to_native_string(args[0]);
+    auto direction = args[1];
     lisp_file_stream *fs = nullptr;
     int mode = lisp_file_stream::io_mode::invalid;
     if (direction.is_cons()) {
@@ -556,103 +604,112 @@ lisp_value lisp_prim_open(lisp_value, lisp_value args, bool &raised_signal)
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_close(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_close(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (close file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     it.as_object()->file_stream()->close();
     return LISP_T;
 }
 
-lisp_value lisp_prim_file_length(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_length(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-length file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto size = it.as_object()->file_stream()->length();
     return lisp_value::wrap_fixnum(size);
 }
 
-lisp_value lisp_prim_file_ok(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_ok(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-ok file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     if (it.is_nil()) return it;
     CHECK_FILE_STREAM(it);
     return it.as_object()->file_stream()->ok() ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_file_eof(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_eof(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-eof-p file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     if (it.is_nil()) return it;
     CHECK_FILE_STREAM(it);
     return it.as_object()->file_stream()->eof() ? LISP_T : LISP_NIL;
 }
 
-lisp_value lisp_prim_file_mode(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_mode(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-mode file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     int64_t mode = it.as_object()->file_stream()->mode();
     return lisp_value::wrap_fixnum(mode);
 }
 
-lisp_value lisp_prim_file_flush(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_flush(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-flush file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     it.as_object()->file_stream()->flush();
     return LISP_T;
 }
 
-lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_read_byte(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-read-byte file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     return lisp_value::wrap_fixnum(it.as_object()->file_stream()->read_byte());
 }
 
-lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_peek_byte(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-peek-byte file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     return lisp_value::wrap_fixnum(it.as_object()->file_stream()->peek_byte());
 }
 
-lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_file_read_characater(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-read-character file-stream)
     */
-    auto it = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
     CHECK_FILE_STREAM(it);
     return lisp_value::wrap_character(it.as_object()->file_stream()->read_utf8());
 }
 
-lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value, bool &raised_signal)
+lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value*, uint32_t, bool &raised_signal)
 {
     /***
         (get-working-directory)
@@ -662,13 +719,14 @@ lisp_value lisp_prim_get_working_directory(lisp_value, lisp_value, bool &raised_
     return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
-lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_change_directory(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (change-directory path)
     */
+    CHECK_EXACTLY_N(nargs, 1);
     // @TODO: typecheck PATH for string in CHANGE-DIRECTORY-PRIMITIVE
-    auto new_path = lisp_string_to_native_string(car(args));
+    auto new_path = lisp_string_to_native_string(args[0]);
     std::error_code error;
     plat::change_directory(new_path, error);
     if (error.value() != 0) {
@@ -680,7 +738,7 @@ lisp_value lisp_prim_change_directory(lisp_value env, lisp_value args, bool &rai
     return error.value() != 0 ? LISP_NIL : lisp_obj::create_string(current_path);
 }
 
-lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value, bool &raised_signal)
+lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value*, uint32_t, bool &raised_signal)
 {
     /***
         (get-executable-path)
@@ -689,7 +747,7 @@ lisp_value lisp_prim_get_executable_path(lisp_value, lisp_value, bool &raised_si
     return ret;
 }
 
-lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value, bool &raised_signal)
+lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value*, uint32_t, bool &raised_signal)
 {
     /***
         (get-clock-ticks)
@@ -700,7 +758,7 @@ lisp_value lisp_prim_get_clock_ticks(lisp_value, lisp_value, bool &raised_signal
     return lisp_value::wrap_fixnum(microseconds.count());
 }
 
-lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_signal)
+lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value*, uint32_t, bool &raised_signal)
 {
     /***
         (clocks-per-second)
@@ -708,38 +766,38 @@ lisp_value lisp_prim_clocks_per_second(lisp_value, lisp_value, bool &raised_sign
     return lisp_value::wrap_fixnum(1000000);
 }
 
-lisp_value lisp_prim_define_function(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_define_function(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (define-function symbol function)
     */
-    auto sym = first(args);
+    CHECK_EXACTLY_N(nargs, 2);
+    auto sym = args[0];
     CHECK_SYMBOL(sym);
-    auto func = second(args);
-    if (!func.is_lisp_primitive() && !func.is_type(LAMBDA_TYPE)) {
-        raised_signal = true;
-        return list(LISP_SYM_TYPE_ERROR, LISP_SYM_FUNCTION, func);
-    }
+    auto func = args[1];
+    CHECK_FUNCTION(func);
     sym.as_object()->symbol()->function = func;
     return sym;
 }
 
-lisp_value lisp_prim_function_definition(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_function_definition(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (function-definition symbol)
     */
-    auto sym = first(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto sym = args[0];
     CHECK_SYMBOL(sym);
     return sym.as_object()->symbol()->function;
 }
 
-lisp_value lisp_prim_ffi_open(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_open(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-open dll-path)
      */
-    auto lib = car(args);
+    CHECK_EXACTLY_N(nargs, 1);
+    auto lib = args[0];
     if (!lib.is_type(SIMPLE_ARRAY_TYPE)) {
         raised_signal = true;
         return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), lib);
@@ -756,23 +814,25 @@ lisp_value lisp_prim_ffi_open(lisp_value, lisp_value args, bool &raised_signal)
     return lisp_obj::wrap_pointer(handle);
 }
 
-lisp_value lisp_prim_ffi_close(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_close(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-close dll-handle)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    ffi::close(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    ffi::close(args[0].as_object()->ptr());
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_ffi_get_symbol(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_get_symbol(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-get-symbol dll-handle symbol-name)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto symbol = second(args);
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto symbol = args[0];
     if (!symbol.is_type(SIMPLE_ARRAY_TYPE)) {
         raised_signal = true;
         return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), symbol);
@@ -782,231 +842,250 @@ lisp_value lisp_prim_ffi_get_symbol(lisp_value, lisp_value args, bool &raised_si
         raised_signal = true;
         return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), symbol);
     }
-    auto handle = first(args).as_object()->ptr();
+    auto handle = args[0].as_object()->ptr();
     auto symbol_str = lisp_string_to_native_string(symbol);
 
     auto func = ffi::getsym(handle, symbol_str.c_str());
     return lisp_obj::wrap_pointer(func);
 }
 
-lisp_value lisp_prim_ffi_call(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_call(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-call c-function &rest args)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto func = first(args).as_object()->ptr();
-    auto result = ffi::call(func, rest(args));
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto func = args[0].as_object()->ptr();
+    auto result = ffi::call(func, args+1, nargs-1);
     return lisp_obj::wrap_pointer(result);
 }
 
-lisp_value lisp_prim_ffi_nullptr(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_nullptr(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-nullptr)
      */
+    CHECK_EXACTLY_N(nargs, 0);
     return lisp_obj::wrap_pointer(nullptr);
 }
 
-lisp_value lisp_prim_ffi_alloc(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_alloc(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-alloc size)
      */
-    CHECK_FIXNUM(first(args));
-    auto size = first(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto size = args[0].as_fixnum();
     return lisp_obj::wrap_pointer(ffi::alloc_mem(size));
 }
 
-lisp_value lisp_prim_ffi_zero_alloc(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_zero_alloc(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-zero-alloc size)
      */
-    CHECK_FIXNUM(first(args));
-    auto size = first(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto size = args[0].as_fixnum();
     return lisp_obj::wrap_pointer(ffi::calloc_mem(size));
 }
 
-lisp_value lisp_prim_ffi_free(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_free(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-free pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = first(args).as_object()->ptr();
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = args[0].as_object()->ptr();
     ffi::free_mem(ptr);
-    first(args).as_object()->ptr(nullptr);
+    args[0].as_object()->ptr(nullptr);
     return LISP_T;
 }
 
-lisp_value lisp_prim_ffi_ref(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_ref(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (ffi-ref pointer offset)
+        (ffi-ref pointer &optional offset)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    if (rest(args).is_nil()) {
-        return lisp_obj::wrap_pointer(first(args).as_object()->ptr_ref());
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    if (nargs == 1) {
+        return lisp_obj::wrap_pointer(args[0].as_object()->ptr_ref());
     }
     else {
-        auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
-        CHECK_FIXNUM(second(args));
-        auto offset = second(args).as_fixnum();
+        auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->ptr());
+        CHECK_FIXNUM(args[1]);
+        auto offset = args[1].as_fixnum();
         return lisp_obj::wrap_pointer(ptr + offset);
     }
 }
 
-lisp_value lisp_prim_ffi_ref_8(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_ref_8(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-ref-8 pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->ptr());
     return lisp_value::wrap_fixnum(*ptr);
 }
 
-lisp_value lisp_prim_ffi_ref_16(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_ref_16(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-ref-16 pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint16_t*>(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->ptr());
     return lisp_value::wrap_fixnum(*ptr);
 }
 
-lisp_value lisp_prim_ffi_ref_32(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_ref_32(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-ref-32 pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint32_t*>(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->ptr());
     return lisp_value::wrap_fixnum(*ptr);
 }
 
-lisp_value lisp_prim_ffi_ref_64(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_ref_64(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-ref-64 pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint64_t*>(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->ptr());
     return lisp_value::wrap_fixnum(*ptr);
 }
 
-lisp_value lisp_prim_ffi_set_ref(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_set_ref(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-set-ref pointer offset value value-size)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
-    CHECK_FIXNUM(second(args));
-    auto offset = second(args).as_fixnum();
-    CHECK_SYSTEM_POINTER(third(args));
-    auto value = reinterpret_cast<uint8_t*>(third(args).as_object()->ptr());
-    CHECK_FIXNUM(fourth(args));
-    auto value_size = fourth(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 4);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->ptr());
+    CHECK_FIXNUM(args[1]);
+    auto offset = args[1].as_fixnum();
+    CHECK_SYSTEM_POINTER(args[2]);
+    auto value = reinterpret_cast<uint8_t*>(args[2].as_object()->ptr());
+    CHECK_FIXNUM(args[3]);
+    auto value_size = args[3].as_fixnum();
     
     memcpy(ptr + offset, value, value_size);
-    return third(args);
+    return args[2];
 }
 
-lisp_value lisp_prim_ffi_set_ref_8(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_set_ref_8(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-set-ref-8 pointer value)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint8_t*>(first(args).as_object()->ptr());
-    CHECK_FIXNUM(second(args));
-    auto value = second(args).as_fixnum() & 0xff;
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->ptr());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xff;
     *ptr = value;
     return lisp_value::wrap_fixnum(value);
 }
 
-lisp_value lisp_prim_ffi_set_ref_16(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_set_ref_16(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (ffi-set-ref-16 pointer index value)
+        (ffi-set-ref-16 pointer value)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint16_t*>(first(args).as_object()->ptr());
-    CHECK_FIXNUM(second(args));
-    auto value = second(args).as_fixnum() & 0xffff;
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->ptr());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xffff;
     *ptr = value;
     return lisp_value::wrap_fixnum(value);
 }
 
-lisp_value lisp_prim_ffi_set_ref_32(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_set_ref_32(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (ffi-set-ref-32 pointer index value)
+        (ffi-set-ref-32 pointer value)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint32_t*>(first(args).as_object()->ptr());
-    CHECK_FIXNUM(second(args));
-    auto value = second(args).as_fixnum() & 0xffffffff;
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->ptr());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xffffffff;
     *ptr = value;
     return lisp_value::wrap_fixnum(value);
 }
 
-lisp_value lisp_prim_ffi_set_ref_64(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_set_ref_64(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (ffi-set-ref-64 pointer index value)
+        (ffi-set-ref-64 pointer value)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<uint64_t*>(first(args).as_object()->ptr());
-    CHECK_FIXNUM(second(args));
-    auto value = second(args).as_fixnum();
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->ptr());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum();
     *ptr = value;
     return lisp_value::wrap_fixnum(value);
 }
 
-lisp_value lisp_prim_ffi_marshal(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_marshal(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-marshal object)
      */
-    return lisp_obj::wrap_pointer(ffi::marshal(first(args)));
+    CHECK_EXACTLY_N(nargs, 1);
+    return lisp_obj::wrap_pointer(ffi::marshal(args[0]));
 }
 
-lisp_value lisp_prim_ffi_coerce_fixnum(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_coerce_fixnum(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-coerce-fixnum system-pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<fixnum>(first(args).as_object()->ptr());
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<fixnum>(args[0].as_object()->ptr());
     return lisp_value::wrap_fixnum(ptr);
 }
 
-lisp_value lisp_prim_ffi_coerce_int(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_coerce_int(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-coerce-int system-pointer)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = static_cast<int>(reinterpret_cast<uintptr_t>(first(args).as_object()->ptr()));
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = static_cast<int>(reinterpret_cast<uintptr_t>(args[0].as_object()->ptr()));
     return lisp_value::wrap_fixnum(ptr);
 }
 
-lisp_value lisp_prim_ffi_coerce_string(lisp_value, lisp_value args, bool &raised_signal)
+lisp_value lisp_prim_ffi_coerce_string(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (ffi-coerce-string system-pointer &optional length)
      */
-    CHECK_SYSTEM_POINTER(first(args));
-    auto ptr = reinterpret_cast<const char*>(first(args).as_object()->ptr());
-    if (second(args).is_nil()) {
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<const char*>(args[0].as_object()->ptr());
+    if (nargs == 1) {
         return lisp_obj::create_string(ptr);
     }
-    CHECK_FIXNUM(second(args));
-    auto len = second(args).as_fixnum();
+    CHECK_FIXNUM(args[1]);
+    auto len = args[1].as_fixnum();
     return lisp_obj::create_string(ptr, len);
 }
 

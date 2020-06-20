@@ -8,7 +8,7 @@ void *open(const char *path);
 int close(void *handle);
 
 void *getsym(void *handle, const char *symbol_name);
-void *call(void *function, lisp::lisp_value args);
+void *call(void *function, lisp::lisp_value *args, uint32_t nargs);
 
 void *marshal(lisp::lisp_value value);
 

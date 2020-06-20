@@ -29,7 +29,10 @@
 #define ENSURE_VALUE(value, expr) ((void)value)
 #endif
 
-#if DEBUG > 1
+#if DEBUG > 2
+#define FORCE_INLINE inline __attribute__((noinline))
+#define FLATTEN __attribute__((noinline))
+#elif DEBUG > 1
 #define FORCE_INLINE inline
 #define FLATTEN
 #else
@@ -55,7 +58,7 @@ struct lisp_obj;
 struct lisp_cons;
 struct lisp_value;
 std::string repr(const lisp_value *obj);
-typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value args, bool &raised_signal);
+typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal);
 struct lisp_value {
     
     using underlying_type = uint64_t;
@@ -390,46 +393,39 @@ struct lisp_cons {
 };
 
 struct lisp_lambda {
-    
-    lisp_lambda(lisp_value env, lisp_value params, lisp_value body, 
-                const uint8_t *main_entry, const uint8_t *end,
-                const std::vector<const uint8_t*> &optional_initializers)
+    lisp_lambda(lisp_value env, std::vector<lisp_value> &&params, bool has_rest, size_t optionals_start_at,
+                lisp_value body, const uint8_t *main_entry, const uint8_t *end,
+                std::vector<const uint8_t*> &&optional_initializers)
         : m_env(env)
-        , m_params(params)
+        , m_params(new std::vector<lisp_value>(params))
+        , m_has_rest(has_rest)
+        , m_optionals_start_at(optionals_start_at)
         , m_body(body)
         , m_main_entry(main_entry)
         , m_endpoint(end)
-        , m_optional_initializers(optional_initializers)
-    {}
-
-    lisp_lambda(lisp_value env, lisp_value params, lisp_value body, 
-                const uint8_t *main_entry, const uint8_t *end,
-                std::vector<const uint8_t*> &&move_optional_initializers)
-        : m_env(env)
-        , m_params(params)
-        , m_body(body)
-        , m_main_entry(main_entry)
-        , m_endpoint(end)
-        , m_optional_initializers(move_optional_initializers)
+        , m_optional_initializers(new std::vector<const uint8_t*>(optional_initializers))
     {}
                 
     lisp_lambda *instantiate(lisp_value env) const
     {
-        return new lisp_lambda(env, m_params, m_body, m_main_entry, m_endpoint, m_optional_initializers);
+        return new lisp_lambda(env, 
+                               m_params, m_has_rest, m_optionals_start_at, 
+                               m_body, m_main_entry, m_endpoint, 
+                               m_optional_initializers);
     }
     
     const uint8_t *earliest_entry() const
     {
-        if (m_optional_initializers.size() == 0)
+        if (m_optional_initializers->size() == 0)
             return m_main_entry;
-        return m_optional_initializers[0];
+        return m_optional_initializers->at(0);
     }
     
-    const uint8_t *begin(int idx) const
+    const uint8_t *begin(size_t idx) const
     {
-        if (idx < 0)
-            return m_main_entry;
-        return m_optional_initializers[idx];
+        if (idx < m_optional_initializers->size())
+            return m_optional_initializers->at(idx);
+        return m_main_entry;
     }
 
     const uint8_t *end() const
@@ -442,9 +438,24 @@ struct lisp_lambda {
         return m_env;
     }
     
-    lisp_value params() const
+    const std::vector<lisp_value> &params() const
     {
-        return m_params;
+        return *m_params;
+    }
+    
+    bool has_rest() const
+    {
+        return m_has_rest;
+    }
+
+    bool has_optionals() const
+    {
+        return m_optionals_start_at != m_params->size();
+    }
+    
+    size_t optionals_start_at() const
+    {
+        return m_optionals_start_at;
     }
     
     lisp_value body() const
@@ -452,18 +463,33 @@ struct lisp_lambda {
         return m_body;
     }
     
-    const std::vector<const uint8_t*> &optional_initializers()
+    const std::vector<const uint8_t*> &optional_initializers() const
     {
-        return m_optional_initializers;
+        return *m_optional_initializers;
     }
   private:
 
+    lisp_lambda(lisp_value env, std::vector<lisp_value> *params, bool has_rest, size_t optionals_start_at,
+                lisp_value body, const uint8_t *main_entry, const uint8_t *end,
+                std::vector<const uint8_t*> *optional_initializers)
+        : m_env(env)
+        , m_params(params)
+        , m_has_rest(has_rest)
+        , m_optionals_start_at(optionals_start_at)
+        , m_body(body)
+        , m_main_entry(main_entry)
+        , m_endpoint(end)
+        , m_optional_initializers(optional_initializers)
+    {}
+
     lisp_value m_env;
-    lisp_value m_params;
+    std::vector<lisp_value> *m_params;
+    bool m_has_rest;
+    size_t m_optionals_start_at;
     lisp_value m_body;
     const uint8_t *m_main_entry;
     const uint8_t *m_endpoint;
-    std::vector<const uint8_t*> m_optional_initializers;
+    std::vector<const uint8_t*> *m_optional_initializers;
 };
 
 struct lisp_symbol {
@@ -841,19 +867,15 @@ struct lisp_obj {
     }
 
     static inline
-    lisp_value create_lambda(lisp_value params, lisp_value body, 
-                             const uint8_t *main_entry, const uint8_t *end, 
+    lisp_value create_lambda(lisp_value env, 
+                             std::vector<lisp_value> &&params, bool has_rest, int optionals_start_at,
+                             lisp_value body, const uint8_t *main_entry, const uint8_t *end, 
                              std::vector<const uint8_t*> &&optionals)
     {
-        return create_lambda(new lisp_lambda(LISP_NIL, params, body, main_entry, end, optionals));
-    }
-
-    static inline
-    lisp_value create_macro(lisp_value env, lisp_value params, lisp_value body, 
-                            const uint8_t *main_entry, const uint8_t *end, 
-                            std::vector<const uint8_t*> &&optionals)
-    {
-        return create_lambda(new lisp_lambda(env, params, body, main_entry, end, optionals));
+        return create_lambda(new lisp_lambda(env, 
+                                             std::move(params), has_rest, optionals_start_at, 
+                                             body, main_entry, end, 
+                                             std::move(optionals)));
     }
 
     static inline
@@ -999,7 +1021,7 @@ lisp_value parse(lisp_stream &stream);
 bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input = nullptr);
 lisp_value macro_expand(lisp_value obj);
 lisp_value evaluate(lisp_value env, lisp_value obj);
-lisp_value apply(lisp_value env, lisp_value function, lisp_value obj, bool &raised_signal);
+lisp_value apply(lisp_value env, lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal);
 
 static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
 {
@@ -1074,6 +1096,48 @@ static inline lisp_value list(tfirst first, trest... rest)
 {
     return cons(first, list(rest...));
 }
+
+
+static FORCE_INLINE
+lisp_value to_list(const lisp_value *vals, uint32_t nvals) 
+{
+    switch (nvals) {
+        case 0: return LISP_NIL;
+        case 1: return list(vals[0]);
+        case 2: return list(vals[0], vals[1]);
+        case 3: return list(vals[0], vals[1], vals[2]);
+        case 4: return list(vals[0], vals[1], vals[2], vals[3]);
+        case 5: return list(vals[0], vals[1], vals[2], vals[3], vals[4]);
+        case 6: return list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]);
+        case 7: return list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6]);
+        case 8: return list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7]);
+    }
+    auto head = list(vals[0]);
+    auto current = head;
+    for (uint32_t i = 1; i < nvals; ++i) {
+        set_cdr(current, cons(vals[i], LISP_NIL));
+        current = cdr(current);
+    }
+    return head;
+}
+
+static FORCE_INLINE
+lisp_value to_list(const std::vector<lisp_value> &vals)
+{
+    return to_list(vals.data(), vals.size());
+}
+
+static FORCE_INLINE
+std::vector<lisp_value> to_vector(lisp_value list)
+{
+    std::vector<lisp_value> v;
+    while (list.is_not_nil()) {
+        v.push_back(car(list));
+        list = cdr(list);
+    }
+    return v;
+}
+
 
 static FORCE_INLINE
 lisp_value push(lisp_value item, lisp_value place)

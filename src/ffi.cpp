@@ -68,75 +68,27 @@ void *do_call(void *f, Args... args)
     return func(args...);
 }
 
-void *ffi::call(void *f, lisp_value args)
+void *ffi::call(void *f, lisp_value *args, uint32_t nargs)
 {
-    void *a0, *a1, *a2, *a3, *a4, *a5, *a6, *a7, *a8, *a9, *a10, *a11, *a12, *a13, *a14, *a15;
-    if (args.is_nil()) return do_call(f);
-
-    a0 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0);
-    
-    a1 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1);
-    
-    a2 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2);
-    
-    a3 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3);
-    
-    a4 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4);
-    
-    a5 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5);
-    
-    a6 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6);
-    
-    a7 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7);
-    
-    a8 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8);
-    
-    a9 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
-    
-    a10 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
-    
-    a11 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11);
-    
-    a12 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
-    
-    a13 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
-    
-    a14 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
-
-    a15 = marshal(car(args));
-    args = cdr(args);
-    if (args.is_nil()) return do_call(f, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15);
-
+#define M(n) marshal(args[n])
+    switch (nargs) {
+        case  0: return do_call(f);
+        case  1: return do_call(f, M(0), M(1));
+        case  2: return do_call(f, M(0), M(1), M(2));
+        case  3: return do_call(f, M(0), M(1), M(2), M(3));
+        case  4: return do_call(f, M(0), M(1), M(2), M(3), M(4));
+        case  5: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5));
+        case  6: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6));
+        case  7: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7));
+        case  8: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8));
+        case  9: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9));
+        case 10: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10));
+        case 11: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10), M(11));
+        case 12: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10), M(11), M(12));
+        case 13: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10), M(11), M(12), M(13));
+        case 14: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10), M(11), M(12), M(13), M(14));
+        case 15: return do_call(f, M(0), M(1), M(2), M(3), M(4), M(5), M(6), M(7), M(8), M(9), M(10), M(11), M(12), M(13), M(14), M(15));
+    }
     fprintf(stderr, "ffi call with more than 16 arguments is no supported\n");
     return nullptr;
 }

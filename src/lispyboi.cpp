@@ -278,14 +278,31 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                 }
                 break;
             case LAMBDA_TYPE: {
-                result += "(LAMBDA ";
-                if (obj.as_object()->lambda()->params().is_nil()) {
-                    result += "() ";
+                result += "(LAMBDA (";
+                auto const &lambda = *obj.as_object()->lambda();
+                auto const &params = lambda.params();
+                auto optionals_start_at = lambda.optionals_start_at();
+                for (size_t i = 0; i < optionals_start_at; ++i) {
+                    if (lambda.has_rest() && i + 1 == params.size()) {
+                        result += "&REST ";
+                    }
+                    result += repr(params[i]);
+                    if (i + 1 < optionals_start_at) {
+                        result += " ";
+                    }
                 }
-                else {
-                    result += repr(obj.as_object()->lambda()->params());
-                    result += " ";
+                if (optionals_start_at < params.size()) {
+                    result += "&OPTIONAL ";
+                    for (size_t i = optionals_start_at; i < params.size()-1; ++i) {
+                        result += repr(params[i]);
+                        result += " ";
+                    }
+                    if (lambda.has_rest()) {
+                        result += "&REST ";
+                    }
+                    result += repr(params.back());
                 }
+                result += ") ";
                 auto body = obj.as_object()->lambda()->body();
                 while (body.is_not_nil()) {
                     result += repr_impl(car(body), seen);
@@ -858,57 +875,37 @@ lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
 }
 
 static
-int apply_arguments(lisp_value &shadowed_env, lisp_value params, lisp_value args)
+const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lambda, lisp_value *args, uint32_t nargs)
 {
-    if (params.is_nil()) {
-        return -1;
+    auto const &params = lambda->params();
+    if (params.size() == 0) {
+        return lambda->earliest_entry();
     }
-
-    // &BODY and &REST are synonyms here.
-    // (defun foo ()) => no arguments
-    // (defun foo (a b &optional c)) => two required and one optional
-    // (defun foo (a b &rest rest)) => two required and any number more
-    // (defun foo (a b &optional c &rest rest)) => two required, one optional, and any number more
-    // (defun foo (&optional a b c &rest rest)) => three optional and any number more
-    bool allowing_optional = false;
-    int optional_idx = 0;
-    while (params.is_not_nil() && args.is_not_nil()) {
-        if (allowing_optional) optional_idx++;
-
-        auto sym = first(params);
-        if (allowing_optional && sym.is_cons()) {
-            sym = first(sym);
-        }
-        else if (sym == LISP_SYM_AMP_REST || sym == LISP_SYM_AMP_BODY) {
-            sym = second(params);
-            shadowed_env = shadow(shadowed_env, sym, args);
-            return -1;
-        }
-        else if (sym == LISP_SYM_AMP_OPTIONAL) {
-            allowing_optional = true;
-            params = rest(params);
-            continue;
-        }
-        shadowed_env = shadow(shadowed_env, sym, first(args));
-        params = rest(params);
-        args = rest(args);
+    // @TODO: Handle case where nargs < params.size();
+    lisp_value rest_sym = LISP_NIL;
+    auto end = params.size();
+    if (lambda->has_rest()) {
+        end--;
+        rest_sym = params.back();
     }
-
-    if (params.is_nil()) {
-        return -1;
-    }
-    else {
-        if (first(params) == LISP_SYM_AMP_REST || first(params) == LISP_SYM_AMP_BODY) {
-            shadowed_env = shadow(shadowed_env, second(params), LISP_NIL);
-            return -1;
+    if (nargs < end) {
+        if (lambda->has_optionals()) {
+            end = nargs;
         }
-        else if (first(params) == LISP_SYM_AMP_OPTIONAL) {
-            allowing_optional = true;
-            params = rest(params);
+        else {
+            throw lisp_unhandleable_exception{ {LISP_NIL}, "Argument count mismatch" };
+            // @TODO: error, no optionals and not enough args passed
         }
-
     }
-    return optional_idx;
+    size_t i = 0;
+    for (; i < end; ++i) {
+        shadowed_env = shadow(shadowed_env, params[i], args[i]);
+    }
+    if (rest_sym.is_not_nil() && i == params.size()-1) {
+        shadowed_env = shadow(shadowed_env, rest_sym, to_list(args+i, nargs-i));
+        i++;
+    }
+    return lambda->begin(i);
 }
 
 bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &out_case_state, lisp_value &out_handler)
@@ -936,18 +933,17 @@ bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &ou
     return found;
 }
 
-lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value args, bool &raised_signal)
+lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     if (function.is_lisp_primitive()) {
-        return function.as_lisp_primitive()(env, args, raised_signal);
+        return function.as_lisp_primitive()(env, args, nargs, raised_signal);
     }
     if (function.is_type(LAMBDA_TYPE)) {
         auto lambda = function.as_object()->lambda();
         auto shadowed = lambda->env();
-        auto idx = apply_arguments(shadowed, lambda->params(), args);
-        auto ip = lambda->begin(idx);
         lisp_vm_state vm;
         try {
+            auto ip = apply_arguments(shadowed, lambda, args, nargs);
             vm.execute(ip, shadowed);
         }
         catch (lisp_signal_exception e) {
@@ -1045,7 +1041,8 @@ lisp_value macro_expand_impl(lisp_value obj, lisp_value env)
             auto function = it->second;
             auto args = rest(obj);
             bool raised_signal = false;
-            auto expand1 = apply(env, function, args, raised_signal);
+            auto vec = to_vector(args);
+            auto expand1 = apply(env, function, vec.data(), vec.size(), raised_signal);
             auto expand_all = macro_expand_impl(expand1, env);
             return expand_all;
         }
@@ -1458,52 +1455,16 @@ void disassemble(std::ostream &out, const std::string &tag, const bytecode_emitt
     disassemble(out, tag, start, end, nullptr);
 }
 
-//static
-//void disassemble_from(std::ostream &out, const std::string &tag, const std::vector<uint8_t> &bytecode, size_t ip)
-//{
-//    out << "Disassembly for \"" << tag << "\"\n";
-//    for (; ip < bytecode.size();) {
-//        ip = disassemble1(out, ip, bytecode.data(), false);
-//    }
-//}
-//
-//static
-//void disassemble(std::ostream &out, const std::string &tag, const std::vector<uint8_t> &bytecode, size_t show_here)
-//{
-//    out << "Disassembly for \"" << tag << "\"\n";
-//    for (size_t ip = 0; ip < bytecode.size();) {
-//        ip = disassemble1(out, ip, bytecode.data(), ip == show_here);
-//    }
-//}
-//
-//static
-//void disassemble_up_to(std::ostream &out, const std::string &tag, const std::vector<uint8_t> &bytecode, size_t show_here, int before, int after)
-//{
-//    std::vector<size_t> indices;
-//    bool found_here = false;
-//    int here_idx = 0;
-//    for (size_t ip = 0; ip < bytecode.size();) {
-//        if (ip == show_here) {
-//            found_here = true;
-//            here_idx = indices.size();
-//        }
-//        indices.push_back(ip);
-//        ip += bytecode_op_size(static_cast<bytecode_op>(bytecode[ip]));
-//    }
-//
-//    auto start = std::max(0, here_idx + before);
-//
-//    if (found_here && start < indices.size()) {
-//        out << "Disassembly for \"" << tag << "\"\n";
-//        for (size_t ip = indices[start]; ip < bytecode.size();) {
-//            ip = disassemble1(out, ip, bytecode.data(), ip == show_here);
-//            if (ip > show_here)
-//                after--;
-//            if (after < 0)
-//                break;
-//        }
-//    }
-//}
+/* Marked used so compiler doesn't discard this and we can call it inside GDB */
+static __attribute__((used))
+void disassemble(const char *tag, const uint8_t *start, const uint8_t *end, const uint8_t *ip = nullptr)
+{
+    std::cout << "Disassembly for \"" << tag << "\"\n";
+    for (; start != end;) {
+        start = disassemble1(std::cout, start, start == ip);
+    }
+}
+
 
 static
 void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
@@ -1584,11 +1545,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 auto func = pop_param();
                 auto ofunc = func;
                 auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-                auto args = LISP_NIL;
-                for (size_t i = 0; i < nargs; ++i) {
-                    auto arg = pop_param();
-                    args = cons(arg, args);
-                }
+                param_stack_top -= nargs;
+                auto args = param_stack_top;
                 if (func.is_type(SYM_TYPE)) {
                     func = func.as_object()->symbol()->function;
                 }
@@ -1597,7 +1555,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                         pop_return();
                     }
                     bool raised_signal = false;
-                    auto result = func.as_lisp_primitive()(env, args, raised_signal);
+                    auto result = func.as_lisp_primitive()(env, args, nargs, raised_signal);
                     if (raised_signal) {
                         signal_args = result;
                         goto raise_signal;
@@ -1611,9 +1569,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 if (func.is_type(LAMBDA_TYPE)) {
                     auto lambda = func.as_object()->lambda();
                     auto shadowed = lambda->env();
-                    auto idx = apply_arguments(shadowed, lambda->params(), args);
+                    ip = apply_arguments(shadowed, lambda, args, nargs);
                     env = shadowed;
-                    ip = lambda->begin(idx);
                     break;
                 }
                 throw lisp_unhandleable_exception{ {ofunc}, "Not a callable object: " };
@@ -1781,15 +1738,15 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     auto handler_func = cdr(handler);
                     auto lambda = handler_func.as_object()->lambda();
                     auto shadowed = restore.env;
-                    int idx;
                     if (handler_tag == LISP_T) {
-                        idx = apply_arguments(shadowed, lambda->params(), signal_args);
+                        auto vec = to_vector(signal_args);
+                        ip = apply_arguments(shadowed, lambda, vec.data(), vec.size());
                     }
                     else {
-                        idx = apply_arguments(shadowed, lambda->params(), rest(signal_args));
+                        auto vec = to_vector(rest(signal_args));
+                        ip = apply_arguments(shadowed, lambda, vec.data(), vec.size());
                     }
                     env = shadowed;
-                    ip = lambda->begin(idx);
                 }
                 else {
                     throw lisp_signal_exception{ {signal_args} };
@@ -1874,9 +1831,12 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
     abort();
 }
 
-lisp_value lisp_prim_disassemble(lisp_value, lisp_value args, bool &)
+lisp_value lisp_prim_disassemble(lisp_value, lisp_value *args, uint32_t nargs, bool &)
 {
-    auto expr = first(args);
+    if (nargs != 1) {
+        return LISP_NIL;
+    }
+    auto expr = args[0];
     if (expr.is_cons()) {
         auto expanded = macro_expand_impl(expr, LISP_BASE_ENVIRONMENT);
         bytecode_emitter e;
@@ -1901,9 +1861,9 @@ lisp_value lisp_prim_disassemble(lisp_value, lisp_value args, bool &)
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_debugger(lisp_value, lisp_value args, bool &)
+lisp_value lisp_prim_debugger(lisp_value, lisp_value *args, uint32_t nargs, bool &)
 {
-    if (car(args).is_not_nil()) {
+    if (nargs == 0 || args[0].is_not_nil()) {
         LISP_SINGLE_STEP_DEBUGGER = true;
         return LISP_T;
     }
@@ -1913,7 +1873,7 @@ lisp_value lisp_prim_debugger(lisp_value, lisp_value args, bool &)
     }
 }
 
-lisp_value lisp_prim_get_num_handlers(lisp_value, lisp_value, bool &)
+lisp_value lisp_prim_get_num_handlers(lisp_value, lisp_value*, uint32_t, bool &)
 {
     return lisp_value::wrap_fixnum(THE_LISP_VM->num_handlers());
 }
@@ -2038,15 +1998,24 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     // storing the address of each one, then at runtime we'll figure out which one of these
     // to jump to.
     auto cur = lambda_list;
+    std::vector<lisp_value> params;
     bool has_optionals = false;
-    int optional_starts_at = 0;
+    bool has_rest = false;
+    size_t optionals_start_at = 0;
     while (cur.is_not_nil()) {
-        if (car(cur) == LISP_SYM_AMP_OPTIONAL) {
+        auto sym = car(cur);
+        if (sym == LISP_SYM_AMP_OPTIONAL) {
             cur = cdr(cur);
             has_optionals = true;
             break;
         }
-        optional_starts_at++;
+        if (sym == LISP_SYM_AMP_REST || sym == LISP_SYM_AMP_BODY) {
+            sym = second(cur);
+            cur = LISP_NIL;
+            has_rest = true;
+        }
+        optionals_start_at++;
+        params.push_back(sym);
         cur = cdr(cur);
     }
     std::vector<size_t> optional_offsets;
@@ -2058,6 +2027,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
             if (param == LISP_SYM_AMP_REST || param == LISP_SYM_AMP_BODY) {
                 param = second(cur);
                 cur = LISP_NIL;
+                has_rest = true;
             }
 
             optional_offsets.push_back(function.position());
@@ -2065,10 +2035,12 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
             if (param.is_cons()) {
                 compile(function, second(param), false);
                 function.emit_push_value(first(param));
+                params.push_back(first(param));
             }
             else {
                 function.emit_push_nil();
                 function.emit_push_value(param);
+                params.push_back(param);
             }
 
             function.emit_set_value();
@@ -2076,6 +2048,9 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
 
             cur = cdr(cur);
         }
+    }
+    else {
+        assert(optionals_start_at == params.size());
     }
 
     auto lambda_offs = function.position();
@@ -2090,29 +2065,34 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     auto size = function.bytecode().size();
     auto p = new uint8_t[size];
     memcpy(p, function.bytecode().data(), size);
-    auto lambda_address = p + lambda_offs;;
+    auto main_entry = p + lambda_offs;
+    auto endpoint = p + size;
     std::vector<const uint8_t*> optional_initializers;
+    for (size_t i = 0; i < optionals_start_at; ++i) {
+        optional_initializers.push_back(main_entry);
+    }
     for (auto offs : optional_offsets) {
         optional_initializers.push_back(p + offs);
     }
 
     if (macro) {
-        auto macro = lisp_obj::create_macro(LISP_BASE_ENVIRONMENT,
-                                            lambda_list, obody,
-                                            lambda_address, p+size,
-                                            std::move(optional_initializers));
+        auto macro = lisp_obj::create_lambda(LISP_BASE_ENVIRONMENT,
+                                             std::move(params), has_rest, optionals_start_at, obody,
+                                             main_entry, endpoint,
+                                             std::move(optional_initializers));
         LISP_MACROS[name.as_object()->symbol()->name] = macro;
     }
     else if (toplevel) {
-        auto lambda = lisp_obj::create_macro(LISP_BASE_ENVIRONMENT,
-                                             lambda_list, obody,
-                                             lambda_address, p+size,
-                                             std::move(optional_initializers));
+        auto lambda = lisp_obj::create_lambda(LISP_BASE_ENVIRONMENT,
+                                              std::move(params), has_rest, optionals_start_at, obody,
+                                              main_entry, endpoint,
+                                              std::move(optional_initializers));
         e.emit_push_value(lambda);
     }
     else {
-        auto lambda_template = lisp_obj::create_lambda(lambda_list, obody,
-                                                       lambda_address, p+size,
+        auto lambda_template = lisp_obj::create_lambda(LISP_NIL,
+                                                       std::move(params), has_rest, optionals_start_at, obody,
+                                                       main_entry, endpoint,
                                                        std::move(optional_initializers));
         e.emit_instantiate_lambda(lambda_template);
     }
