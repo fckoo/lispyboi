@@ -8,18 +8,21 @@
       (setf (aref new-str i) (aref string (- (length string) i 1))))
     new-str))
 
-(defun %format-fixnum (number)
+(defun %format-fixnum (number &optional (radix 10))
   (if (= number 0)
       (make-string #\0)
-    (let ((ss (make-string-stream))
-          (neg (< number 0)))
-      (setf number (abs number))
-      (while (/= number 0)
-        (string-stream-push ss (code-char (+ 48 (rem number 10))))
-        (setf number (floor number 10)))
-      (when neg
-        (string-stream-push ss #\-))
-      (reverse-string (string-stream-str ss)))))
+      (let ((ss (make-string-stream))
+            (neg (< number 0)))
+        (setf number (abs number))
+        (while (/= number 0)
+          (let ((rem (rem number radix)))
+            (if (> rem 10)
+                (string-stream-push ss (code-char (+ (char-code #\A) (- rem 10))))
+                (string-stream-push ss (code-char (+ (char-code #\0) rem)))))
+          (setf number (floor number radix)))
+        (when neg
+          (string-stream-push ss #\-))
+        (reverse-string (string-stream-str ss)))))
 
 (defun %format-cons-a (cons)
   (let ((ss (make-string-stream)))
@@ -52,6 +55,36 @@
         ((consp object) (%format-cons-a object))
         (t "??")))
 
+(defun %format-escape-string (string)
+  (let ((ss (make-string-stream)))
+    (string-stream-push ss #\")
+    (dotimes (i (length string))
+      (let ((c (aref string i)))
+        (case c
+          (#\"
+           (string-stream-push ss #\\)
+           (string-stream-push ss #\"))
+          (t
+           (string-stream-push ss c)))))
+    (string-stream-push ss #\")
+    (string-stream-str ss)))
+
+(defun %format-object-s (object)
+  (cond ((stringp object) (%format-escape-string object))
+        ((symbolp object) (symbol-name object))
+        ((fixnump object) (%format-fixnum object))
+        ((characterp object)
+         (case object
+           (#\newline "#\Newline")
+           (#\tab "#\Tab")
+           (#\space "#\Space")
+           (#\return "#\Return")
+           (t (make-string #\# #\\ object))))
+        ((null object) "NIL")
+        ((consp object) (%format-cons-a object))
+        (t "??")))
+
+
 (defun %format-impl (format args)
   (let ((ss (make-string-stream))
         (i 0)
@@ -62,17 +95,45 @@
         (if (eql #\~ (aref format i))
             (let ((spec (peek (+ 1 i))))
               (cond
-               ((or (eql #\A spec) (eql #\a spec))
-                (let ((arg (pop args)))
-                  (incf i 1)
-                  (string-stream-append ss (%format-object-a arg))))
-               ((eql #\~ spec)
-                (incf i 1)
-                (string-stream-push ss #\~))
-               ((eql #\% spec)
-                (incf i 1)
-                (string-stream-push ss #\Newline))))
-          (string-stream-push ss (aref format i))) 
+                ((or (eql #\A spec) (eql #\a spec))
+                 (let ((arg (pop args)))
+                   (incf i 1)
+                   (string-stream-append ss (%format-object-a arg))))
+                ((or (eql #\S spec) (eql #\s spec))
+                 (let ((arg (pop args)))
+                   (incf i 1)
+                   (string-stream-append ss (%format-object-s arg))))
+                ((or (eql #\B spec) (eql #\b spec))
+                 (let ((arg (pop args)))
+                   (unless (fixnump arg)
+                     (signal 'format-error "Not of type FIXNUM" arg))
+                   (incf i 1)
+                   (string-stream-append ss (%format-fixnum arg 2))))
+                ((or (eql #\O spec) (eql #\o spec))
+                 (let ((arg (pop args)))
+                   (unless (fixnump arg)
+                     (signal 'format-error "Not of type FIXNUM" arg))
+                   (incf i 1)
+                   (string-stream-append ss (%format-fixnum arg 8))))
+                ((or (eql #\D spec) (eql #\d spec))
+                 (let ((arg (pop args)))
+                   (unless (fixnump arg)
+                     (signal 'format-error "Not of type FIXNUM" arg))
+                   (incf i 1)
+                   (string-stream-append ss (%format-fixnum arg 10))))
+                ((or (eql #\X spec) (eql #\x spec))
+                 (let ((arg (pop args)))
+                   (unless (fixnump arg)
+                     (signal 'format-error "Not of type FIXNUM" arg))
+                   (incf i 1)
+                   (string-stream-append ss (%format-fixnum arg 16))))
+                ((eql #\~ spec)
+                 (incf i 1)
+                 (string-stream-push ss #\~))
+                ((eql #\% spec)
+                 (incf i 1)
+                 (string-stream-push ss #\Newline))))
+            (string-stream-push ss (aref format i))) 
         (incf i)))
     (string-stream-str ss)))
 
@@ -80,9 +141,14 @@
   "Formats ARGS based on the FORMAT string and prints to STREAM.
 
 Format specifiers begin with the ~ character and include:
-    ~A and ~a : the aesthetic representation of the argument
-    ~~        : the literal character #\~
-    ~%        : the literal character #\Newline
+    ~A and ~a : aesthetic representation of the argument
+    ~S and ~s : syntactic representation
+    ~B and ~b : binary
+    ~O and ~o : octal
+    ~D and ~d : decimal
+    ~X and ~x : hexadecimal
+    ~~        : literal character #\~
+    ~%        : literal character #\Newline
 
 If STREAM is NIL, the formatted string is returned instead of being
 printed.

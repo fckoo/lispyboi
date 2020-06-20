@@ -6,7 +6,7 @@ LDFLAGS := -lreadline -ldl
 
 all: debug
 
-debug: CFLAGS += -O0 -g3 -DDEBUG=3
+debug: CFLAGS += -O1 -g3 -DDEBUG=1
 #debug: CFLAGS += -fsanitize=address -fsanitize-recover=all
 debug: CFLAGS += -fno-omit-frame-pointer -fno-optimize-sibling-calls
 debug: LDFLAGS += -Wl,--export-dynamic

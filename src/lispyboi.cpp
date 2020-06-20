@@ -315,7 +315,14 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                 if (array->type() == LISP_SYM_CHARACTER) {
                     result += '"';
                     auto native = lisp_string_to_native_string(obj);
-                    result += native;
+                    for (auto c : native) {
+                        switch (c) {
+                            default: result += c; break;
+                            case '\t': result += "\\t"; break;
+                            case '\r': result += "\\r"; break;
+                            case '\n': result += "\\n"; break;
+                        }
+                    }
                     result += '"';
                 }
                 else {
@@ -383,15 +390,27 @@ bool is_whitespace(int c)
 static FORCE_INLINE
 bool is_digit(int c)
 {
-    return (c >= '0' && c <= '9');
+    return ('0' <= c && c <= '9');
 }
 
 static FORCE_INLINE
 bool is_hex_digit(int c)
 {
-    return (c >= '0' && c <= '9')
-        || (c >= 'A' && c <= 'F')
-        || (c >= 'a' && c <= 'f');
+    return ('0' <= c && c <= '9')
+        || ('A' <= c && c <= 'F')
+        || ('a' <= c && c <= 'f');
+}
+
+static FORCE_INLINE
+bool is_oct_digit(int c)
+{
+    return '0' <= c && c <= '7';
+}
+
+static FORCE_INLINE
+bool is_bin_digit(int c)
+{
+    return c == '0' || c == '1';
 }
 
 static FORCE_INLINE
@@ -513,12 +532,39 @@ lisp_value lisp::parse(lisp_stream &stream)
                 fixnum result = std::stoll(hexnum, 0, 16);
                 return lisp_value::wrap_fixnum(result);
             }
+            else if (stream.peekc() == 'b' || stream.peekc() == 'B') {
+                stream.getc();
+                std::string binnum;
+                while (is_bin_digit(stream.peekc())) {
+                    binnum += stream.getc();
+                }
+                fixnum result = std::stoll(binnum, 0, 2);
+                return lisp_value::wrap_fixnum(result);
+            }
+            else if (stream.peekc() == 'o' || stream.peekc() == 'O') {
+                stream.getc();
+                std::string octnum;
+                while (is_oct_digit(stream.peekc())) {
+                    octnum += stream.getc();
+                }
+                fixnum result = std::stoll(octnum, 0, 8);
+                return lisp_value::wrap_fixnum(result);
+            }
         }
         else if (stream.peekc() == '"') {
             stream.getc(); // consume opening "
             std::string str;
             while (stream.peekc() != '"') {
-                str += stream.getc();
+                auto c = stream.getc();
+                if (c == '\\') {
+                    c = stream.getc();
+                    switch (c) {
+                        case 'r': c = '\r'; break;
+                        case 't': c = '\t'; break;
+                        case 'n': c = '\n'; break;
+                    }
+                }
+                str += c;
             }
             stream.getc(); // consume closing "
             return lisp_obj::create_string(str);
