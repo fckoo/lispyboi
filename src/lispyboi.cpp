@@ -2044,6 +2044,18 @@ bool effect_free(lisp_value expr)
     return false;
 }
 
+void compile_body(bytecode_emitter &e, lisp_value body, bool tail_position)
+{
+    while (cdr(body).is_not_nil()) {
+        if (!effect_free(car(body))) {
+            compile(e, car(body), false, false);
+            e.emit_pop();
+        }
+        body = cdr(body);
+    }
+    compile(e, car(body), false, tail_position);
+}
+
 void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool toplevel)
 {
     auto name = second(expr);
@@ -2117,14 +2129,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     }
 
     auto lambda_offs = function.position();
-    while (cdr(body).is_not_nil()) {
-        if (!effect_free(car(body))) {
-            compile(function, car(body), false, false);
-            function.emit_pop();
-        }
-        body = cdr(body);
-    }
-    compile(function, car(body), false, true);
+    compile_body(function, body, true);
     function.emit_return();
 
     auto size = function.bytecode().size();
@@ -2348,15 +2353,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
                 if (second(func).is_nil()) {
                     // calling a lambda that takes no arguments is directly inlinable,
                     // no call needed... :)
-                    auto body = cddr(func);
-                    while (cdr(body).is_not_nil()) {
-                        if (!effect_free(car(body))) {
-                            compile(e, car(body), false, false);
-                            e.emit_pop();
-                        }
-                        body = cdr(body);
-                    }
-                    compile(e, car(body), false, tail_position);
+                    compile_body(e, cddr(func), tail_position);
                 }
                 else {
                     compile(e, func, toplevel);
