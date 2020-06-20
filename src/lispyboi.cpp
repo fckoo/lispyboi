@@ -1812,7 +1812,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     push_param(LISP_T);
                 }
                 // @Audit: is this necessary, does it make sense to identity compare objects?
-                else if (a.is_object() && b.is_object() && 
+                else if (a.is_object() && b.is_object() &&
                          (a.as_object()->ptr() == b.as_object()->ptr())) {
                     push_param(LISP_T);
                 }
@@ -2033,7 +2033,19 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
 }
 
 
-void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool toplevel) {
+bool effect_free(lisp_value expr)
+{
+    if (!expr.is_cons()) {
+        return true;
+    }
+    if (car(expr) == LISP_SYM_QUOTE) {
+        return true;
+    }
+    return false;
+}
+
+void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool toplevel)
+{
     auto name = second(expr);
     auto lambda_list = macro ? third(expr) : second(expr);
     auto body = macro ? cdddr(expr) : cddr(expr);
@@ -2106,8 +2118,10 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
 
     auto lambda_offs = function.position();
     while (cdr(body).is_not_nil()) {
-        compile(function, car(body), false, false);
-        function.emit_pop();
+        if (!effect_free(car(body))) {
+            compile(function, car(body), false, false);
+            function.emit_pop();
+        }
         body = cdr(body);
     }
     compile(function, car(body), false, true);
@@ -2336,8 +2350,10 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
                     // no call needed... :)
                     auto body = cddr(func);
                     while (cdr(body).is_not_nil()) {
-                        compile(e, car(body), false, false);
-                        e.emit_pop();
+                        if (!effect_free(car(body))) {
+                            compile(e, car(body), false, false);
+                            e.emit_pop();
+                        }
                         body = cdr(body);
                     }
                     compile(e, car(body), false, tail_position);
