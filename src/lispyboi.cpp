@@ -292,7 +292,7 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                     }
                 }
                 if (optionals_start_at < params.size()) {
-                    result += "&OPTIONAL ";
+                    result += " &OPTIONAL ";
                     for (size_t i = optionals_start_at; i < params.size()-1; ++i) {
                         result += repr(params[i]);
                         result += " ";
@@ -907,8 +907,8 @@ const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lamb
     }
     else {
         // still need to ensure we shadow _all_ of the locals else an optional initializer will set a global var
-        for (size_t j = 0; j < params.size(); ++j) {
-            shadowed_env = shadow(shadowed_env, params[i], LISP_NIL);
+        for (size_t j = i; j < params.size(); ++j) {
+            shadowed_env = shadow(shadowed_env, params[j], LISP_NIL);
         }
     }
     return lambda->begin(i);
