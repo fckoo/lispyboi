@@ -879,7 +879,7 @@ const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lamb
 {
     auto const &params = lambda->params();
     if (params.size() == 0) {
-        return lambda->earliest_entry();
+        return lambda->main_entry();
     }
     // @TODO: Handle case where nargs < params.size();
     lisp_value rest_sym = LISP_NIL;
@@ -904,6 +904,12 @@ const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lamb
     if (rest_sym.is_not_nil() && i == params.size()-1) {
         shadowed_env = shadow(shadowed_env, rest_sym, to_list(args+i, nargs-i));
         i++;
+    }
+    else {
+        // still need to ensure we shadow _all_ of the locals else an optional initializer will set a global var
+        for (size_t j = 0; j < params.size(); ++j) {
+            shadowed_env = shadow(shadowed_env, params[i], LISP_NIL);
+        }
     }
     return lambda->begin(i);
 }
@@ -2035,17 +2041,16 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
             if (param.is_cons()) {
                 compile(function, second(param), false);
                 function.emit_push_value(first(param));
+                function.emit_set_value();
+                function.emit_pop();
+
                 params.push_back(first(param));
             }
+            // There's no need to generate code for "default to nil" optionals because the
+            // argument binder will default them to nil.
             else {
-                function.emit_push_nil();
-                function.emit_push_value(param);
                 params.push_back(param);
             }
-
-            function.emit_set_value();
-            function.emit_pop();
-
             cur = cdr(cur);
         }
     }

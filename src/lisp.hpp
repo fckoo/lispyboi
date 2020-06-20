@@ -416,9 +416,15 @@ struct lisp_lambda {
     
     const uint8_t *earliest_entry() const
     {
-        if (m_optional_initializers->size() == 0)
+        if (!has_optionals()) {
             return m_main_entry;
-        return m_optional_initializers->at(0);
+        }
+        return m_optional_initializers->at(m_optionals_start_at);
+    }
+
+    const uint8_t *main_entry() const
+    {
+        return m_main_entry;
     }
     
     const uint8_t *begin(size_t idx) const
