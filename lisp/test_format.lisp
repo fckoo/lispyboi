@@ -36,3 +36,11 @@
 (assert-string= "(1 2 3 4 . 5)" (format nil "~a" '(1 2 3 4 . 5)))
 
 (assert-string= "(1 (((NIL))) 2)" (format nil "~a" '(1 (((()))) 2)))
+
+
+(assert-string= "15" (format nil "~a" 15))
+(assert-string= "15" (format nil "~s" 15))
+(assert-string= "15" (format nil "~d" 15))
+(assert-string= "F" (format nil "~x" 15))
+(assert-string= "17" (format nil "~o" 15))
+(assert-string= "1111" (format nil "~b" 15))

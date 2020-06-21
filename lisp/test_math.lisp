@@ -54,3 +54,14 @@
 
 (assert-= 123 (abs (- 123)))
 (assert-= 123 (abs 123))
+
+(assert-= 126 (bit-shift 63 1))
+(assert-= 31 (bit-shift 63 -1))
+
+(assert-= 0 (bit-and #xFFFF0000 #x0000FFFF))
+(assert-= #b1111 (bit-ior #b1100 #b0011))
+(assert-= #b1111 (bit-xor #b1010 #b0101))
+(assert-= -1 (bit-not 0))
+(assert-= -2 (bit-not 1))
+(assert-= +most-positive-fixnum+ (bit-not +most-negative-fixnum+))
+(assert-= +most-negative-fixnum+ (bit-not +most-positive-fixnum+))
