@@ -2,6 +2,7 @@
 
 (require "typep")
 (require "defgeneric")
+(require "defstruct")
 (require "file")
 (require "math")
 (require "string-stream")

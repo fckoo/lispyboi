@@ -51,7 +51,8 @@ enum LISP_OBJ_TYPE {
     LAMBDA_TYPE,
     SIMPLE_ARRAY_TYPE,
     FILE_STREAM_TYPE,
-    SYSTEM_POINTER_TYPE
+    SYSTEM_POINTER_TYPE,
+    STRUCT_TYPE,
 };
 
 struct lisp_obj;
@@ -60,10 +61,15 @@ struct lisp_value;
 std::string repr(const lisp_value *obj);
 typedef lisp_value (*lisp_primitive)(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal);
 struct lisp_value {
-    
+g
     using underlying_type = uint64_t;
 
     FORCE_INLINE lisp_value() = default;
+
+    constexpr explicit FORCE_INLINE
+    lisp_value(underlying_type bits) noexcept
+        : v(bits)
+    {}
 
     FORCE_INLINE
     bool operator==(lisp_value other) const noexcept
@@ -308,10 +314,6 @@ struct lisp_value {
         return wide_tag_bits() == WTAG_INVALID;
     }
 
-    constexpr explicit FORCE_INLINE
-    lisp_value(underlying_type bits) noexcept
-        : v(bits)
-    {}
   private:
     /*
       Do not be fooled into thinking this is another layer of indirection.
@@ -405,15 +407,15 @@ struct lisp_lambda {
         , m_endpoint(end)
         , m_optional_initializers(new std::vector<const uint8_t*>(optional_initializers))
     {}
-                
+g
     lisp_lambda *instantiate(lisp_value env) const
     {
-        return new lisp_lambda(env, 
-                               m_params, m_has_rest, m_optionals_start_at, 
-                               m_body, m_main_entry, m_endpoint, 
+        return new lisp_lambda(env,g
+                               m_params, m_has_rest, m_optionals_start_at,g
+                               m_body, m_main_entry, m_endpoint,g
                                m_optional_initializers);
     }
-    
+g
     const uint8_t *earliest_entry() const
     {
         if (!has_optionals()) {
@@ -426,7 +428,7 @@ struct lisp_lambda {
     {
         return m_main_entry;
     }
-    
+g
     const uint8_t *begin(size_t idx) const
     {
         if (idx < m_optional_initializers->size())
@@ -438,17 +440,17 @@ struct lisp_lambda {
     {
         return m_endpoint;
     }
-    
+g
     lisp_value env() const
     {
         return m_env;
     }
-    
+g
     const std::vector<lisp_value> &params() const
     {
         return *m_params;
     }
-    
+g
     bool has_rest() const
     {
         return m_has_rest;
@@ -458,17 +460,17 @@ struct lisp_lambda {
     {
         return m_optionals_start_at != m_params->size();
     }
-    
+g
     size_t optionals_start_at() const
     {
         return m_optionals_start_at;
     }
-    
+g
     lisp_value body() const
     {
         return m_body;
     }
-    
+g
     const std::vector<const uint8_t*> &optional_initializers() const
     {
         return *m_optional_initializers;
@@ -502,6 +504,10 @@ struct lisp_symbol {
     std::string name;
     lisp_value function;
     bool interned;
+    bool is_keyword() constg
+    {
+        return name[0] == ':';
+    }
 };
 
 struct lisp_simple_array {
@@ -582,7 +588,7 @@ struct lisp_stream {
     virtual int peekc() = 0;
     virtual bool eof() = 0;
 };
-        
+g
 struct lisp_file_stream : lisp_stream {
     enum io_mode {
         invalid = 0,
@@ -790,7 +796,29 @@ struct lisp_file_stream : lisp_stream {
     std::string m_path;
     io_mode m_mode;
 };
-        
+
+struct lisp_struct {
+    lisp_struct(lisp_value type, fixnum num_slots)
+        : m_type(type)
+        , m_slots(num_slots)
+    {}
+    lisp_value type() const
+    {
+        return m_type;
+    }
+g
+    lisp_value type_name() const;
+g
+    lisp_simple_array &slots()
+    {
+        return m_slots;
+    }
+g
+  private:
+    lisp_value m_type;
+    lisp_simple_array m_slots;
+};
+g
 struct lisp_obj {
     lisp_obj() {}
     ~lisp_obj() {}
@@ -819,7 +847,7 @@ struct lisp_obj {
     {
         return u.file_stream;
     }
-    
+g
     inline void *ptr()
     {
         return u.ptr;
@@ -834,7 +862,12 @@ struct lisp_obj {
     {
         u.ptr = p;
     }
-    
+g
+    inline lisp_struct *structure()
+    {
+        return u.structure;
+    }
+g
     static inline
     lisp_value wrap_pointer(void *ptr)
     {
@@ -873,14 +906,14 @@ struct lisp_obj {
     }
 
     static inline
-    lisp_value create_lambda(lisp_value env, 
+    lisp_value create_lambda(lisp_value env,g
                              std::vector<lisp_value> &&params, bool has_rest, int optionals_start_at,
-                             lisp_value body, const uint8_t *main_entry, const uint8_t *end, 
+                             lisp_value body, const uint8_t *main_entry, const uint8_t *end,g
                              std::vector<const uint8_t*> &&optionals)
     {
-        return create_lambda(new lisp_lambda(env, 
-                                             std::move(params), has_rest, optionals_start_at, 
-                                             body, main_entry, end, 
+        return create_lambda(new lisp_lambda(env,g
+                                             std::move(params), has_rest, optionals_start_at,g
+                                             body, main_entry, end,g
                                              std::move(optionals)));
     }
 
@@ -948,6 +981,15 @@ struct lisp_obj {
     {
         return create_string(str.data(), str.size());
     }
+g
+    static
+    lisp_value create_struct(lisp_value type, fixnum num_slots)
+    {
+        auto ret = new lisp_obj();
+        ret->m_type = STRUCT_TYPE;
+        ret->u.structure = new lisp_struct(type, num_slots);
+        return lisp_value::wrap_object(ret);
+    }
 
     static
     lisp_value standard_input_stream()
@@ -980,6 +1022,7 @@ struct lisp_obj {
         lisp_lambda *lambda;
         lisp_simple_array *simple_array;
         lisp_file_stream *file_stream;
+        lisp_struct *structure;
         void *ptr;
     } u;
 };
@@ -1105,7 +1148,7 @@ static inline lisp_value list(tfirst first, trest... rest)
 
 
 static FORCE_INLINE
-lisp_value to_list(const lisp_value *vals, uint32_t nvals) 
+lisp_value to_list(const lisp_value *vals, uint32_t nvals)g
 {
     switch (nvals) {
         case 0: return LISP_NIL;
@@ -1174,6 +1217,13 @@ lisp_value symbol_lookup(lisp_value env, lisp_value symbol)
     }
     return LISP_NIL;
 }
+
+FORCE_INLINE
+lisp_value lisp_struct::type_name() const
+{
+    return car(m_type);
+}
+
 
 }
 

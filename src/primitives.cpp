@@ -29,6 +29,7 @@ using namespace lisp;
 #define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_SYMBOL)
 #define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
 #define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(SYSTEM_POINTER_TYPE), LISP_SYM_SYSTEM_POINTER)
+#define CHECK_STRUCT(what) TYPE_CHECK(what, is_type(STRUCT_TYPE), intern_symbol("STRUCTURE"))
 
 #define CHECK_FUNCTION(what)                                            \
     do {                                                                \
@@ -352,6 +353,7 @@ lisp_value lisp_prim_type_of(lisp_value, lisp_value *args, uint32_t nargs, bool 
             };
             case FILE_STREAM_TYPE: return LISP_SYM_FILE_STREAM;
             case SYSTEM_POINTER_TYPE: return LISP_SYM_SYSTEM_POINTER;
+            case STRUCT_TYPE: return it.as_object()->structure()->type_name();
         }
         return LISP_NIL;
     }
@@ -1155,6 +1157,50 @@ lisp_value lisp_prim_ffi_coerce_string(lisp_value, lisp_value *args, uint32_t na
     return lisp_obj::create_string(ptr, len);
 }
 
+lisp_value lisp_prim_create_instance(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (create-instance type &rest slots)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto instance = lisp_obj::create_struct(args[0], nargs-1);
+    if (nargs > 1) {
+        auto &slots = instance.as_object()->structure()->slots();
+        for (uint32_t i = 1; i < nargs; ++i) {
+            slots.set(i-1, args[i]);
+        }
+    }
+    return instance;
+}
+
+lisp_value lisp_prim_get_slot(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (get-slot object n)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_STRUCT(args[0]);
+    auto &slots = args[0].as_object()->structure()->slots();
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    return slots.get(index);
+}
+
+lisp_value lisp_prim_set_slot(lisp_value, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (set-slot object n value)
+     */
+    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_STRUCT(args[0]);
+    auto &slots = args[0].as_object()->structure()->slots();
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    auto value = args[2];
+    slots.set(index, value);
+    return value;
+}
+
 
 static inline
 void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
@@ -1214,6 +1260,9 @@ void primitives::bind_primitives(lisp_value &environment)
 
     bind_primitive("%DEFINE-FUNCTION", lisp_prim_define_function);
     bind_primitive("%FUNCTION-DEFINITION", lisp_prim_function_definition);
+    bind_primitive("%CREATE-INSTANCE", lisp_prim_create_instance);
+    bind_primitive("%GET-SLOT", lisp_prim_get_slot);
+    bind_primitive("%SET-SLOT", lisp_prim_set_slot);
 
     bind_primitive("GET-WORKING-DIRECTORY", lisp_prim_get_working_directory);
     bind_primitive("CHANGE-DIRECTORY", lisp_prim_change_directory);

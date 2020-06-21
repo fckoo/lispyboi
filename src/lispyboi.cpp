@@ -342,17 +342,23 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
                 }
             } break;
             case FILE_STREAM_TYPE: {
+                auto f = obj.as_object()->file_stream();
                 result += "#<FILE-STREAM ";
-                result += obj.as_object()->file_stream()->path();
+                result += f->path();
                 result += " :OK ";
-                result += obj.as_object()->file_stream()->ok() ? "T" : "NIL";
+                result += f->ok() ? "T" : "NIL";
                 result += " :EOF ";
-                result += obj.as_object()->file_stream()->eof() ? "T" : "NIL";
+                result += f->eof() ? "T" : "NIL";
                 result += ">";
             } break;
             case SYSTEM_POINTER_TYPE: {
                 ss << "#<SYSTEM-POINTER 0x" << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->ptr()) << ">";
                 result = ss.str();
+            } break;
+            case STRUCT_TYPE: {
+                result += "#S(";
+                result += repr(obj.as_object()->structure()->type_name());
+                result += ")";
             } break;
         }
     }
@@ -1660,6 +1666,9 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
             case bytecode_op::op_get_value: {
                 auto sym = *reinterpret_cast<const lisp_value*>(ip+1);
                 if (sym == LISP_T) push_param(sym);
+                else if (sym.as_object()->symbol()->is_keyword()) {
+                    push_param(sym);
+                }
                 else {
                     auto val = symbol_lookup(env, sym);
                     if (val.is_nil()) {
