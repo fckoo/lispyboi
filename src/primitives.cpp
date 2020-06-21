@@ -131,6 +131,72 @@ lisp_value lisp_prim_divide(lisp_value env, lisp_value *args, uint32_t nargs, bo
     return lisp_value::wrap_fixnum(x / y);
 }
 
+lisp_value lisp_prim_bit_not(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-not x)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto x = args[0].as_fixnum();
+    return lisp_value::wrap_fixnum(~x);
+}
+
+lisp_value lisp_prim_bit_and(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-and x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return lisp_value::wrap_fixnum(x & y);
+}
+
+lisp_value lisp_prim_bit_or(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-or x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return lisp_value::wrap_fixnum(x | y);
+}
+
+lisp_value lisp_prim_bit_xor(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-xor x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return lisp_value::wrap_fixnum(x ^ y);
+}
+
+lisp_value lisp_prim_bit_shift(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-shift integer count)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto integer = args[0].as_fixnum();
+    auto count = args[1].as_fixnum();
+    if (count > 0) {
+        return lisp_value::wrap_fixnum(integer << count);
+    }
+    return lisp_value::wrap_fixnum(integer >> -count);
+}
+
 lisp_value lisp_prim_print(lisp_value env, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -1177,6 +1243,12 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("FFI-SET-REF-16", lisp_prim_ffi_set_ref_16);
     bind_primitive("FFI-SET-REF-32", lisp_prim_ffi_set_ref_32);
     bind_primitive("FFI-SET-REF-64", lisp_prim_ffi_set_ref_64);
+
+    bind_primitive("BIT-NOT", lisp_prim_bit_not);
+    bind_primitive("BIT-AND", lisp_prim_bit_and);
+    bind_primitive("BIT-IOR", lisp_prim_bit_or);
+    bind_primitive("BIT-XOR", lisp_prim_bit_xor);
+    bind_primitive("BIT-SHIFT", lisp_prim_bit_shift);
 
     bind_value(environment, "*STANDARD-INPUT*", lisp_obj::standard_input_stream());
     bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
