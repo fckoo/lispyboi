@@ -1568,10 +1568,11 @@ void lisp_vm_state::debug_dump(std::ostream &out, const std::string &tag, const 
 const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
 {
 
-#define TYPE_CHECK(what, typecheck, expected) do {                      \
+#define TYPE_CHECK(what, typecheck, expected)                           \
+    do {                                                                \
         if (!(what).typecheck) {                                        \
             signal_args = list(LISP_SYM_TYPE_ERROR, (expected), (what)); \
-            goto raise_signal;                                         \
+            goto raise_signal;                                          \
         }                                                               \
     } while (0)
 
@@ -2168,6 +2169,45 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     }
 }
 
+void compile_function_call(bytecode_emitter &e, lisp_value func, lisp_value args, bool toplevel, bool tail_position, bool funcall)
+{
+    uint32_t nargs = 0;
+    while (args.is_not_nil()) {
+        compile(e, car(args), toplevel);
+        nargs++;
+        args = cdr(args);
+    }
+    if (func.is_cons() && first(func) == LISP_SYM_LAMBDA) {
+        if (second(func).is_nil()) {
+            // calling a lambda that takes no arguments is directly inlinable,
+            // no call needed... :)
+            compile_body(e, cddr(func), tail_position);
+            return;
+        }
+        else {
+            compile(e, func, toplevel);
+        }
+    }
+    else if (funcall) {
+        if (func.is_type(SYM_TYPE)) {
+            e.emit_get_value(func);
+        }
+        else {
+            compile(e, func, toplevel);
+        }
+    }
+    else {
+        e.emit_push_value(func);
+    }
+
+    if (tail_position) {
+        e.emit_gotocall(nargs);
+    }
+    else {
+        e.emit_funcall(nargs);
+    }
+}
+
 void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position)
 {
     static auto perc_SIGNAL = intern_symbol("%SIGNAL");
@@ -2272,22 +2312,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             }
         }
         else if (thing == LISP_SYM_FUNCALL) {
-            auto func = second(expr);
-            auto args = cddr(expr);
-            uint32_t nargs = 0;
-            while (args.is_not_nil()) {
-                compile(e, car(args), toplevel);
-                nargs++;
-                args = cdr(args);
-            }
-            if (func.is_type(SYM_TYPE)) {
-                e.emit_get_value(func);
-                e.emit_funcall(nargs);
-            }
-            else {
-                compile(e, func, toplevel);
-                e.emit_funcall(nargs);
-            }
+            compile_function_call(e, second(expr), cddr(expr), toplevel, tail_position, true);
         }
         else if (thing == perc_CONS) {
             compile(e, second(expr), toplevel);
@@ -2341,38 +2366,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             e.emit_aset();
         }
         else {
-            auto func = first(expr);
-            auto args = rest(expr);
-            uint32_t nargs = 0;
-            while (args.is_not_nil()) {
-                compile(e, car(args), toplevel);
-                nargs++;
-                args = cdr(args);
-            }
-            if (func.is_cons() && first(func) == LISP_SYM_LAMBDA) {
-                if (second(func).is_nil()) {
-                    // calling a lambda that takes no arguments is directly inlinable,
-                    // no call needed... :)
-                    compile_body(e, cddr(func), tail_position);
-                }
-                else {
-                    compile(e, func, toplevel);
-                    if (tail_position) {
-                        e.emit_gotocall(nargs);
-                    }
-                    else {
-                        e.emit_funcall(nargs);
-                    }
-                }
-            }
-            else {
-                if (tail_position) {
-                    e.emit_gotocall(func, nargs);
-                }
-                else {
-                    e.emit_funcall(func, nargs);
-                }
-            }
+            compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
         }
     }
     else if (expr.is_type(SYM_TYPE)) {
