@@ -1,5 +1,7 @@
 (provide "stdlib")
 
+(require "typep")
+(require "defgeneric")
 (require "file")
 (require "math")
 (require "string-stream")
@@ -8,5 +10,3 @@
 (require "asserts")
 (require "hash-table")
 (require "string-stream")
-
-

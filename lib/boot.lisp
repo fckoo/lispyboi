@@ -279,6 +279,15 @@
                          (reverse accum))))
             (map-aux nil seqs)))))
 
+(defun filter1 (func seq)
+  (labels ((filter1-aux (accum list)
+             (if list
+                 (if (funcall func (car list))
+                     (filter1-aux (cons (car list) accum) (cdr list))
+                     (filter1-aux accum (cdr list)))
+                 (reverse accum))))
+    (filter1-aux nil seq)))
+
 (defmacro and (&rest exprs)
   (labels ((and-helper (args)
              (if (null (cdr args))
