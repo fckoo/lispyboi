@@ -1,3 +1,5 @@
+(provide "asserts")
+
 (defmacro assert-true (expr)
   (let ((tmp-var-name (gensym)))
     `(let ((,tmp-var-name ,expr))
@@ -57,4 +59,4 @@
 (defmacro assert-string/= (expected actual)
   (%assert 'string/= expected actual))
 
-(provide "asserts")
+

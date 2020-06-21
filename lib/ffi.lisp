@@ -1,4 +1,4 @@
-
+(provide "ffi")
 
 (require "math")
 
@@ -107,7 +107,3 @@
             functions)
       (push 'progn functions)
       functions)))
-
-
-
-(provide "ffi")

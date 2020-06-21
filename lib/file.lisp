@@ -1,3 +1,4 @@
+(provide "file")
 
 (defmacro open (file-path direction) `(%open ,file-path ,direction))
 (defun open (file-path direction) (open file-path direction))
@@ -40,10 +41,8 @@
   (let ((ss (make-string-stream)))
     (until (or (file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
-           (string-stream-push ss (file-read-character file-stream)))
+      (string-stream-push ss (file-read-character file-stream)))
     (when (and (not file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
       (file-read-byte file-stream))
     (string-stream-str ss)))
-
-(provide "file")

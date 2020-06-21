@@ -1,4 +1,4 @@
-
+(provide "string-stream")
 (require "setf")
 
 (defun make-string-stream ()
@@ -47,5 +47,3 @@
   (let ((string (make-array (string-stream-length string-stream) 'character)))
     (%string-copy string (string-stream-buffer string-stream) (string-stream-length string-stream))
     string))
-
-(provide "string-stream")

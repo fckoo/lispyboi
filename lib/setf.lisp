@@ -1,3 +1,4 @@
+(provide "setf")
 
 (defun set-cadr (obj val)
   (setf (car (cdr obj)) val))
@@ -21,5 +22,3 @@
 (defsetf third set-caddr)
 (defsetf fourth set-cadddr)
 (defsetf fifth set-caddddr)
-
-(provide "setf")

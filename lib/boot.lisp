@@ -171,11 +171,11 @@
 (defmacro unless (test &body body)
   (list 'if test nil (cons 'progn body)))
 
-(defun assoc (item alist)
+(defun assoc (item alist &optional (test #'eq))
   (when alist
-    (if (eq item (caar alist))
+    (if (funcall test item (caar alist))
         (car alist)
-        (assoc item (cdr alist)))))
+        (assoc item (cdr alist) test))))
 
 (defun member (item list &optional (test #'eql))
   (when list
@@ -691,4 +691,4 @@
 (load "modules.lisp")
 
 (provide "boot")
-
+(require "stdlib")
