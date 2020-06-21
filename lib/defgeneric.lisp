@@ -17,17 +17,20 @@
          nil))))
 
 
-(defmacro defmethod (fun-name lambda-list &body body)
+(defmacro defmethod (fun-name args &body body)
   (let ((define-method (intern (concatenate "%DEFINE-METHOD-" (symbol-name fun-name)))))
-    (let ((first-type (if (consp (first lambda-list))
-                          (second (first lambda-list))
-                          t))
-          (first-name (if (consp (first lambda-list))
-                          (first (first lambda-list))
-                          (first lambda-list))))
-      `(,define-method
-           ',first-type
-           (lambda ,(cons first-name (rest lambda-list))
-             ,@body)))))
+    (let* ((first-type (if (consp (first args))
+                           (second (first args))
+                           t))
+           (first-name (if (consp (first args))
+                           (first (first args))
+                           (first args)))
+           (lambda-list (cons first-name (rest args))))
+      `(progn
+         ,@(when (null (%function-definition define-method))
+             (list (list 'defgeneric fun-name lambda-list)))
+         (,define-method
+             ',first-type
+             (lambda ,lambda-list ,@body))))))
 
 
