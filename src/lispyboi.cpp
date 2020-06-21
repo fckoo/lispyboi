@@ -464,9 +464,10 @@ lisp_value lisp::parse(lisp_stream &stream)
                 stream.getc();
             }
         }
-        if (is_digit(stream.peekc())) {
+        if (stream.peekc() == '-' || stream.peekc() == '+' || is_digit(stream.peekc())) {
             std::string number_str;
             number_str += stream.getc();
+            char firstc = number_str[0];
             while (is_digit(stream.peekc())) {
                 number_str += stream.getc();
             }
@@ -474,6 +475,9 @@ lisp_value lisp::parse(lisp_stream &stream)
             bool is_number = !is_symbol_char(stream.peekc());
             while (is_symbol_char(stream.peekc())) {
                 number_str += stream.getc();
+            }
+            if (is_number && (firstc == '-' || firstc == '+') && number_str.size() == 1) {
+                is_number = false;
             }
 
             if (is_number) {
