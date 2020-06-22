@@ -1,4 +1,4 @@
-
+(provide "socket")
 (require "ffi")
 (require "format")
 
@@ -96,4 +96,3 @@
       (prog1 (ffi-coerce-string buffer bytes-read)
         (ffi-free buffer)))))
 
-(provide "socket")

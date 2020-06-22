@@ -1,4 +1,4 @@
-
+(provide "format")
 (require "math")
 (require "string-stream")
 
@@ -164,4 +164,4 @@ NIL is returned."
         formatted)))
 
 
-(provide "format")
+
