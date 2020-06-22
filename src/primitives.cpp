@@ -267,23 +267,23 @@ lisp_value lisp_prim_num_greater(lisp_value *args, uint32_t nargs, bool &raised_
 }
 
 
-lisp_value lisp_prim_write_stream(lisp_value *args, uint32_t nargs, bool &raised_signal)
+lisp_value lisp_prim_file_write(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (write-stream stream object)
+        (file-write stream object)
     */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_FILE_STREAM(args[0]);
     auto stream = args[0].as_object()->file_stream();
     auto obj = args[1];
-    stream->write(repr(obj));
-    return obj;
+    auto bytes_written = stream->write(repr(obj));
+    return lisp_value::wrap_fixnum(bytes_written);
 }
 
-lisp_value lisp_prim_putchar(lisp_value *args, uint32_t nargs, bool &raised_signal)
+lisp_value lisp_prim_file_putchar(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (putchar stream character)
+        (file-putchar stream character)
     */
 
     CHECK_EXACTLY_N(nargs, 2);
@@ -1197,8 +1197,6 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%<", lisp_prim_num_less);
     bind_primitive("%=", lisp_prim_num_equal);
     bind_primitive("%>", lisp_prim_num_greater);
-    bind_primitive("%WRITE-STREAM", lisp_prim_write_stream);
-    bind_primitive("%PUTCHAR", lisp_prim_putchar);
     bind_primitive("%TYPE-OF", lisp_prim_type_of);
     bind_primitive("%READ", lisp_prim_read);
     bind_primitive("%MACRO-EXPAND", lisp_prim_macro_expand);
@@ -1223,6 +1221,8 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%FILE-EOF-P", lisp_prim_file_eof);
     bind_primitive("%FILE-OK-P", lisp_prim_file_ok);
     bind_primitive("%FILE-FLUSH", lisp_prim_file_flush);
+    bind_primitive("%FILE-WRITE", lisp_prim_file_write);
+    bind_primitive("%FILE-PUTCHAR", lisp_prim_file_putchar);
     bind_primitive("%FILE-READ-BYTE", lisp_prim_file_read_byte);
     bind_primitive("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
     bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
