@@ -5,11 +5,13 @@
   (defun %defstruct (struct-name slot-descriptions)
     (let* ((ctor (intern (concatenate "MAKE-" (symbol-name struct-name))))
            (slot-names (map1 #'first slot-descriptions))
+           (slot-initializers (map1 (lambda (desc) (list (first desc) (second desc)))
+                                    slot-descriptions))
            (slot-indices (let ((i -1)) (map1 (lambda (e) (incf i)) slot-descriptions)))
            (type (list struct-name :slot-names slot-names)))
       (push type struct-type-registry)
       `(progn
-         (defun ,ctor ,slot-names
+         (defun ,ctor (&optional ,@slot-initializers)
            (let ((instance (%create-instance ',type ,(length slot-names))))
              ,@(map (lambda (slot-name index) `(%set-slot instance ,index ,slot-name))
                     slot-names
