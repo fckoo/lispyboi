@@ -24,19 +24,19 @@
           (string-stream-push ss #\-))
         (reverse-string (string-stream-str ss)))))
 
-(defun %format-cons-a (cons)
+(defun %format-cons (cons format-object-func)
   (let ((ss (make-string-stream)))
     (string-stream-push ss #\()
     (while (consp (cdr cons))
-      (string-stream-append ss (%format-object-a (car cons)))
+      (string-stream-append ss (funcall format-object-func (car cons)))
       (string-stream-push ss #\Space)
       (setf cons (cdr cons)))
     (cond ((null (cdr cons))
-           (string-stream-append ss (%format-object-a (car cons))))
+           (string-stream-append ss (funcall format-object-func (car cons))))
           (t
-           (string-stream-append ss (%format-object-a (car cons)))
+           (string-stream-append ss (funcall format-object-func (car cons)))
            (string-stream-append ss " . ")
-           (string-stream-append ss (%format-object-a (cdr cons)))))
+           (string-stream-append ss (funcall format-object-func (cdr cons)))))
     (string-stream-push ss #\))
     (string-stream-str ss)))
 
@@ -52,7 +52,7 @@
         ((fixnump object) (%format-fixnum object))
         ((characterp object) (make-string object))
         ((null object) "NIL")
-        ((consp object) (%format-cons-a object))
+        ((consp object) (%format-cons object #'%format-object-a))
         (t "??")))
 
 (defun %format-escape-string (string)
@@ -75,13 +75,13 @@
         ((fixnump object) (%format-fixnum object))
         ((characterp object)
          (case object
-           (#\newline "#\Newline")
-           (#\tab "#\Tab")
-           (#\space "#\Space")
-           (#\return "#\Return")
-           (t (make-string #\# #\\ object))))
+           (#\newline "#\\\\Newline")
+           (#\tab "#\\\\Tab")
+           (#\space "#\\\\Space")
+           (#\return "#\\\\Return")
+           (t (make-string #\# #\\ #\\ object))))
         ((null object) "NIL")
-        ((consp object) (%format-cons-a object))
+        ((consp object) (%format-cons object #'%format-object-s))
         (t "??")))
 
 
@@ -159,7 +159,8 @@ NIL is returned."
     (when (eq t stream)
       (setf stream *STANDARD-OUTPUT*))
     (if stream
-        (and (print formatted stream) nil)
+        (progn (print formatted stream)
+               nil)
         formatted)))
 
 
