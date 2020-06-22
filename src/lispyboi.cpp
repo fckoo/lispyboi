@@ -995,10 +995,10 @@ bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &ou
     return found;
 }
 
-lisp_value lisp::apply(lisp_value env, lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal)
+lisp_value lisp::apply(lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     if (function.is_lisp_primitive()) {
-        return function.as_lisp_primitive()(env, args, nargs, raised_signal);
+        return function.as_lisp_primitive()(args, nargs, raised_signal);
     }
     if (function.is_type(LAMBDA_TYPE)) {
         auto lambda = function.as_object()->lambda();
@@ -1055,7 +1055,7 @@ lisp_value zip3(lisp_value a, lisp_value b, lisp_value c)
 }
 
 static
-lisp_value macro_expand_impl(lisp_value obj, lisp_value env)
+lisp_value macro_expand_impl(lisp_value obj)
 {
     if (!obj.is_cons()) {
         return obj;
@@ -1066,34 +1066,34 @@ lisp_value macro_expand_impl(lisp_value obj, lisp_value env)
             return obj;
         }
         if (car == LISP_SYM_IF) {
-            auto condition = macro_expand_impl(second(obj), env);
-            auto consequence = macro_expand_impl(third(obj), env);
-            auto alternative = macro_expand_impl(fourth(obj), env);
+            auto condition = macro_expand_impl(second(obj));
+            auto consequence = macro_expand_impl(third(obj));
+            auto alternative = macro_expand_impl(fourth(obj));
             return list(LISP_SYM_IF, condition, consequence, alternative);
         }
         if (car == LISP_SYM_DEFMACRO) {
             auto macro_name = second(obj);
             auto params_list = third(obj);
-            auto body = map(cdddr(obj), macro_expand_impl, env);
+            auto body = map(cdddr(obj), macro_expand_impl);
             return cons(LISP_SYM_DEFMACRO, cons(macro_name, cons(params_list, body)));
         }
         if (car == LISP_SYM_LAMBDA) {
             auto args = second(obj);
-            auto body = map(cddr(obj), macro_expand_impl, env);
+            auto body = map(cddr(obj), macro_expand_impl);
             return cons(LISP_SYM_LAMBDA, cons(args, body));
         }
         if (car == LISP_SYM_SETQ) {
             auto variable_name = second(obj);
-            auto value = macro_expand_impl(third(obj), env);
+            auto value = macro_expand_impl(third(obj));
             return list(LISP_SYM_SETQ, variable_name, value);
         }
         if (car == LISP_SYM_HANDLER_CASE) {
-            auto form = macro_expand_impl(second(obj), env);
+            auto form = macro_expand_impl(second(obj));
             auto handlers = cddr(obj);
             auto handler_tags = map(handlers, first);
             auto handler_lambda_lists = map(handlers, second);
             auto handler_bodies = map(handlers, cddr);
-            auto expanded_bodies = map(handler_bodies, macro_expand_impl, env);
+            auto expanded_bodies = map(handler_bodies, macro_expand_impl);
             auto expanded_handlers = zip3(handler_tags, handler_lambda_lists, expanded_bodies);
             return cons(LISP_SYM_HANDLER_CASE, cons(form, expanded_handlers));
         }
@@ -1104,18 +1104,18 @@ lisp_value macro_expand_impl(lisp_value obj, lisp_value env)
             auto args = rest(obj);
             bool raised_signal = false;
             auto vec = to_vector(args);
-            auto expand1 = apply(env, function, vec.data(), vec.size(), raised_signal);
-            auto expand_all = macro_expand_impl(expand1, env);
+            auto expand1 = apply(function, vec.data(), vec.size(), raised_signal);
+            auto expand_all = macro_expand_impl(expand1);
             return expand_all;
         }
     }
-    return map(obj, macro_expand_impl, env);
+    return map(obj, macro_expand_impl);
 }
 
 
 lisp_value lisp::macro_expand(lisp_value obj)
 {
-    return macro_expand_impl(obj, LISP_BASE_ENVIRONMENT);
+    return macro_expand_impl(obj);
 }
 
 
@@ -1618,7 +1618,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                         pop_return();
                     }
                     bool raised_signal = false;
-                    auto result = func.as_lisp_primitive()(env, args, nargs, raised_signal);
+                    auto result = func.as_lisp_primitive()(args, nargs, raised_signal);
                     if (raised_signal) {
                         signal_args = result;
                         goto raise_signal;
@@ -1897,14 +1897,14 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
     abort();
 }
 
-lisp_value lisp_prim_disassemble(lisp_value, lisp_value *args, uint32_t nargs, bool &)
+lisp_value lisp_prim_disassemble(lisp_value *args, uint32_t nargs, bool &)
 {
     if (nargs != 1) {
         return LISP_NIL;
     }
     auto expr = args[0];
     if (expr.is_cons()) {
-        auto expanded = macro_expand_impl(expr, LISP_BASE_ENVIRONMENT);
+        auto expanded = macro_expand_impl(expr);
         bytecode_emitter e;
         compile(e, expanded, true);
         disassemble(std::cout, "DISASSEMBLY", e);
@@ -1927,7 +1927,7 @@ lisp_value lisp_prim_disassemble(lisp_value, lisp_value *args, uint32_t nargs, b
     return LISP_NIL;
 }
 
-lisp_value lisp_prim_debugger(lisp_value, lisp_value *args, uint32_t nargs, bool &)
+lisp_value lisp_prim_debugger(lisp_value *args, uint32_t nargs, bool &)
 {
     if (nargs == 0 || args[0].is_not_nil()) {
         LISP_SINGLE_STEP_DEBUGGER = true;
@@ -1939,7 +1939,7 @@ lisp_value lisp_prim_debugger(lisp_value, lisp_value *args, uint32_t nargs, bool
     }
 }
 
-lisp_value lisp_prim_get_num_handlers(lisp_value, lisp_value*, uint32_t, bool &)
+lisp_value lisp_prim_get_num_handlers(lisp_value*, uint32_t, bool &)
 {
     return lisp_value::wrap_fixnum(THE_LISP_VM->num_handlers());
 }
@@ -2394,15 +2394,15 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
 }
 
 
-lisp_value lisp::evaluate(lisp_value env, lisp_value expr)
+lisp_value lisp::evaluate(lisp_value expr)
 {
     bytecode_emitter e;
-    auto expanded = macro_expand_impl(expr, LISP_BASE_ENVIRONMENT);
+    auto expanded = macro_expand_impl(expr);
     compile(e, expanded, true);
     e.emit_halt();
 
     lisp_vm_state vm;
-    vm.execute(e.bytecode().data(), env);
+    vm.execute(e.bytecode().data(), LISP_BASE_ENVIRONMENT);
     return vm.param_top();
 }
 
@@ -2431,7 +2431,7 @@ void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_
             abort();
         }
         bytecode_emitter e;
-        auto expanded = macro_expand_impl(parsed, LISP_BASE_ENVIRONMENT);
+        auto expanded = macro_expand_impl(parsed);
         compile(e, expanded, true);
         e.emit_halt();
         auto ip = e.bytecode().data();
@@ -2461,7 +2461,7 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
             break;
         }
         bytecode_emitter e;
-        auto expanded = macro_expand_impl(parsed, LISP_BASE_ENVIRONMENT);
+        auto expanded = macro_expand_impl(parsed);
         compile(e, expanded, true);
         e.emit_halt();
         auto ip = e.bytecode().data();

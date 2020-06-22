@@ -62,9 +62,9 @@
 (defun /= (&rest vals) (not (apply #'%= vals)))
 
 (defmacro putchar (character &optional (stm *standard-output*))
-  (list '%putchar character stm))
+  (list '%putchar stm character))
 (defun putchar (character &optional (stm *standard-output*))
-  (putchar character stm))
+  (putchar stm character))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
@@ -611,7 +611,7 @@
   (cond ((stringp object)
          (dotimes (i (array-length object))
            (putchar (aref object i) stm)))
-        (t (%print object stm)))
+        (t (%write-stream stm object)))
   object)
 
 (defun print-line (object &optional (stm *standard-output*))
