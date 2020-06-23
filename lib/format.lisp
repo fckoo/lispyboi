@@ -159,9 +159,6 @@ NIL is returned."
     (when (eq t stream)
       (setf stream *STANDARD-OUTPUT*))
     (if stream
-        (progn (print formatted stream)
+        (progn (stream-puts stream formatted)
                nil)
         formatted)))
-
-
-

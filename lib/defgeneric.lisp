@@ -32,5 +32,3 @@
          (,define-method
              ',first-type
              (lambda ,lambda-list ,@body))))))
-
-

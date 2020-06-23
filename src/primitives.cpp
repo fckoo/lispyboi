@@ -30,6 +30,7 @@ using namespace lisp;
 #define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
 #define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(SYSTEM_POINTER_TYPE), LISP_SYM_SYSTEM_POINTER)
 #define CHECK_STRUCT(what) TYPE_CHECK(what, is_type(STRUCT_TYPE), intern_symbol("STRUCTURE"))
+#define CHECK_STRING(what) // TODO
 
 #define CHECK_FUNCTION(what)                                            \
     do {                                                                \
@@ -295,6 +296,20 @@ lisp_value lisp_prim_file_putchar(lisp_value *args, uint32_t nargs, bool &raised
     if (codepoint == '\n') {
         stm->flush();
     }
+    return lisp_value::wrap_fixnum(bytes_written);
+}
+
+lisp_value lisp_prim_file_puts(lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-puts stream string)
+    */
+
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FILE_STREAM(args[0]);
+    auto stream = args[0].as_object()->file_stream();
+    CHECK_STRING(args[1]);
+    auto bytes_written = stream->write(lisp_string_to_native_string(args[1]));
     return lisp_value::wrap_fixnum(bytes_written);
 }
 
@@ -1233,6 +1248,7 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%FILE-FLUSH", lisp_prim_file_flush);
     bind_primitive("%FILE-WRITE", lisp_prim_file_write);
     bind_primitive("%FILE-PUTCHAR", lisp_prim_file_putchar);
+    bind_primitive("%FILE-PUTS", lisp_prim_file_puts);
     bind_primitive("%FILE-READ-BYTE", lisp_prim_file_read_byte);
     bind_primitive("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
     bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
