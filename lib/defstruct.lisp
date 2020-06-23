@@ -23,11 +23,7 @@
       (push type struct-type-registry)
       `(progn
          (defun ,ctor (&optional ,@slot-initializers)
-           (let ((instance (%create-instance ',type ,(length slot-names))))
-             ,@(map (lambda (slot-name index) `(%set-slot instance ,index ,slot-name))
-                    slot-names
-                    slot-indices)
-             instance))
+           (%create-instance ',type ,@slot-names))
          (defun ,type-predicate (object)
            (eq ',struct-name (type-of object)))
          ,@(map (lambda (getter-name index)
@@ -63,11 +59,9 @@
     (index-of-aux 0 list)))
 
 (defun slot-index (object slot-name)
-  (let ((type (type-definition (type-of object))))
-    (if type
-        (let* ((slots (second (member :slot-names (rest type))))
-               (slot-index (index-of slot-name slots)))
-          slot-index))))
+  (index-of slot-name
+            (second (member :slot-names
+                            (rest (%structure-definition object))))))
 
 (defun slot-value (object slot-name)
   (let ((index (slot-index object slot-name)))

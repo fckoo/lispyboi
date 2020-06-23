@@ -1127,6 +1127,16 @@ lisp_value lisp_prim_ffi_coerce_string(lisp_value *args, uint32_t nargs, bool &r
     return lisp_obj::create_string(ptr, len);
 }
 
+lisp_value lisp_prim_structure_definition(lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (structure-definition object)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_STRUCT(args[0]);
+    return args[0].as_object()->structure()->type();
+}
+
 lisp_value lisp_prim_create_instance(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -1229,6 +1239,7 @@ void primitives::bind_primitives(lisp_value &environment)
 
     bind_primitive("%DEFINE-FUNCTION", lisp_prim_define_function);
     bind_primitive("%FUNCTION-DEFINITION", lisp_prim_function_definition);
+    bind_primitive("%STRUCTURE-DEFINITION", lisp_prim_structure_definition);
     bind_primitive("%CREATE-INSTANCE", lisp_prim_create_instance);
     bind_primitive("%GET-SLOT", lisp_prim_get_slot);
     bind_primitive("%SET-SLOT", lisp_prim_set_slot);

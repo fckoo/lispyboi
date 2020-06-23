@@ -13,4 +13,16 @@
   (assert-= 10000 (setf (point-y pt) 10000))
 
   (assert-= 999 (point-x pt))
-  (assert-= 10000 (point-y pt)))
+  (assert-= 10000 (point-y pt))
+
+
+  (assert-= 999 (slot-value pt 'x))
+  (assert-= 10000 (slot-value pt 'y))
+
+  (assert-= 42 (setf (slot-value pt 'x) 42))
+  (assert-= 420 (setf (slot-value pt 'y) 420))
+
+  (assert-= 42 (slot-value pt 'x))
+  (assert-= 420 (slot-value pt 'y))
+
+  )
