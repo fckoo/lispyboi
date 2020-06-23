@@ -32,16 +32,16 @@
            (eq ',struct-name (type-of object)))
          ,@(map (lambda (getter-name index)
                   `(defun ,getter-name (instance)
-                     (unless (eq ',struct-name (type-of instance))
-                       (signal 'type-error ',struct-name instance))
-                     (%get-slot instance ,index)))
+                     (if (eq ',struct-name (type-of instance))
+                         (%get-slot instance ,index)
+                         (signal 'type-error ',struct-name instance))))
                 getter-names
                 slot-indices)
          ,@(map (lambda (setter-name index)
                   `(defun ,setter-name (instance value)
-                     (unless (eq ',struct-name (type-of instance))
-                       (signal 'type-error ',struct-name instance))
-                     (%set-slot instance ,index value)))
+                     (if (eq ',struct-name (type-of instance))
+                         (%set-slot instance ,index value)
+                         (signal 'type-error ',struct-name instance))))
                 setter-names
                 slot-indices)
          ,@(map (lambda (getter setter) (list 'defsetf getter setter))
@@ -54,3 +54,31 @@
 
 (defmacro defstruct (name &rest slot-descriptions)
   (%defstruct name slot-descriptions))
+
+(defun index-of (thing list &optional (test #'eq))
+  (labels ((index-of-aux (n list)
+             (cond ((null list) nil)
+                   ((funcall test thing (car list)) n)
+                   (t (index-of-aux (+ 1 n) (cdr list))))))
+    (index-of-aux 0 list)))
+
+(defun slot-index (object slot-name)
+  (let ((type (type-definition (type-of object))))
+    (if type
+        (let* ((slots (second (member :slot-names (rest type))))
+               (slot-index (index-of slot-name slots)))
+          slot-index))))
+
+(defun slot-value (object slot-name)
+  (let ((index (slot-index object slot-name)))
+    (if index
+        (%get-slot object index)
+        (signal 'slot-missing slot-name (type-of object)))))
+
+(defun set-slot-value (object slot-name value)
+  (let ((index (slot-index object slot-name)))
+    (if index
+        (%set-slot object index value)
+        (signal 'slot-missing slot-name (type-of object)))))
+
+(defsetf slot-value set-slot-value)
