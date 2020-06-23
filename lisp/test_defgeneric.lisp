@@ -11,7 +11,7 @@
 
 
 (assert-string= "fixnum 123" (test-generic 123))
-(assert-string= "character #\\A" (test-generic #\A))
+(assert-string= "character #\\\\A" (test-generic #\A))
 (assert-string= "string \"hello world\"" (test-generic "hello world"))
 (assert-string= "symbol FOO" (test-generic 'foo))
 (assert-string= "default (1 2 3)" (test-generic '(1 2 3)))
