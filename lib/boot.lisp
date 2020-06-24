@@ -22,7 +22,7 @@
 
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
-(defun read (&optional (stm *standard-input*) eof-error-p eof-value)
+(defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
   (%read stm eof-error-p eof-value))
 
 (defun eval (expr)

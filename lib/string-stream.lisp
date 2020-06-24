@@ -55,6 +55,13 @@
                  (string-stream-length string-stream))
     string))
 
+(defmacro with-input-from-string (var-string &body body)
+  (let ((var (first var-string))
+        (string (second var-string)))
+    `(let ((,var (make-string-stream)))
+       (string-stream-append ,var ,string)
+       ,@body)))
+
 (defmethod print-object ((ss string-stream) stream)
   (let ((len (string-stream-length ss))
         (buf (string-stream-buffer ss)))
@@ -68,11 +75,11 @@
 (defmethod stream-puts ((ss string-stream) string)
   (string-stream-append ss string))
 
-(defgeneric stream-eof-p ((ss string-stream))
+(defmethod stream-eof-p ((ss string-stream))
   (string-stream-eof-p ss))
 
-(defgeneric stream-peekc ((ss string-stream) &optional eof-error-p eof-value)
+(defmethod stream-peekc ((ss string-stream) &optional eof-error-p eof-value)
   (string-stream-peekc ss eof-error-p eof-value))
 
-(defgeneric stream-getc ((ss string-stream) &optional eof-error-p eof-value)
+(defmethod stream-getc ((ss string-stream) &optional eof-error-p eof-value)
   (string-stream-getc ss eof-error-p eof-value))

@@ -272,7 +272,7 @@
 (set-sharpsign-macro #\' (lambda (stream char) (list 'function (read stream))))
 
 
-(defun read (&optional (stream *standard-input*) eof-error-p eof-value)
+(defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
   (handler-case
       (progn
         (until (stream-eof-p stream)

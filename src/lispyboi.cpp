@@ -517,7 +517,7 @@ lisp_value lisp::parse(lisp_stream &stream)
                 return lisp_value::wrap_fixnum(result);
             }
             else {
-                return intern_symbol(number_str);
+                return intern_symbol(str_upper(number_str));
             }
         }
         else if (stream.peekc() == '#') {

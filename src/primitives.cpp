@@ -364,7 +364,7 @@ lisp_value lisp_prim_read(lisp_value *args, uint32_t nargs, bool &raised_signal)
         (read &optional file-stream eof-error-p eof-value)
     */
     
-    bool eof_error_p = false;
+    bool eof_error_p = true;
     if (nargs > 1) {
         eof_error_p = args[1].is_not_nil();
     }
