@@ -7,6 +7,7 @@
 (require "print-object")
 (require "string-stream")
 (require "file")
+(require "read")
 (require "math")
 (require "setf")
 (require "format")

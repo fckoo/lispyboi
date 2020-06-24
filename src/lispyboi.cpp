@@ -380,17 +380,43 @@ std::string lisp::repr(const lisp_value *obj)
     return repr(*obj);
 }
 
-std::string lisp::pretty_print(lisp_value obj)
+void lisp::pretty_print(lisp_value obj, int depth)
 {
-    std::string result  = repr(obj);
-    printf("%s\n", result.c_str());
-    return result;
+    if (depth >= 5) {
+        return;
+    }
+    static auto print_object = intern_symbol("PRINT-OBJECT").as_object()->symbol();
+    if (print_object->function.is_nil()) {
+        printf("%s\n", repr(obj).c_str());
+    }
+    else {
+        try {
+            lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
+            bool raised = false;
+            auto p = apply(print_object->function, args, 2, raised);
+            if (raised) {
+                printf("Unhandled signal:\n");
+                printf("    %s\n", repr(p).c_str());
+            }
+            else {
+                printf("\n");
+            }
+        }
+        catch (lisp_unhandleable_exception e) {
+            printf("%s\n", e.msg);
+            printf("    %s\n", repr(e.what).c_str());
+        }
+        catch (lisp_signal_exception e) {
+            printf("Unhandled signal:\n");
+            printf("    %s\n", repr(e.what).c_str());
+        }
+    }
 }
 
 static FORCE_INLINE
 bool is_whitespace(int c)
 {
-    return (c == ' ' || c == '\n' || c == '\t');
+    return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
 }
 
 static FORCE_INLINE
@@ -2476,18 +2502,19 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
             vm.execute(ip, LISP_BASE_ENVIRONMENT);
         }
         catch (lisp_unhandleable_exception e) {
-            printf("%s\n", e.msg);
-            printf("    %s\n", repr(e.what).c_str());
+            printf("%s\n    ", e.msg);
+            pretty_print(e.what);
         }
         catch (lisp_signal_exception e) {
-            printf("Unhandled signal:\n");
-            printf("    %s\n", repr(e.what).c_str());
+            printf("Unhandled signal:\n    ");
+            pretty_print(e.what);
         }
 
         if (vm.param_stack_top != stack_before) {
             auto result = vm.pop_param();
             printf(" ==>");
             pretty_print(result);
+
         }
     }
 }
@@ -2564,17 +2591,13 @@ int main(int argc, char *argv[])
         }
     }
     catch (lisp_unhandleable_exception e) {
-        printf("%s\n", e.msg);
-        if (e.what.is_not_nil()) {
-            printf("    %s\n", repr(e.what).c_str());
-        }
+        printf("%s\n    ", e.msg);
+        pretty_print(e.what);
         return 1;
     }
     catch (lisp_signal_exception e) {
-        printf("Unhandled signal:\n");
-        if (e.what.is_not_nil()) {
-            printf("    %s\n", repr(e.what).c_str());
-        }
+        printf("Unhandled signal:\n    ");
+        pretty_print(e.what);
         return 1;
     }
 

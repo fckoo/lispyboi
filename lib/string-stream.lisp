@@ -2,6 +2,7 @@
 
 (defstruct string-stream
   (length 0)
+  (index 0)
   (buffer (make-array 16 'character)))
 
 (defun string-copy (destination source n)
@@ -26,11 +27,33 @@
   (dotimes (i (length str))
     (string-stream-push string-stream (aref str i))))
 
+(defun string-stream-eof-p (string-stream)
+  (= (string-stream-index string-stream)
+     (string-stream-length string-stream)))
+
+(defun string-stream-peekc (string-stream &optional eof-error-p eof-value-p)
+  (if (>= (string-stream-index string-stream)
+          (string-stream-length string-stream))
+      (if eof-error-p
+          (signal eof-value)
+          eof-value)
+      (aref (string-stream-buffer string-stream)
+            (string-stream-index string-stream))))
+
+(defun string-stream-getc (string-stream &optional eof-error-p eof-value-p)
+  (let ((c (string-stream-peekc string-stream eof-error-p eof-value-p)))
+    (incf (string-stream-index string-stream))
+    c))
+
+(defun string-stream-empty-p (string-stream)
+  (= 0 (string-stream-length string-stream)))
+
 (defun string-stream-str (string-stream)
   (let ((string (make-array (string-stream-length string-stream) 'character)))
-    (string-copy string (string-stream-buffer string-stream) (string-stream-length string-stream))
+    (string-copy string
+                 (string-stream-buffer string-stream)
+                 (string-stream-length string-stream))
     string))
-
 
 (defmethod print-object ((ss string-stream) stream)
   (let ((len (string-stream-length ss))
@@ -44,3 +67,12 @@
 
 (defmethod stream-puts ((ss string-stream) string)
   (string-stream-append ss string))
+
+(defgeneric stream-eof-p ((ss string-stream))
+  (string-stream-eof-p ss))
+
+(defgeneric stream-peekc ((ss string-stream) &optional eof-error-p eof-value)
+  (string-stream-peekc ss eof-error-p eof-value))
+
+(defgeneric stream-getc ((ss string-stream) &optional eof-error-p eof-value)
+  (string-stream-getc ss eof-error-p eof-value))

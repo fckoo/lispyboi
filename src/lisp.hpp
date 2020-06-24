@@ -702,23 +702,44 @@ struct lisp_file_stream : lisp_stream {
         return fgetc(m_fp);
     }
 
+    int32_t peek_utf8()
+    {
+        if (eof()) return end_of_file;
+        if (m_ungetted.size() != 0) {
+            auto utf8 = m_ungetted.back();
+            return utf8;
+        }
+        else {
+            auto utf8 = read_utf8();
+            m_ungetted.push_back(utf8);
+            return utf8;
+        }
+    }
+
     int32_t read_utf8()
     {
         if (eof()) return end_of_file;
-        int c = fgetc(m_fp) & 0xff;
-        if ((c & 0xf8) == 0xf0) {
-            c |= (fgetc(m_fp) & 0xff) << 8;
-            c |= (fgetc(m_fp) & 0xff) << 16;
-            c |= (fgetc(m_fp) & 0xff) << 24;
+        if (m_ungetted.size() != 0) {
+            auto utf8 = m_ungetted.back();
+            m_ungetted.pop_back();
+            return utf8;
         }
-        else if ((c & 0xf0) == 0xe0) {
-            c |= (fgetc(m_fp) & 0xff) << 8;
-            c |= (fgetc(m_fp) & 0xff) << 16;
+        else {
+            int32_t c = fgetc(m_fp) & 0xff;
+            if ((c & 0xf8) == 0xf0) {
+                c |= (fgetc(m_fp) & 0xff) << 8;
+                c |= (fgetc(m_fp) & 0xff) << 16;
+                c |= (fgetc(m_fp) & 0xff) << 24;
+            }
+            else if ((c & 0xf0) == 0xe0) {
+                c |= (fgetc(m_fp) & 0xff) << 8;
+                c |= (fgetc(m_fp) & 0xff) << 16;
+            }
+            else if ((c & 0xe0) == 0xc0) {
+                c |= (fgetc(m_fp) & 0xff) << 8;
+            }
+            return c;
         }
-        else if ((c & 0xe0) == 0xc0) {
-            c |= (fgetc(m_fp) & 0xff) << 8;
-        }
-        return c;
     }
 
     fixnum write(const std::string &str)
@@ -795,6 +816,7 @@ struct lisp_file_stream : lisp_stream {
     FILE *m_fp;
     std::string m_path;
     io_mode m_mode;
+    std::vector<int32_t> m_ungetted;
 };
 
 struct lisp_struct {
@@ -1063,7 +1085,7 @@ inline const bool lisp_value::is_type(LISP_OBJ_TYPE type) const
 }
 
 lisp_value intern_symbol(const std::string &symbol_name);
-std::string pretty_print(lisp_value obj);
+void pretty_print(lisp_value obj, int depth=0);
 std::string repr(lisp_value obj);
 // @Audit: Should lisp::parse return a bool like read_stdin and store the parsed value in a passed reference?
 lisp_value parse(lisp_stream &stream);

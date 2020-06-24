@@ -361,20 +361,41 @@ lisp_value lisp_prim_type_of(lisp_value *args, uint32_t nargs, bool &raised_sign
 lisp_value lisp_prim_read(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (read &optional file-stream)
+        (read &optional file-stream eof-error-p eof-value)
     */
+    
+    bool eof_error_p = false;
+    if (nargs > 1) {
+        eof_error_p = args[1].is_not_nil();
+    }
+    auto eof_value = LISP_NIL;
+    if (nargs > 2) {
+        eof_value = args[2];
+    }
 
     if (nargs == 0) {
         lisp_value result;
-        if (!read_stdin(">>> ", "... ", result))
-            return LISP_NIL;
+        if (!read_stdin(">>> ", "... ", result)) {
+            if (eof_error_p) {
+                raised_signal = true;
+                return list(eof_value);
+            }
+            return eof_value;
+        }
         return result;
     }
     else {
         CHECK_FILE_STREAM(args[0]);
-        return parse(*args[0].as_object()->file_stream());
+        auto result = parse(*args[0].as_object()->file_stream());
+        if (result.is_invalid()) {
+            if (eof_error_p) {
+                raised_signal = true;
+                return list(eof_value);
+            }
+            return eof_value;
+        }
+        return result;
     }
-    return LISP_NIL;
 }
 
 lisp_value lisp_prim_macro_expand(lisp_value *args, uint32_t nargs, bool &raised_signal)
@@ -666,6 +687,16 @@ lisp_value lisp_prim_close(lisp_value *args, uint32_t nargs, bool &raised_signal
     return LISP_T;
 }
 
+lisp_value lisp_prim_file_path(lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-length file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    return lisp_obj::create_string(it.as_object()->file_stream()->path());
+}
+
 lisp_value lisp_prim_file_length(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -748,7 +779,18 @@ lisp_value lisp_prim_file_peek_byte(lisp_value *args, uint32_t nargs, bool &rais
     return lisp_value::wrap_fixnum(it.as_object()->file_stream()->peek_byte());
 }
 
-lisp_value lisp_prim_file_read_characater(lisp_value *args, uint32_t nargs, bool &raised_signal)
+lisp_value lisp_prim_file_peek_character(lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-peek-character file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    return lisp_value::wrap_character(it.as_object()->file_stream()->peek_utf8());
+}
+
+lisp_value lisp_prim_file_read_character(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
         (file-read-character file-stream)
@@ -1241,6 +1283,7 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%BITS-OF", lisp_prim_bits_of);
     bind_primitive("%OPEN", lisp_prim_open);
     bind_primitive("%CLOSE", lisp_prim_close);
+    bind_primitive("%FILE-PATH", lisp_prim_file_path);
     bind_primitive("%FILE-LENGTH", lisp_prim_file_length);
     bind_primitive("%FILE-MODE", lisp_prim_file_mode);
     bind_primitive("%FILE-EOF-P", lisp_prim_file_eof);
@@ -1251,7 +1294,8 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%FILE-PUTS", lisp_prim_file_puts);
     bind_primitive("%FILE-READ-BYTE", lisp_prim_file_read_byte);
     bind_primitive("%FILE-PEEK-BYTE", lisp_prim_file_peek_byte);
-    bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_characater);
+    bind_primitive("%FILE-READ-CHARACTER", lisp_prim_file_read_character);
+    bind_primitive("%FILE-PEEK-CHARACTER", lisp_prim_file_peek_character);
 
     bind_primitive("%DEFINE-FUNCTION", lisp_prim_define_function);
     bind_primitive("%FUNCTION-DEFINITION", lisp_prim_function_definition);

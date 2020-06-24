@@ -22,8 +22,8 @@
 
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
-(defun read (&optional (stm *standard-input*))
-  (%read stm))
+(defun read (&optional (stm *standard-input*) eof-error-p eof-value)
+  (%read stm eof-error-p eof-value))
 
 (defun eval (expr)
   (%eval (%macro-expand expr)))
@@ -51,12 +51,6 @@
 
 (defmacro > (&rest vals) (cons '%> vals))
 (defun > (&rest vals) (apply #'%> vals))
-
-(defmacro <= (&rest vals) (list 'not (cons '%> vals)))
-(defun <= (&rest vals) (not (apply #'%> vals)))
-
-(defmacro >= (&rest vals) (list 'not (cons '%< vals)))
-(defun >= (&rest vals) (not (apply #'%< vals)))
 
 (defmacro /= (&rest vals) (list 'not (cons '%= vals)))
 (defun /= (&rest vals) (not (apply #'%= vals)))
@@ -258,6 +252,7 @@
                            bodies)
                       (%flet-transform old-new-names body)))))
 
+
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
 (defun map1 (func seq)
@@ -334,6 +329,20 @@
                           ,tmp-var-name
                           ,(or-helper (cdr args))))))))
     (or-helper exprs)))
+
+(defun <= (&rest vals)
+  (labels ((aux (a rest)
+             (cond ((null rest) t)
+                   ((not (> a (car rest))) (aux (car rest) (cdr rest)))
+                   (t nil))))
+    (aux (car vals) (cdr vals))))
+
+(defun >= (&rest vals)
+  (labels ((aux (a rest)
+             (cond ((null rest) t)
+                   ((not (< a (car rest))) (aux (car rest) (cdr rest)))
+                   (t nil))))
+    (aux (car vals) (cdr vals))))
 
 (defmacro while (expr &body body)
   (let ((tag-loop (gensym "WHILE-TAG")))
@@ -608,10 +617,7 @@
         str)))
 
 (defun print (object &optional (stm *standard-output*))
-  (cond ((stringp object)
-         (dotimes (i (array-length object))
-           (putchar (aref object i) stm)))
-        (t (%file-write stm object)))
+  (print-object object stm) 
   object)
 
 (defun print-line (object &optional (stm *standard-output*))
@@ -692,7 +698,9 @@
            (with-open-file (file full-path 'read)
              (if (%file-ok-p file)
                  (until (%file-eof-p file)
-                   (%eval (%read file)))
+                        (handler-case
+                            (%eval (read file t :eof))
+                          (:eof () 'ok)))
                  (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-dir)
         (setq *file-path* here-path)))))

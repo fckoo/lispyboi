@@ -147,8 +147,8 @@ Format specifiers begin with the ~ character and include:
     ~O and ~o : octal
     ~D and ~d : decimal
     ~X and ~x : hexadecimal
-    ~~        : literal character #\~
-    ~%        : literal character #\Newline
+    ~~        : literal character #\\~
+    ~%        : literal character #\\Newline
 
 If STREAM is NIL, the formatted string is returned instead of being
 printed.
