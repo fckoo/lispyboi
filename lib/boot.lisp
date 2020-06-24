@@ -699,8 +699,8 @@
              (if (%file-ok-p file)
                  (until (%file-eof-p file)
                         (handler-case
-                            (%eval (read file t :eof))
-                          (:eof () 'ok)))
+                            (%eval (read file t))
+                          (end-of-file () 'ok)))
                  (signal 'load-error "Cannot open file" file-path)))
         (change-directory here-dir)
         (setq *file-path* here-path)))))

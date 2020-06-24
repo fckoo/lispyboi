@@ -378,7 +378,7 @@ lisp_value lisp_prim_read(lisp_value *args, uint32_t nargs, bool &raised_signal)
         if (!read_stdin(">>> ", "... ", result)) {
             if (eof_error_p) {
                 raised_signal = true;
-                return list(eof_value);
+                return list(intern_symbol("END-OF-FILE"));
             }
             return eof_value;
         }
@@ -390,7 +390,7 @@ lisp_value lisp_prim_read(lisp_value *args, uint32_t nargs, bool &raised_signal)
         if (result.is_invalid()) {
             if (eof_error_p) {
                 raised_signal = true;
-                return list(eof_value);
+                return list(intern_symbol("END-OF-FILE"));
             }
             return eof_value;
         }

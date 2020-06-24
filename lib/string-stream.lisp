@@ -35,7 +35,7 @@
   (if (>= (string-stream-index string-stream)
           (string-stream-length string-stream))
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value)
       (aref (string-stream-buffer string-stream)
             (string-stream-index string-stream))))

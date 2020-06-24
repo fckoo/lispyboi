@@ -314,10 +314,10 @@
                                             (if (string= string "NIL")
                                                 nil
                                                 (intern string)))))))))
-        (signal :eof))
+        (signal 'end-of-file))
     (return (val) val)
-    (:eof ()
+    (end-of-file ()
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value))))
 

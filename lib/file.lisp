@@ -33,28 +33,28 @@
 (defun file-read-byte (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value)
       (%file-read-byte file-stream)))
 
 (defun file-peek-byte (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value)
       (%file-peek-byte file-stream)))
 
 (defun file-read-character (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value)
       (%file-read-character file-stream)))
 
 (defun file-peek-character (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
-          (signal eof-value)
+          (signal 'end-of-file)
           eof-value)
       (%file-peek-character file-stream)))
 
