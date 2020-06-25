@@ -1,8 +1,9 @@
 (provide "read")
+(require "format")
 
 (let ((readtable))
   (defun set-reader-macro (character function)
-    (push (cons character function) (car readtable))
+    (push (cons character function) readtable)
     character)
 
   (defun set-reader-macros (characters function)
@@ -11,18 +12,13 @@
     characters)
 
   (defun get-reader-macro (character)
-    (assoc character (car readtable) #'eql))
+    (assoc character readtable #'eql))
 
-  (defun push-readtable ()
-    (push (list) readtable)
-    t)
+  (defun get-readtable ()
+    readtable)
 
-  (defun pop-readtable ()
-    (pop readtable)
-    t)
-
-  ;; setup initial, empty readtable
-  (push-readtable))
+  (defun set-readtable (table)
+    (setf readtable table)))
 
 (let ((sharpsign-macros))
   (defun set-sharpsign-macro (character function)
@@ -36,7 +32,7 @@
 
   (set-reader-macro #\#
                     (lambda (stream char)
-                      (let* ((c (stream-getc stream t :eof))
+                      (let* ((c (stream-getc stream t))
                              (macro (assoc c sharpsign-macros #'eql)))
                         (if macro
                             (funcall (cdr macro) stream c)
@@ -91,9 +87,24 @@
 
 (defun consume-spaces (stream)
   (until (or (stream-eof-p stream)
-             (not (spacep (stream-peekc stream t :eof))))
-         (stream-getc stream t :eof)))
+             (not (spacep (stream-peekc stream t))))
+         (stream-getc stream t)))
 
+
+(defun peek-char (&optional peek-type (stream *standard-input*) (eof-error-p t) eof-value)
+  (cond ((eq nil peek-type)
+         (stream-peekc stream eof-error-p eof-value))
+        ((characterp peek-type)
+         (until (or (stream-eof-p stream)
+                    (eql peek-type (stream-peekc stream eof-error-p eof-value)))
+                (stream-getc stream eof-error-p eof-value))
+         (stream-peekc stream eof-error-p eof-value))
+        (t
+         (consume-spaces stream)
+         (stream-peekc stream eof-error-p eof-value))))
+
+(defun read-char (&optional (stream *standard-input*) (eof-error-p t) eof-value)
+  (stream-getc stream eof-error-p eof-value))
 
 (defun digit-num (digit)
   (- (char-code digit) (char-code #\0)))
@@ -151,8 +162,8 @@
 (set-reader-macro #\,
                   (lambda (stream char)
                     (let ((sym 'unquote))
-                      (when (eql #\@ (stream-peekc stream t :eof))
-                        (stream-getc stream t :eof)
+                      (when (eql #\@ (stream-peekc stream t))
+                        (stream-getc stream t)
                         (setf sym 'unquote-splicing))
                       (list sym (read stream)))))
 
@@ -160,29 +171,29 @@
 (set-reader-macro #\(
                   (lambda (stream char)
                     (consume-spaces stream)
-                    (when (eql #\) (stream-peekc stream t :eof))
-                      (stream-getc stream t :eof) ;; consume closing )
+                    (when (eql #\) (stream-peekc stream t))
+                      (stream-getc stream t) ;; consume closing )
                       (signal 'return nil))
                     (let* ((head (list (read stream)))
                            (cur head))
                       (consume-spaces stream)
                       (until (or (stream-eof-p stream)
-                                 (eql #\) (stream-peekc stream t :eof)))
-                             (when (eql #\) (stream-peekc stream t :eof))
-                               (stream-getc stream t :eof) ;; consume closing )
+                                 (eql #\) (stream-peekc stream t)))
+                             (when (eql #\) (stream-peekc stream t))
+                               (stream-getc stream t) ;; consume closing )
                                (signal 'return head))
-                             (when (eql #\. (stream-peekc stream t :eof))
-                               (stream-getc stream t :eof) ;; consume .
+                             (when (eql #\. (stream-peekc stream t))
+                               (stream-getc stream t) ;; consume .
                                (setf (cdr cur) (read stream))
                                (consume-spaces stream)
-                               (unless (eql #\) (stream-peekc stream t :eof))
+                               (unless (eql #\) (stream-peekc stream t))
                                  (error "Unbalanced parentheses"))
-                               (stream-getc stream t :eof) ;; consume closing )
+                               (stream-getc stream t) ;; consume closing )
                                (signal 'return head))
                              (setf (cdr cur) (list (read stream)))
                              (setf cur (cdr cur))
                              (consume-spaces stream))
-                      (stream-getc stream t :eof) ;; consume closing ), doesn't matter if eof
+                      (stream-getc stream t) ;; consume closing ), doesn't matter if eof
                       (signal 'return head))))
 
 (set-reader-macro #\)
@@ -194,28 +205,28 @@
                   (lambda (stream char)
                     (while (eql #\; char)
                            (until (or (stream-eof-p stream)
-                                      (eql #\Newline (stream-peekc stream t :eof)))
-                                  (stream-getc stream t :eof))
+                                      (eql #\Newline (stream-peekc stream t)))
+                                  (stream-getc stream t))
                            (consume-spaces stream)
-                           (setf char (stream-peekc stream t :eof)))
+                           (setf char (stream-peekc stream t)))
                     (read stream)))
 
 (set-reader-macro #\"
                   (lambda (stream char)
                     (let ((buf (make-string-stream)))
                       (until (or (stream-eof-p stream)
-                                 (eql #\" (stream-peekc stream t :eof)))
-                             (let ((c (stream-getc stream t :eof)))
+                                 (eql #\" (stream-peekc stream t)))
+                             (let ((c (stream-getc stream t)))
                                (if (not (eql #\\ c))
                                    (string-stream-push buf c)
                                    (string-stream-push buf
-                                                       (let ((c (stream-getc stream t :eof)))
+                                                       (let ((c (stream-getc stream t)))
                                                          (case c
                                                            (#\n #\Newline)
                                                            (#\t #\Tab)
                                                            (#\r #\Return)
                                                            (t c)))))))
-                      (stream-getc stream t :eof) ;; consume closing "
+                      (stream-getc stream t) ;; consume closing "
                       (string-stream-str buf))))
 
 
@@ -223,10 +234,10 @@
                      (lambda (stream char)
                        (let ((buf (make-string-stream)))
                          (until (or (stream-eof-p stream)
-                                    (not (symbol-char-p (stream-peekc stream t :eof))))
-                                (string-stream-push buf (stream-getc stream t :eof)))
+                                    (not (symbol-char-p (stream-peekc stream t))))
+                                (string-stream-push buf (stream-getc stream t)))
                          (cond ((string-stream-empty-p buf)
-                                (stream-getc stream t :eof))
+                                (stream-getc stream t))
                                ((= 1 (string-stream-length buf))
                                 (string-stream-peekc buf))
                                (t
@@ -241,43 +252,42 @@
                       (lambda (stream char)
                         (let ((buf (make-string-stream)))
                           (until (or (stream-eof-p stream)
-                                     (not (hexadecimal-digit-p (stream-peekc stream t :eof))))
-                                 (string-stream-push buf (stream-getc stream t :eof)))
+                                     (not (hexadecimal-digit-p (stream-peekc stream t))))
+                                 (string-stream-push buf (stream-getc stream t)))
                           (when (string-stream-empty-p buf)
-                            (signal 'reader-error "Not a hexadecimal digit" (stream-peekc stream t :eof)))
+                            (signal 'reader-error "Not a hexadecimal digit" (stream-peekc stream t)))
                           (parse-integer (string-stream-str buf) 16))))
 
 (set-sharpsign-macros '(#\b #\B)
                       (lambda (stream char)
                         (let ((buf (make-string-stream)))
                           (until (or (stream-eof-p stream)
-                                     (not (binary-digit-p (stream-peekc stream t :eof))))
-                                 (string-stream-push buf (stream-getc stream t :eof)))
+                                     (not (binary-digit-p (stream-peekc stream t))))
+                                 (string-stream-push buf (stream-getc stream t)))
                           (when (string-stream-empty-p buf)
-                            (signal 'reader-error "Not a octal digit" (stream-peekc stream t :eof)))
+                            (signal 'reader-error "Not a octal digit" (stream-peekc stream t)))
                           (parse-integer (string-stream-str buf) 2))))
 
 (set-sharpsign-macros '(#\o #\O)
                       (lambda (stream char)
                         (let ((buf (make-string-stream)))
                           (until (or (stream-eof-p stream)
-                                     (not (octal-digit-p (stream-peekc stream t :eof))))
-                                 (string-stream-push buf (stream-getc stream t :eof)))
+                                     (not (octal-digit-p (stream-peekc stream t))))
+                                 (string-stream-push buf (stream-getc stream t)))
                           (when (string-stream-empty-p buf)
-                            (signal 'reader-error "Not a binary digit" (stream-peekc stream t :eof)))
+                            (signal 'reader-error "Not a binary digit" (stream-peekc stream t)))
                           (parse-integer (string-stream-str buf) 8))))
 
 (set-sharpsign-macro #\. (lambda (stream char) (eval (read stream))))
 
 (set-sharpsign-macro #\' (lambda (stream char) (list 'function (read stream))))
 
-
 (defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
   (handler-case
       (progn
         (until (stream-eof-p stream)
                (consume-spaces stream)
-               (let* ((c (stream-getc stream t :eof))
+               (let* ((c (stream-getc stream t))
                       (macro (get-reader-macro c)))
                  (cond (macro
                         (signal 'return (funcall (cdr macro) stream c)))
@@ -286,13 +296,13 @@
                               (numberp t))
                           (string-stream-push buf c)
                           (until (or (stream-eof-p stream)
-                                     (not (decimal-digit-p (stream-peekc stream t :eof))))
-                                 (string-stream-push buf (stream-getc stream t :eof)))
-                          (when (symbol-char-p (stream-peekc stream t :eof))
+                                     (not (decimal-digit-p (stream-peekc stream t))))
+                                 (string-stream-push buf (stream-getc stream t)))
+                          (when (symbol-char-p (stream-peekc stream t))
                             (setf numberp nil)
                             (until (or (stream-eof-p stream)
-                                       (not (symbol-char-p (stream-peekc stream t :eof))))
-                                   (string-stream-push buf (stream-getc stream t :eof))))
+                                       (not (symbol-char-p (stream-peekc stream t))))
+                                   (string-stream-push buf (stream-getc stream t))))
                           (when (and numberp
                                      (or (eql #\- c) (eq #\+ c))
                                      (= 1 (string-stream-length buf)))
@@ -307,9 +317,9 @@
                         (let ((buf (make-string-stream)))
                           (string-stream-push buf c)
                           (until (or (stream-eof-p stream)
-                                     (get-reader-macro (stream-peekc stream t :eof))
-                                     (spacep (stream-peekc stream t :eof)))
-                                 (string-stream-push buf (stream-getc stream t :eof)))
+                                     (get-reader-macro (stream-peekc stream t))
+                                     (spacep (stream-peekc stream t)))
+                                 (string-stream-push buf (stream-getc stream t)))
                           (signal 'return (let ((string (string-upcase! (string-stream-str buf))))
                                             (if (string= string "NIL")
                                                 nil
@@ -320,4 +330,3 @@
       (if eof-error-p
           (signal 'end-of-file)
           eof-value))))
-

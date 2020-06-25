@@ -22,9 +22,6 @@
 
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
-(defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
-  (%read stm eof-error-p eof-value))
-
 (defun eval (expr)
   (%eval (%macro-expand expr)))
 
@@ -617,13 +614,19 @@
         str)))
 
 (defun print (object &optional (stm *standard-output*))
-  (print-object object stm) 
+  (%file-write stm object)
+  ;;(print-object object stm) 
   object)
 
 (defun print-line (object &optional (stm *standard-output*))
   (print object stm)
   (putchar #\Newline)
   object)
+
+(defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
+  (%read stm eof-error-p eof-value))
+
+
 
 (defmacro unwind-protect (protected &body cleanup)
   (let ((args (gensym "ARGS"))
