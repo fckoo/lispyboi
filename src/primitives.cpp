@@ -413,7 +413,7 @@ lisp_value lisp_prim_eval(lisp_value *args, uint32_t nargs, bool &raised_signal)
         (eval expr)
     */
     CHECK_EXACTLY_N(nargs, 1);
-    return lisp::evaluate(args[0]);
+    return lisp::evaluate(args[0], raised_signal);
 }
 
 lisp_value lisp_prim_apply(lisp_value *real_args, uint32_t nargs, bool &raised_signal)

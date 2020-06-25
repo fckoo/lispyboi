@@ -845,7 +845,7 @@ struct lisp_vm_state {
     {
         constexpr int buffer = 16;
         {
-            auto p = new lisp_value[0x10000];
+            auto p = new lisp_value[0x1000];
             m_params = p;
             for (int i = 0; i < buffer; ++i) {
                 p[i] = LISP_NIL;
@@ -853,7 +853,7 @@ struct lisp_vm_state {
             param_stack_top = param_stack_bottom = p+buffer;
         }
         {
-            auto p = new vm_return_state[0x100000];
+            auto p = new vm_return_state[0x1000];
             m_returns = p;
             for (int i = 0; i < buffer; ++i) {
                 p[i] = { LISP_NIL, nullptr };
@@ -1662,7 +1662,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     env = shadowed;
                     break;
                 }
-                throw lisp_unhandleable_exception{ {ofunc}, "Not a callable object: " };
+                signal_args = list(intern_symbol("OBJECT-NOT-CALLABLE"), ofunc);
+                goto raise_signal;
             } break;
 
             case bytecode_op::op_return: {
@@ -1698,7 +1699,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 else {
                     auto val = symbol_lookup(env, sym);
                     if (val.is_nil()) {
-                        throw lisp_unhandleable_exception{ {sym}, "Unbound variable: " };
+                        signal_args = list(intern_symbol("UNBOUND-VARIABLE"), sym);
+                        goto raise_signal;
                     }
                     push_param(cdr(val));
                 }
@@ -2420,7 +2422,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
 }
 
 
-lisp_value lisp::evaluate(lisp_value expr)
+lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
 {
     bytecode_emitter e;
     auto expanded = macro_expand_impl(expr);
@@ -2428,7 +2430,13 @@ lisp_value lisp::evaluate(lisp_value expr)
     e.emit_halt();
 
     lisp_vm_state vm;
-    vm.execute(e.bytecode().data(), LISP_BASE_ENVIRONMENT);
+    try {
+        vm.execute(e.bytecode().data(), LISP_BASE_ENVIRONMENT);
+    }
+    catch (lisp_signal_exception e) {
+        raised_signal = true;
+        return e.what;
+    }
     return vm.param_top();
 }
 
