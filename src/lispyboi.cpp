@@ -1044,6 +1044,17 @@ lisp_value lisp::apply(lisp_value function, lisp_value *args, uint32_t nargs, bo
     throw lisp_unhandleable_exception{ {function}, "Cannot APPLY because not a FUNCTION: " };
 }
 
+static
+lisp_value apply_and_reraise(lisp_value function, lisp_value *args, uint32_t nargs)
+{
+    bool raised = false;
+    auto val = apply(function, args, nargs, raised);
+    if (raised) {
+        throw lisp_signal_exception{ {val} };
+    }
+    return val;
+}
+
 template<typename Function, typename ...ExtraArgs>
 static
 lisp_value map(lisp_value list, Function func, ExtraArgs... args)
@@ -2442,45 +2453,52 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
 
 void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_stream &stm, bool show_disassembly)
 {
-    auto here_path = std::filesystem::current_path();
-    auto there_path = filepath.parent_path();
-    if (there_path != "") {
-        std::filesystem::current_path(there_path);
-    }
-
-    auto variable_name = intern_symbol("*FILE-PATH*");
-    auto value = lisp_obj::create_string(filepath);
-    auto place = symbol_lookup(LISP_BASE_ENVIRONMENT, variable_name);
-    if (place.is_nil()) {
-        push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
+    static auto load_sym = intern_symbol("LOAD");
+    
+    if (load_sym.as_object()->symbol()->function.is_not_nil()) {
+        auto args = lisp_obj::create_string(filepath);
+        apply_and_reraise(load_sym.as_object()->symbol()->function, &args, 1);
     }
     else {
-        set_cdr(place, value);
-    }
-    while (!stm.eof()) {
-        auto parsed = parse(stm);
-        if (parsed.is_invalid()) {
-            consume_whitespace(stm);
-            if (stm.eof()) break;
-            abort();
+        auto here_path = std::filesystem::current_path();
+        auto there_path = filepath.parent_path();
+        if (there_path != "") {
+            std::filesystem::current_path(there_path);
         }
-        bytecode_emitter e;
-        auto expanded = macro_expand_impl(parsed);
-        compile(e, expanded, true);
-        e.emit_halt();
-        auto ip = e.bytecode().data();
-        if (ip != nullptr) {
-            auto stack_before = vm.param_stack_top;
-            vm.execute(ip, LISP_BASE_ENVIRONMENT);
-            if (vm.param_stack_top != stack_before) {
-                vm.pop_param();
+
+        auto variable_name = intern_symbol("*FILE-PATH*");
+        auto value = lisp_obj::create_string(filepath);
+        auto place = symbol_lookup(LISP_BASE_ENVIRONMENT, variable_name);
+        if (place.is_nil()) {
+            push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
+        }
+        else {
+            set_cdr(place, value);
+        }
+        while (!stm.eof()) {
+            auto parsed = parse(stm);
+            if (parsed.is_invalid()) {
+                consume_whitespace(stm);
+                if (stm.eof()) break;
+                abort();
             }
+            bytecode_emitter e;
+            auto expanded = macro_expand_impl(parsed);
+            compile(e, expanded, true);
+            e.emit_halt();
+            auto ip = e.bytecode().data();
+            if (ip != nullptr) {
+                auto stack_before = vm.param_stack_top;
+                vm.execute(ip, LISP_BASE_ENVIRONMENT);
+                if (vm.param_stack_top != stack_before) {
+                    vm.pop_param();
+                }
+            }
+
+            consume_whitespace(stm);
         }
-
-        consume_whitespace(stm);
+        std::filesystem::current_path(here_path);
     }
-
-    std::filesystem::current_path(here_path);
 }
 
 void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
