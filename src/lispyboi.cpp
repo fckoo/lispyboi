@@ -392,15 +392,7 @@ void lisp::pretty_print(lisp_value obj, int depth)
     else {
         try {
             lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
-            bool raised = false;
-            auto p = apply(print_object->function, args, 2, raised);
-            if (raised) {
-                printf("Unhandled signal:\n");
-                printf("    %s\n", repr(p).c_str());
-            }
-            else {
-                printf("\n");
-            }
+            apply_and_reraise(print_object->function, args, 2);
         }
         catch (lisp_unhandleable_exception e) {
             printf("%s\n", e.msg);
@@ -1139,9 +1131,8 @@ lisp_value macro_expand_impl(lisp_value obj)
         if (it != LISP_MACROS.end()) {
             auto function = it->second;
             auto args = rest(obj);
-            bool raised_signal = false;
             auto vec = to_vector(args);
-            auto expand1 = apply(function, vec.data(), vec.size(), raised_signal);
+            auto expand1 = apply_and_reraise(function, vec.data(), vec.size());
             auto expand_all = macro_expand_impl(expand1);
             return expand_all;
         }
