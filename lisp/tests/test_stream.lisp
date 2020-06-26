@@ -21,3 +21,10 @@
 
 (with-input-from-string (is "  ")
   (assert-eq 'eof (read is nil 'eof)))
+
+(with-input-from-string (is "hello\nworld 123")
+  (assert-eq 'hello (read is))
+  (assert-eq 'world (read is))
+  (assert-= '123 (read is))
+  (assert-eq :eof (read is nil :eof)))
+
