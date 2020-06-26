@@ -12,4 +12,5 @@
   (assert-= (* 123 4) (bar 123))
 
   (assert-= (* (* 123 123) 4) (bar (foo 123)))
-  )
+
+  (assert-= (* (* 123 123) 4) (funcall #'bar (funcall #'foo 123))))

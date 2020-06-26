@@ -202,9 +202,7 @@
              (if (consp e)
                  (cond ((eq 'function (car e))
                         (let ((found (assoc (second e) old-new-names)))
-                          (if found
-                              (list 'function (cdr found))
-                              e)))
+                          (if found (cdr found) e)))
                        ((eq 'quote (car e))
                         e)
                        (t
