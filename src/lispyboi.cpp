@@ -396,6 +396,7 @@ void lisp::pretty_print(lisp_value obj, int depth)
         try {
             lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
             apply_and_reraise(print_object->function, args, 2);
+            printf("\n");
         }
         catch (lisp_unhandleable_exception e) {
             printf("%s\n", e.msg);

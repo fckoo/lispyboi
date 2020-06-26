@@ -210,7 +210,7 @@
                        (t
                         (let ((found (assoc (car e) old-new-names)))
                           (if found
-                              (cons 'funcall (cons (cdr found) (cdr e)))
+                              (cons 'funcall (cons (cdr found) (%flet-transform old-new-names (cdr e))))
                               (%flet-transform old-new-names e)))))
                  e))
            expr)
