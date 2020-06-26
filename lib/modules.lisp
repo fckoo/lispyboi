@@ -11,23 +11,24 @@
 ;;;
 ;;; REQUIREd modules will be LOADed only _once_.
 ;;;
-;;; The global variable *MODULES* contains a list, in reverse load order, of all
-;;; loaded modules.
+;;; The global variable *MODULES* is a list of all loaded modules in order of most
+;;; recently loaded to earliest loaded.
 ;;;
-;;; The global variable *MODULE-LOAD-DIRECTORIES* contains a list of directories
-;;; to search for a REQUIREd module. This list is traversed front to back.
+;;; The global variable *MODULE-LOAD-DIRECTORIES* is a list of directories to search
+;;; for a REQUIREd module. This list is traversed from first to last.
 ;;;
 ;;; When a module is REQUIREd:
 ;;;   ? if it has already been loaded -> MODULE-NAME is returned
 ;;;   ? if it has not already been loaded
 ;;;     ? if a path to the module was given it will be LOADed
 ;;;       + the load was successful -> MODULE-NAME is returned
-;;;       - the load was unsuccessful -> NIL is returned
+;;;       - the load was unsuccessful -> NIL is returned or an error may signal
 ;;;     ? if no path to the module was given
-;;;       + the *MODULE-LOAD-DIRECTORIES* list will be traveresed looking for the module
+;;;       + the *MODULE-LOAD-DIRECTORIES* list will be traveresed looking for the
+;;;         module
 ;;;         ? if the module is found it will be loaded
 ;;;           + the load was successful -> MODULE-NAME is returned
-;;;           - the load was unsuccessful -> NIL is returned
+;;;           - the load was unsuccessful -> NIL is returned or an error may signal
 ;;;
 
 (let ((exec-dir (parent-directory (get-executable-path))))
