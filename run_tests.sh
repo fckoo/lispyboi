@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-TESTFILES=lisp/test_*.lisp
+TESTFILES=lisp/tests/test_*.lisp
 
 echo "Running tests"
 for TEST in $TESTFILES ; do
