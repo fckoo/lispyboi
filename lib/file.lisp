@@ -73,7 +73,8 @@
   (stream-puts stream (file-path fs))
   (stream-puts stream (if (file-ok-p fs) "' :OK T " " :OK NIL "))
   (stream-puts stream (if (file-eof-p fs) ":EOF T" ":EOF NIL"))
-  (stream-puts stream ")"))
+  (stream-puts stream ")")
+  fs)
 
 (defmethod stream-putchar ((stream file-stream) character)
   (%file-putchar stream character))
