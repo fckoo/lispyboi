@@ -25,4 +25,6 @@
   (assert-= 42 (slot-value pt 'x))
   (assert-= 420 (slot-value pt 'y))
 
+  (assert-string= "#S(POINT :X 42 :Y 420)" (format nil "~s" pt))
+  (assert-string= "#S(POINT :X 42 :Y 420)" (format nil "~a" pt))
   )

@@ -1,6 +1,5 @@
 (provide "defstruct")
 
-
 (let ((struct-type-registry))
   (defun %defstruct (struct-name slot-descriptions)
     (let* ((struct-name-str (symbol-name struct-name))
@@ -26,6 +25,17 @@
            (%create-instance ',type ,@slot-names))
          (defun ,type-predicate (object)
            (eq ',struct-name (type-of object)))
+         (defmethod print-object ((object ,struct-name) stream)
+           (format stream
+                   ,(concatenate "#S("
+                                 (symbol-name struct-name)
+                                 (apply #'concatenate
+                                        (map1 (lambda (e) (concatenate " :" (symbol-name e) " ~S"))
+                                              slot-names))
+                                 ")")
+                   ,@(map1 (lambda (e) (list e 'object))
+                           getter-names))
+           object)
          ,@(map (lambda (getter-name index)
                   `(defun ,getter-name (instance)
                      (if (eq ',struct-name (type-of instance))
