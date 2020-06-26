@@ -380,6 +380,9 @@ std::string lisp::repr(const lisp_value *obj)
     return repr(*obj);
 }
 
+static
+lisp_value apply_and_reraise(lisp_value function, lisp_value *args, uint32_t nargs);
+
 void lisp::pretty_print(lisp_value obj, int depth)
 {
     if (depth >= 5) {
@@ -967,7 +970,8 @@ const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lamb
             end = nargs;
         }
         else {
-            throw lisp_unhandleable_exception{ {LISP_NIL}, "Argument count mismatch" };
+            auto params = to_list(lambda->params());
+            throw lisp_unhandleable_exception{ {params}, "Argument count mismatch" };
             // @TODO: error, no optionals and not enough args passed
         }
     }
