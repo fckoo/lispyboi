@@ -41,7 +41,10 @@ OBJECT should be returned")
     (#\Newline (stream-puts stream "#\\Newline"))
     (#\Tab (stream-puts stream "#\\Tab"))
     (#\Return (stream-puts stream "#\\Return"))
-    (t (stream-puts stream (make-string #\# #\\ c))))
+    (t
+     (stream-putchar stream #\#)
+     (stream-putchar stream #\\)
+     (stream-putchar stream c)))
   c)
 
 (defmethod print-object ((o symbol) stream)
