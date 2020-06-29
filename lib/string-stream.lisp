@@ -55,12 +55,10 @@
                  (string-stream-length string-stream))
     string))
 
-(defmacro with-input-from-string (var-string &body body)
-  (let ((var (first var-string))
-        (string (second var-string)))
-    `(let ((,var (make-string-stream)))
-       (string-stream-append ,var ,string)
-       ,@body)))
+(defmacro with-input-from-string ((var string) &body body)
+  `(let ((,var (make-string-stream)))
+     (string-stream-append ,var ,string)
+     ,@body))
 
 (defmethod print-object ((ss string-stream) stream)
   (let ((len (string-stream-length ss))
