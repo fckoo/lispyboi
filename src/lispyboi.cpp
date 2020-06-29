@@ -1989,7 +1989,6 @@ void initialize_globals()
     INTERN_GLOBAL(IF);
     INTERN_GLOBAL(LAMBDA);
     INTERN_GLOBAL(SETQ);
-    INTERN_GLOBAL(DEFMACRO);
     INTERN_GLOBAL(FIXNUM);
     INTERN_GLOBAL(CONS);
     INTERN_GLOBAL(CHARACTER);
@@ -2002,6 +2001,8 @@ void initialize_globals()
     INTERN_GLOBAL(QUASIQUOTE);
     INTERN_GLOBAL(UNQUOTE);
     INTERN_GLOBAL(ARRAY);
+
+    LISP_SYM_DEFMACRO = intern_symbol("%DEFINE-MACRO");
 
     LISP_SYM_AMP_REST = intern_symbol("&REST");
     LISP_SYM_AMP_BODY = intern_symbol("&BODY");

@@ -1,7 +1,11 @@
-(defmacro cons (x y) (%cons '%cons (%cons x (%cons y nil))))
+(%define-macro cons (x y) (%cons '%cons (%cons x (%cons y nil))))
+
 (%define-function 'cons (lambda (x y) (cons x y)))
 
 (%define-function 'list (lambda (&rest lst) lst))
+
+(%define-macro defmacro (name argslist &body body)
+               (cons '%define-macro (cons name (cons argslist body))))
 
 (defmacro defun (name argslist &rest body)
   (list '%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
@@ -259,7 +263,6 @@
                            bodies)
                       (%flet-transform old-new-names body)))))
 
-
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
 (defun map1 (func seq)
@@ -317,6 +320,31 @@
                  (list 'quote object))))
     (qq-object exp)))
 
+
+(defmacro defmacro (name argslist &body body)
+  ;; this defmacro adds support for list destructuring in the argslist like:
+  ;; (defmacro with-open-file ((var path direction) &body body) ...)
+  (let ((expanders))
+    (labels ((defmacro-aux (list)
+               (when (and list
+                          (not (eq '&optional (car list)))
+                          (not (eq '&rest (car list)))
+                          (not (eq '&body (car list))))
+                 (when (consp (car list))
+                   (let* ((metavar (gensym))
+                          (getter-func metavar))
+                     (map1 (lambda (var)
+                             (setq expanders (cons `(,var (car ,getter-func)) expanders))
+                             (setq getter-func (list 'cdr getter-func)))
+                           (car list))
+                     (%rplaca list metavar)))
+                 (defmacro-aux (cdr list)))))
+      (defmacro-aux argslist))
+    `(%define-macro ,name ,argslist
+                    ,@(if expanders
+                          `((let (,@(reverse expanders))
+                              ,@body))
+                          body))))
 
 (defmacro prog1 (&body body)
   (if (null (cdr body))
@@ -457,10 +485,8 @@
           ((consp expansion)
            (append expansion (list value))))))
 
-(defmacro dolist (var-list &body body)
-  (let ((var-name (first var-list))
-        (list (second var-list))
-        (tag-loop (gensym "TAG-LOOP")))
+(defmacro dolist ((var-name list) &body body)
+  (let ((tag-loop (gensym "TAG-LOOP")))
     `(let ((,var-name ,list))
        (tagbody
           ,tag-loop
@@ -470,10 +496,8 @@
             (setf ,var-name (cdr ,var-name))
             (go ,tag-loop))))))
 
-(defmacro dotimes (var-times &body body)
-  (let ((var-name (first var-times))
-        (times-name (gensym))
-        (times (second var-times))
+(defmacro dotimes ((var-name times) &body body)
+  (let ((times-name (gensym))
         (tag-loop (gensym "TAG-LOOP")))
     `(let ((,times-name ,times)
            (,var-name 0))
@@ -636,8 +660,6 @@
 (defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
   (%read stm eof-error-p eof-value))
 
-
-
 (defmacro unwind-protect (protected &body cleanup)
   (let ((args (gensym "ARGS"))
         (result (gensym "RESULT"))
@@ -658,19 +680,16 @@
      (t (&rest args)
        (list nil args))))
 
-(defmacro with-open-file (var-path-direction &body body)
-  (let ((var (first var-path-direction))
-        (path (second var-path-direction))
-        (direction (third var-path-direction)))
-    `(let ((,var (%open ,path ,direction)))
-       (unwind-protect (progn ,@body)
-         (%close ,var)))))
+(defmacro with-open-file ((var path direction) &body body)
+  `(let ((,var (%open ,path ,direction)))
+     (unwind-protect (progn ,@body)
+       (%close ,var))))
 
 (defun find-last-of (array value)
   (let ((i (- (length array) 1)))
     (while (and (>= i 0)
                 (not (eql value (aref array i))))
-      (decf i))
+           (decf i))
     (if (< i 0) nil i)))
 
 (defun parent-directory (path)
