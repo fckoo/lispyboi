@@ -56,32 +56,6 @@
   (not (or (member c '(#\( #\) #\' #\" #\` #\,))
            (spacep c))))
 
-(defun nthcdr (n list)
-  (while (/= n 0)
-         (decf n)
-         (setf list (cdr list)))
-  list)
-
-(defun only (predicate seq &optional (offset 0))
-  (typecase seq
-    (list (if (null seq)
-              nil
-              (labels ((aux (list)
-                         (cond ((null list) t)
-                               ((funcall predicate (car list))
-                                (aux (cdr list)))
-                               (t nil))))
-                (aux (nthcdr offset seq)))))
-
-    (array (if (>= offset (length seq))
-               nil
-               (labels ((aux (n)
-                          (cond ((= n (length seq)) t)
-                                ((funcall predicate (aref seq n))
-                                 (aux (+ 1 n)))
-                                (t nil))))
-                 (aux offset))))))
-
 (defun spacep (c)
   (member c '(#\Space #\Newline #\Return #\Tab)))
 

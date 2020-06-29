@@ -61,13 +61,6 @@
 (defmacro defstruct (name &rest slot-descriptions)
   (%defstruct name slot-descriptions))
 
-(defun index-of (thing list &optional (test #'eq))
-  (labels ((index-of-aux (n list)
-             (cond ((null list) nil)
-                   ((funcall test thing (car list)) n)
-                   (t (index-of-aux (+ 1 n) (cdr list))))))
-    (index-of-aux 0 list)))
-
 (defun slot-index (object slot-name)
   (index-of slot-name
             (second (member :slot-names

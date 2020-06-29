@@ -1,5 +1,6 @@
 (provide "stdlib")
 
+(require "list")
 (require "typep")
 (require "defgeneric")
 (require "defstruct")
@@ -8,6 +9,7 @@
 (require "string-stream")
 (require "file")
 (require "read")
+
 (require "math")
 (require "setf")
 (require "format")
