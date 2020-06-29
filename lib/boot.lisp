@@ -220,6 +220,16 @@
 ;; exactly the same as FLET but it also transforms the body of the function definitions
 ;; aswell.
 (defmacro flet (definitions &body body)
+  ;; we do this macro expansion so the transformation happens to the lowest level code.
+  ;; the purpose of that is for e.g.
+  ;; (case (get-thing)
+  ;;    (quote (labels-func-a))
+  ;;    (lambda (labels-func-b))
+  ;; ...)
+  ;; If this code was inside a function in a labels, we wouldn't correctly fix the names
+  ;; because our transform code would think they are truly quoted or a lambda.
+  (setq definitions (%macro-expand definitions))
+  (setq body (%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
@@ -235,6 +245,8 @@
 
 
 (defmacro labels (definitions &body body)
+  (setq definitions (%macro-expand definitions))
+  (setq body (%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
