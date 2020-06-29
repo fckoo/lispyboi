@@ -9,7 +9,7 @@
     (index-of-aux 0 list)))
 
 (defun nthcdr (n list)
-  (while (/= n 0)
+  (while (and list (> n 0))
          (decf n)
          (setf list (cdr list)))
   list)
@@ -44,4 +44,5 @@
     (setf (car list) value)
     (setf (cdr list) new-rest))
   list)
+
 

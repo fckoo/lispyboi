@@ -4,6 +4,8 @@
 
 
 (defun %format-fixnum (number stream &optional (radix 10))
+  (unless (fixnump number)
+    (signal 'format-error "Not of type FIXNUM" number))
   (if (= number 0)
       (stream-putchar stream #\0)
       (let ((digits)
@@ -35,23 +37,11 @@
   (stream-putchar stream #\)))
 
 (defun %format-object-a (object stream)
-  (cond ((stringp object)
-         (stream-puts stream object))
-
-        ((fixnump object)
-         (%format-fixnum object stream))
-
-        ((characterp object)
-         (stream-putchar stream object))
-
-        ((null object)
-         (stream-puts stream "NIL"))
-
-        ((consp object)
-         (%format-cons object stream #'%format-object-a))
-
-        (t
-         (print-object object stream))))
+  (typecase object
+    (string (stream-puts stream object))
+    (character (stream-putchar stream object))
+    (cons (%format-cons object stream #'%format-object-a))
+    (t (print-object object stream))))
 
 (defun %format-object-s (object stream)
   (print-object object stream))
@@ -67,40 +57,33 @@
                  (let ((spec (peek (+ 1 i))))
                    (cond
                      ((or (eql #\A spec) (eql #\a spec))
-                      (let ((arg (pop args)))
-                        (incf i 1)
-                        (%format-object-a arg ss)))
+                      (incf i 1)
+                      (%format-object-a (pop args) ss))
+
                      ((or (eql #\S spec) (eql #\s spec))
-                      (let ((arg (pop args)))
-                        (incf i 1)
-                        (%format-object-s arg ss)))
+                      (incf i 1)
+                      (%format-object-s (pop args) ss))
+
                      ((or (eql #\B spec) (eql #\b spec))
-                      (let ((arg (pop args)))
-                        (unless (fixnump arg)
-                          (signal 'format-error "Not of type FIXNUM" arg))
-                        (incf i 1)
-                        (%format-fixnum arg ss 2)))
+                      (incf i 1)
+                      (%format-fixnum (pop args) ss 2))
+
                      ((or (eql #\O spec) (eql #\o spec))
-                      (let ((arg (pop args)))
-                        (unless (fixnump arg)
-                          (signal 'format-error "Not of type FIXNUM" arg))
-                        (incf i 1)
-                        (%format-fixnum arg ss 8)))
+                      (incf i 1)
+                      (%format-fixnum (pop args) ss 8))
+
                      ((or (eql #\D spec) (eql #\d spec))
-                      (let ((arg (pop args)))
-                        (unless (fixnump arg)
-                          (signal 'format-error "Not of type FIXNUM" arg))
-                        (incf i 1)
-                        (%format-fixnum arg ss 10)))
+                      (incf i 1)
+                      (%format-fixnum (pop args) ss 10))
+
                      ((or (eql #\X spec) (eql #\x spec))
-                      (let ((arg (pop args)))
-                        (unless (fixnump arg)
-                          (signal 'format-error "Not of type FIXNUM" arg))
-                        (incf i 1)
-                        (%format-fixnum arg ss 16)))
+                      (incf i 1)
+                      (%format-fixnum (pop args) ss 16))
+
                      ((eql #\~ spec)
                       (incf i 1)
                       (string-stream-push ss #\~))
+
                      ((eql #\% spec)
                       (incf i 1)
                       (string-stream-push ss #\Newline))))
