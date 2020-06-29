@@ -22,5 +22,6 @@
            (run-test "tests/test_setf.lisp")
            (run-test "tests/test_stream.lisp")
            (run-test "tests/test_typep.lisp")
-           (run-test "tests/test_unwind-protect.lisp"))
+           (run-test "tests/test_unwind-protect.lisp")
+           (run-test "tests/test_labels.lisp"))
          (format t "Tests completed in ~dms~%" test-time))
