@@ -237,7 +237,7 @@
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map #'%macro-expand (map #'cddr definitions))))
+         (bodies (map (lambda (e) (%macro-expand (cddr e))) definitions)))
     (cons 'let (cons (map (lambda (sym ll body)
                             (list sym (cons 'lambda (cons ll body))))
                           new-names
@@ -253,7 +253,7 @@
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map #'%macro-expand (map #'cddr definitions))))
+         (bodies (map (lambda (e) (%macro-expand (cddr e))) definitions)))
     (cons 'let* (cons (map (lambda (sym ll body)
                              (list sym (cons 'lambda (cons ll (%flet-transform old-new-names body)))))
                            new-names
