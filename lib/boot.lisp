@@ -449,16 +449,16 @@
     access-fn)
 
   (defun get-setf-expansion (form)
-    (cond ((symbolp form)
-           form)
-          ((consp form)
-           (let ((set-functions (assoc (car form) *setf-functions*)))
-             (when set-functions
-               (append (list (cdr set-functions))
-                       (rest form)))))
-          (t
-           (error "no SETF expansion for" form)
-           nil))))
+    (flet ((err (e) (error "no SETF expansion for" e)))
+      (cond ((symbolp form)
+             `(setq ,form))
+            ((consp form)
+             (let ((set-functions (assoc (car form) *setf-functions*)))
+               (if set-functions
+                   (append (list (cdr set-functions)) (rest form))
+                   (err (car form)))))
+            (t
+             (err form))))))
 
 (defmacro defsetf (access-fn update-fn)
   (%defsetf access-fn update-fn)
@@ -477,11 +477,7 @@
 (defsetf cdr %set-cdr)
 
 (defmacro setf (place value)
-  (let ((expansion (get-setf-expansion place)))
-    (cond ((symbolp expansion)
-           `(setq ,expansion ,value))
-          ((consp expansion)
-           (append expansion (list value))))))
+  (append (get-setf-expansion place) (list value)))
 
 (defmacro dolist ((var-name list) &body body)
   (let ((tag-loop (gensym "TAG-LOOP")))
