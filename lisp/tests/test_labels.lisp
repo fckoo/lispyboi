@@ -24,3 +24,10 @@
   (assert-= 40 (case 'lambda
                  (lambda (foo 20))
                  (t 999))))
+
+
+(labels ((my-cons (a b) (cons a b))
+         (my-car (cons) (car cons))
+         (my-cdr (cons) (cdr cons)))
+  (assert-eq 'foo (my-car (my-cons 'foo 'bar)))
+  (assert-eq 'bar (my-cdr (my-cons 'foo 'bar))))

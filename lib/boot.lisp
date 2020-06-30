@@ -232,13 +232,12 @@
   ;; ...)
   ;; If this code was inside a function in a labels, we wouldn't correctly fix the names
   ;; because our transform code would think they are truly quoted or a lambda.
-  (setq definitions (%macro-expand definitions))
   (setq body (%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map #'cddr definitions)))
+         (bodies (map #'%macro-expand (map #'cddr definitions))))
     (cons 'let (cons (map (lambda (sym ll body)
                             (list sym (cons 'lambda (cons ll body))))
                           new-names
@@ -249,13 +248,12 @@
 
 
 (defmacro labels (definitions &body body)
-  (setq definitions (%macro-expand definitions))
   (setq body (%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map #'cddr definitions)))
+         (bodies (map #'%macro-expand (map #'cddr definitions))))
     (cons 'let* (cons (map (lambda (sym ll body)
                              (list sym (cons 'lambda (cons ll (%flet-transform old-new-names body)))))
                            new-names
