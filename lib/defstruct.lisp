@@ -79,3 +79,9 @@
         (signal 'slot-missing slot-name (type-of object)))))
 
 (defsetf slot-value set-slot-value)
+
+(defmacro with-slots (slots instance &body body)
+  (let ((var (gensym)))
+    `(let ((,var ,instance))
+       (symbol-macrolet (,@(map1 (lambda (slot) `(,slot (slot-value ,var ',slot))) slots))
+         ,@body))))
