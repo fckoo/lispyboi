@@ -10,6 +10,11 @@
                (cons
                 (case (car expr)
                   (quote expr)
+                  ;; This is dumb to have these hardcoded exceptions...
+                  (let expr)
+                  (let* expr)
+                  (labels expr)
+                  (flet expr)
                   (lambda `(lambda ,(second expr) ,@(macrolet-transform (cddr expr))))
                   (t (map1 #'macrolet-transform expr))))
                (t expr))))
