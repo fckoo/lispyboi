@@ -12,12 +12,3 @@
     (setf val 'ok))
   (assert-= 999 foo)
   (assert-eq 'ok (test-thing-val thing)))
-
-
-(assert-equal '(foo bar)
-              (symbol-macrolet ((x 'foo))
-                (list x (let ((x 'bar)) x)))) 
-
-(assert-equal '((foo x))
-              (symbol-macrolet ((x '(foo x)))
-                (list x)))
