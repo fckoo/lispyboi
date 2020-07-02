@@ -13,7 +13,7 @@
         (setf number (abs number))
         (while (/= number 0)
                (let ((rem (rem number radix)))
-                 (if (> rem 10)
+                 (if (> rem 9)
                      (push (code-char (+ (char-code #\A) (- rem 10))) digits)
                      (push (code-char (+ (char-code #\0) rem)) digits)))
                (setf number (floor number radix)))
