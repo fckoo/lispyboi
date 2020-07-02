@@ -196,27 +196,64 @@
   (%and-helper exprs))
 
 
+(defun %lexical-walk-replace (expr replace-function &optional (test #'eq) do-not-replace)
+  "This gives us the ability to walk an expression tree and optionally replace atoms and
+subexpressions with the ability to recognize when things probably shouldn't be replaced.
+
+This will recognize when an expression is a QUOTE and will not modify it.
+
+This will also recognize when a new lexical scope is formed via LAMBDA and append the
+lambda-list to the DO-NOT-REPLACE list before walking the lambda's body.
+
+The DO-NOT-REPLACE list acts as a way to immediately tell whether we should bother with
+asking the REPLACE-FUNCTION for a replacement. Its only real usage is internally but
+may be provided or left NIL."
+  (if (member expr do-not-replace test)
+      expr
+      (if (consp expr)
+          (cond ((eq 'quote (car expr))
+                 expr)
+                ((eq 'lambda (car expr))
+                 (cons 'lambda
+                       (cons (second expr)
+                             (let ((new-dnr (append do-not-replace (second expr))))
+                               (map (lambda (e)
+                                      (%lexical-walk-replace e
+                                                             replace-function
+                                                             test
+                                                             new-dnr))
+                                    (cddr expr))))))
+                (t
+                 (let ((replaced (funcall replace-function expr)))
+                   (if replaced
+                       replaced
+                       (map (lambda (e)
+                              (%lexical-walk-replace e
+                                                     replace-function
+                                                     test
+                                                     do-not-replace))
+                            expr)))))
+          (let ((replaced (funcall replace-function expr)))
+            (if replaced
+                replaced
+                expr)))))
 
 (defun %flet-transform (old-new-names expr)
-  ;; %FLET-TRANSFORM visits every leaf of EXPR and replaces any of the old/user symbols
-  ;; in the call position and when referenced by the (FUNCTION SYM) form with its new
-  ;; symbol
-  (if (consp expr)
-      (map (lambda (e)
-             (if (consp e)
-                 (cond ((eq 'function (car e))
-                        (let ((found (assoc (second e) old-new-names)))
-                          (if found (cdr found) e)))
-                       ((eq 'quote (car e))
-                        e)
-                       (t
-                        (let ((found (assoc (car e) old-new-names)))
-                          (if found
-                              (cons 'funcall (cons (cdr found) (%flet-transform old-new-names (cdr e))))
-                              (%flet-transform old-new-names e)))))
-                 e))
-           expr)
-      expr))
+  (let* ((func (lambda (e)
+                 (if (consp e)
+                     (if (eq 'function (first e))
+                         (cdr (assoc (second e) old-new-names))
+                         (let ((found (assoc (first e) old-new-names)))
+                           (when found
+                             (cons 'funcall
+                                   (cons (cdr found)
+                                         (map1 (lambda (e)
+                                                 (if (consp e)
+                                                     (%lexical-walk-replace e func)
+                                                     e))
+                                               (cdr e)))))))
+                     (assoc e old-new-names)))))
+    (%lexical-walk-replace expr func)))
 
 ;; The basic premise for FLET and LABELS is to create new NOT INTERNED symbols for each
 ;; function and then walk the form's body and replace instances where the user-defined
@@ -260,6 +297,8 @@
                            lambda-lists
                            bodies)
                       (%flet-transform old-new-names body)))))
+
+
 
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
