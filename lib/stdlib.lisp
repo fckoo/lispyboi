@@ -2,7 +2,6 @@
 
 (require "list")
 (require "destructuring-bind")
-(require "symbol-macrolet")
 (require "typep")
 (require "defgeneric")
 (require "defstruct")

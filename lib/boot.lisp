@@ -238,6 +238,11 @@ may be provided or left NIL."
                 replaced
                 expr)))))
 
+(defmacro symbol-macrolet (macro-bindings &body body)
+  (cons 'progn (%lexical-walk-replace body
+                                      (lambda (e)
+                                        (second (assoc e macro-bindings))))))
+
 (defun %flet-transform (old-new-names expr)
   (let* ((func (lambda (e)
                  (if (consp e)
