@@ -631,6 +631,30 @@ may be provided or left NIL."
 
 (defsetf elt set-elt)
 
+(defun funcall (function &rest args)
+  (apply function args))
+
+(defun remove-last! (list)
+  "Modifies the input LIST removing the final element returning the new list head and the removeditem."
+  (cond ((null list)
+         (list nil nil))
+        ((null (cdr list))
+         (list nil (car list)))
+        (t
+         (let ((cur list)
+               (last-element))
+           (while (cddr cur)
+                  (setf cur (cdr cur)))
+           (setf last-element (second cur))
+           (when cur
+             (setf (cdr cur) nil))
+           (list list last-element)))))
+
+(defun apply (function &rest args)
+  (let* ((a (remove-last! args))
+         (catted (append (first a) (second a))))
+    (%apply function catted)))
+
 (defun max (a b) (if (> a b) a b))
 
 (defun min (a b) (if (< a b) a b))
