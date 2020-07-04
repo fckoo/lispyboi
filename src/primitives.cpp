@@ -906,7 +906,7 @@ lisp_value lisp_prim_ffi_open(lisp_value *args, uint32_t nargs, bool &raised_sig
     auto lib_str = lisp_string_to_native_string(lib);
     auto handle = ffi::open(lib_str.c_str());
     
-    return lisp_obj::wrap_pointer(handle);
+    return handle ? lisp_obj::wrap_pointer(handle) : LISP_NIL;
 }
 
 lisp_value lisp_prim_ffi_close(lisp_value *args, uint32_t nargs, bool &raised_signal)
@@ -927,7 +927,7 @@ lisp_value lisp_prim_ffi_get_symbol(lisp_value *args, uint32_t nargs, bool &rais
      */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_SYSTEM_POINTER(args[0]);
-    auto symbol = args[0];
+    auto symbol = args[1];
     if (!symbol.is_type(SIMPLE_ARRAY_TYPE)) {
         raised_signal = true;
         return list(LISP_SYM_TYPE_ERROR, intern_symbol("STRING"), symbol);
@@ -941,7 +941,7 @@ lisp_value lisp_prim_ffi_get_symbol(lisp_value *args, uint32_t nargs, bool &rais
     auto symbol_str = lisp_string_to_native_string(symbol);
 
     auto func = ffi::getsym(handle, symbol_str.c_str());
-    return lisp_obj::wrap_pointer(func);
+    return func ? lisp_obj::wrap_pointer(func) : LISP_NIL;
 }
 
 lisp_value lisp_prim_ffi_call(lisp_value *args, uint32_t nargs, bool &raised_signal)
@@ -952,7 +952,18 @@ lisp_value lisp_prim_ffi_call(lisp_value *args, uint32_t nargs, bool &raised_sig
     CHECK_AT_LEAST_N(nargs, 1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto func = args[0].as_object()->ptr();
-    auto result = ffi::call(func, args+1, nargs-1);
+    std::vector<void *> marshalled;
+    for (uint32_t i = 1; i < nargs; ++i) {
+        void *m = nullptr;
+        if (ffi::try_marshal(args[i], &m)) {
+            marshalled.push_back(m);
+        }
+        else {
+            raised_signal = true;
+            return list(intern_symbol("MARSHAL-ERROR"), lisp_obj::create_string("Cannot marshal object"), args[i]);
+        }
+    }
+    auto result = ffi::call(func, marshalled.data(), marshalled.size());
     return lisp_obj::wrap_pointer(result);
 }
 
@@ -1143,7 +1154,19 @@ lisp_value lisp_prim_ffi_marshal(lisp_value *args, uint32_t nargs, bool &raised_
         (ffi-marshal object)
      */
     CHECK_EXACTLY_N(nargs, 1);
-    return lisp_obj::wrap_pointer(ffi::marshal(args[0]));
+    void *result = nullptr;
+    if (ffi::try_marshal(args[0], &result)) {
+        return lisp_obj::wrap_pointer(result);
+    }
+    raised_signal = true;
+    return list(intern_symbol("MARSHAL-ERROR"), lisp_obj::create_string("Cannot marshal object"), args[0]);
+}
+lisp_value lisp_prim_ffi_strlen(lisp_value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<const char*>(args[0].as_object()->ptr());
+    return lisp_value::wrap_fixnum(strlen(ptr));
 }
 
 lisp_value lisp_prim_ffi_coerce_fixnum(lisp_value *args, uint32_t nargs, bool &raised_signal)
@@ -1319,6 +1342,7 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("FFI-ZERO-ALLOC", lisp_prim_ffi_zero_alloc);
     bind_primitive("FFI-FREE", lisp_prim_ffi_free);
     bind_primitive("FFI-MARSHAL", lisp_prim_ffi_marshal);
+    bind_primitive("FFI-STRLEN", lisp_prim_ffi_strlen);
     bind_primitive("FFI-COERCE-FIXNUM", lisp_prim_ffi_coerce_fixnum);
     bind_primitive("FFI-COERCE-INT", lisp_prim_ffi_coerce_int);
     bind_primitive("FFI-COERCE-STRING", lisp_prim_ffi_coerce_string);
