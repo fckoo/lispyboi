@@ -1,6 +1,7 @@
 (provide "stdlib")
 
 (require "list")
+(require "string")
 (require "destructuring-bind")
 (require "typep")
 (require "defgeneric")

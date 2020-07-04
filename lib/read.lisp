@@ -83,31 +83,6 @@
 (defun digit-num (digit)
   (- (char-code digit) (char-code #\0)))
 
-(defun char-downcase (c)
-  (if (<= (char-code #\A) (char-code c) (char-code #\Z))
-      (code-char (bit-ior (char-code c) 32))
-      c))
-
-(defun char-upcase (c)
-  (if (<= (char-code #\a) (char-code c) (char-code #\z))
-      (code-char (bit-xor (char-code c) 32))   
-      c))
-
-(defun string-upcase! (string)
-  "Modifies STRING, changing all ASCII characters to their uppercase counterparts."
-  (dotimes (i (length string))
-    (when (<= 0 (char-code (aref string i)) 127)
-      (setf (aref string i) (char-upcase (aref string i)))))
-  string)
-
-(defun string-downcase! (string)
-  "Modifies STRING, changing all ASCII characters to their lowercase counterparts."
-  (dotimes (i (length string))
-    (when (<= 0 (char-code (aref string i)) 127)
-      (setf (aref string i) (char-downcase (aref string i)))))
-  string)
-
-
 (defun parse-integer (string &optional (radix 10))
   (let ((i (if (or (eql #\- (aref string 0))
                    (eql #\+ (aref string 0)))
