@@ -1,8 +1,15 @@
 (provide "ffi")
 
-(require "math")
-
 (setq *ffi-pointer-size* 8)
+
+(setf *ffi-bytespecs* '(uint8 byte
+                        uint16
+                        uint32
+                        uint64
+                        char character string
+                        short
+                        int
+                        long))
 
 (setq *ffi-type-registry*
       (list '(uint8 1 nil)
@@ -107,3 +114,79 @@
             functions)
       (push 'progn functions)
       functions)))
+
+
+(defun ffi-get-symbol-or-signal (library-handle symbol-name)
+  (let ((sym (ffi-get-symbol library-handle symbol-name)))
+    (unless sym
+      (signal 'ffi-symbol-not-found library-handle symbol-name))
+    sym))
+
+(defun ffi-nullptr-p (obj)
+  (eq (ffi-nullptr) obj))
+
+(defun with-ffi-array ((array-var bytespec buffer-expr) &body body)
+  (let ((buffer (gensym))
+        (size (gensym))
+        (ref-function)
+        (ref-offset-calc)
+        (tmp-expr (gensym)))
+    (if (member bytespec '(char character string))
+        (progn
+          `(let ((,tmp-expr ,buffer-expr))
+             (when ,tmp-expr
+               (destructuring-bind (,buffer ,size) ,tmp-expr
+                 (unwind-protect (let ((,array-var (prog1 (ffi-coerce-string ,buffer ,size)
+                                                     (ffi-free ,buffer))))
+                                   ,@body))))))
+        (progn
+          (case bytespec
+            (uint8
+             (setf ref-function 'ffi-ref-8)
+             (setf ref-offset-calc 'i))
+            (uint16
+             (setf ref-function 'ffi-ref-16)
+             (setf ref-offset-calc '(* i 2)))
+            (uint32
+             (setf ref-function 'ffi-ref-32)
+             (setf ref-offset-calc '(* i 4)))
+            (uint64
+             (setf ref-function 'ffi-ref-64)
+             (setf ref-offset-calc '(* i 8)))
+            (byte
+             (setf ref-function 'ffi-ref-8)
+             (setf ref-offset-calc 'i))
+            (short
+             (setf ref-function 'ffi-ref-16)
+             (setf ref-offset-calc '(* i 2)))
+            (int
+             (setf ref-function 'ffi-ref-32)
+             (setf ref-offset-calc '(* i 4)))
+            (long
+             (setf ref-function 'ffi-ref-64)
+             (setf ref-offset-calc '(* i 8)))
+            (t (signal 'bytespec-error "BYTESPEC must be one of" *ffi-bytespecs*)))
+          `(let ((,tmp-expr ,buffer-expr))
+             (when ,tmp-expr
+               (destructuring-bind (,buffer ,size) ,tmp-expr
+                 (let ((,array-var (make-array ,size)))
+                   (dotimes (i ,size)
+                     (setf (aref ,array-var i) (,ref-function (ffi-ref ,buffer ,ref-offset-calc))))
+                   (ffi-free ,buffer)
+                   ,@body))))))))
+
+(defmacro ffi-with-symbols (library-name symbols &body body)
+  (let ((lib-var (gensym)))
+    `(let* ((,lib-var (ffi-open ,library-name))
+            ,@(map1 (lambda (e)
+                      `(,(first e) (ffi-get-symbol-or-signal ,lib-var ,(second e))))
+                    symbols))
+       (flet (,@(map1 (lambda (e)
+                        `(,(first e) (&rest args) (apply #'ffi-call ,(first e) args)))
+                  symbols))
+         ,@body))))
+
+
+(defmethod print-object ((o system-pointer) stream)
+  (format stream "#<SYSTEM-POINTER ~X>" (ffi-coerce-fixnum o))
+  o)
