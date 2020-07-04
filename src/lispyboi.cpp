@@ -1784,12 +1784,24 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
             } break;
             case bytecode_op::op_car: {
                 auto o = pop_param();
-                push_param(car(o));
+                if (o.is_nil()) {
+                    push_param(o);
+                }
+                else {
+                    CHECK_CONS(o);
+                    push_param(car(o));
+                }
                 ip += 1;
             } break;
             case bytecode_op::op_cdr: {
                 auto o = pop_param();
-                push_param(cdr(o));
+                if (o.is_nil()) {
+                    push_param(o);
+                }
+                else {
+                    CHECK_CONS(o);
+                    push_param(cdr(o));
+                }
                 ip += 1;
             } break;
             case bytecode_op::op_halt: {
