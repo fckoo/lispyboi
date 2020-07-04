@@ -2,97 +2,140 @@
 (require "ffi")
 (require "format")
 
-(ffi-defstruct addrinfo
-               (ai-flags int)
-               (ai-family int)
-               (ai-socktype int)
-               (ai-protocol int)
-               (ai-addrlen int)
-               (ai-addr void*)
-               (ai-canonname char*)
-               (ai-next addrinfo*))
+(ffi-with-symbols
+ "libc.so.6"
+ ((c-getaddrinfo "getaddrinfo")
+  (c-freeaddrinfo "freeaddrinfo")
+  (c-socket "socket")
+  (c-connect "connect")
+  (c-close "close")
+  (c-send "send")
+  (c-recv "recv"))
 
+ (ffi-defstruct addrinfo
+                (ai-flags int)
+                (ai-family int)
+                (ai-socktype int)
+                (ai-protocol int)
+                (ai-addrlen int)
+                (ai-addr void*)
+                (ai-canonname char*)
+                (ai-next addrinfo*))
 
-(let* ((libc (ffi-open "libc.so.6"))
-
-       (c-fn-getaddrinfo (ffi-get-symbol libc "getaddrinfo"))
-       (c-fn-freeaddrinfo (ffi-get-symbol libc "freeaddrinfo"))
-       (c-fn-socket (ffi-get-symbol libc "socket"))
-       (c-fn-connect (ffi-get-symbol libc "connect"))
-       (c-fn-close (ffi-get-symbol libc "close"))
-       (c-fn-send (ffi-get-symbol libc "send"))
-       (c-fn-recv (ffi-get-symbol libc "recv"))
-       (c-fn-strlen (ffi-get-symbol libc "strlen"))
-
-       (+af-unspec+ 0)
+ (let ((+af-unspec+ 0)
        (+sock-stream+ 1)
        (+ai-passive+ 1))
 
-  (defun socket-open (host port)
-    (let ((host (ffi-marshal host))
-          (port (ffi-marshal port))
-          (result (ffi-nullptr))
-          (hints (make-addrinfo)))
+   (defun %socket-open (host port)
+     (let ((host (ffi-marshal host))
+           (port (ffi-marshal port))
+           (result (ffi-nullptr))
+           (hints (make-addrinfo)))
 
-      (addrinfo-set-ai-family hints +af-unspec+)
-      (addrinfo-set-ai-socktype hints +sock-stream+)
-      (addrinfo-set-ai-flags hints +ai-passive+)
+       (addrinfo-set-ai-family hints +af-unspec+)
+       (addrinfo-set-ai-socktype hints +sock-stream+)
+       (addrinfo-set-ai-flags hints +ai-passive+)
 
-      (unwind-protect
-           (let ((rc (ffi-coerce-int
-                      (ffi-call c-fn-getaddrinfo host port hints (ffi-ref result)))))
-             (when (< rc 0)
-               (signal 'socket-error "getaddrinfo failed with code: " rc))
-             (unwind-protect
-                  (let* ((socket (ffi-call c-fn-socket
-                                           (addrinfo-get-ai-family result)
-                                           (addrinfo-get-ai-socktype result)
-                                           (addrinfo-get-ai-protocol result)))
-                         (rc (ffi-coerce-int socket)))
-                    (when (< rc 0)
-                      (signal 'socket-error "socket acquisition failed"))
-                    (let ((rc (ffi-coerce-int
-                               (ffi-call c-fn-connect
-                                         socket
-                                         (addrinfo-get-ai-addr result)
-                                         (addrinfo-get-ai-addrlen result)))))
-                      (when (< rc 0)
-                        (signal 'socket-error "connect failed with code: " rc)))
-                    socket)
-               (ffi-call c-fn-freeaddrinfo result)))
-        (ffi-free hints))))
+       (unwind-protect
+            (let ((rc (ffi-coerce-int
+                       (c-getaddrinfo host port hints (ffi-ref result)))))
+              (when (< rc 0)
+                (signal 'socket-error "getaddrinfo failed with code: " rc))
+              (unwind-protect
+                   (let* ((socket (c-socket
+                                   (addrinfo-get-ai-family result)
+                                   (addrinfo-get-ai-socktype result)
+                                   (addrinfo-get-ai-protocol result)))
+                          (rc (ffi-coerce-int socket)))
+                     (when (< rc 0)
+                       (signal 'socket-error "socket acquisition failed"))
+                     (let ((rc (ffi-coerce-int
+                                (c-connect
+                                 socket
+                                 (addrinfo-get-ai-addr result)
+                                 (addrinfo-get-ai-addrlen result)))))
+                       (when (< rc 0)
+                         (signal 'socket-error "connect failed with code: " rc)))
+                     socket)
+                (c-freeaddrinfo result)))
+         (ffi-free hints))))
 
-  (defun socket-close (socket)
-    (let ((rc (ffi-coerce-int (ffi-call c-fn-close socket))))
-      (when (< rc 0)
-        (signal 'socket-error "failed to close socket with code: " rc))
-      t))
+   (defun %socket-close (socket)
+     (let ((rc (ffi-coerce-int (c-close socket))))
+       (when (< rc 0)
+         (signal 'socket-error "failed to close socket with code: " rc))
+       t))
 
-  (defun socket-send (socket message)
-    (let* ((written 0)
-           (bytes (ffi-marshal message))
-           (size (ffi-coerce-fixnum (ffi-call c-fn-strlen bytes))))
-      (while (< written size)
-        (let ((rc (ffi-coerce-fixnum
-                   (ffi-call c-fn-send socket (ffi-ref bytes written) (- size written) 0))))
-          (when (< rc 0)
-            (signal 'socket-error "send failed with code: " rc))
-          (incf written rc)))
-      written))
+   (defun %socket-send (socket message)
+     (let* ((written 0)
+            (bytes (ffi-marshal message))
+            (size (ffi-strlen bytes)))
+       (while (< written size)
+              (let ((rc (ffi-coerce-fixnum
+                         (c-send socket (ffi-ref bytes written) (- size written) 0))))
+                (when (< rc 0)
+                  (signal 'socket-error "send failed with code: " rc))
+                (incf written rc)))
+       written))
 
-  (defun socket-recv (socket &optional (buffer-size-hint 1024))
-    (let* ((buffer (ffi-alloc buffer-size-hint))
-           (bytes-read (ffi-coerce-fixnum
-                        (ffi-call c-fn-recv socket buffer buffer-size-hint 0))))
-      (when (< bytes-read 0)
-        (ffi-free buffer)
-        (signal 'socket-error "recv failed with code: " bytes-read))
-      (list buffer bytes-read)))
+   (defun %socket-recv (socket buffer-size)
+     (let* ((buffer (ffi-alloc buffer-size))
+            (bytes-read (ffi-coerce-fixnum
+                         (c-recv socket buffer buffer-size 0))))
+       (when (< bytes-read 0)
+         (ffi-free buffer)
+         (signal 'socket-error "recv failed with code: " bytes-read))
+       (list buffer bytes-read)))
 
-  (defun socket-recv-string (socket &optional (buffer-size-hint 1024))
-    (let* ((recv (socket-recv socket buffer-size-hint))
-           (buffer (first recv))
-           (bytes-read (second recv)))
-      (prog1 (ffi-coerce-string buffer bytes-read)
-        (ffi-free buffer)))))
+   (defun %socket-recv-string (socket buffer-size)
+     (let* ((recv (%socket-recv socket buffer-size))
+            (buffer (first recv))
+            (bytes-read (second recv)))
+       (prog1 (ffi-coerce-string buffer bytes-read)
+         (ffi-free buffer))))))
 
+
+(defstruct socket (fd))
+
+(defun socket-open (host port)
+  (when (fixnump port)
+    (when (or (< port 0) (> port #xFFFF))
+      (signal 'socket-error "SOCKET-OPEN: Port out of range (0-65535)" port))
+    (setf port (format nil "~d" port)))
+  (make-socket (%socket-open host port)))
+
+(defun socket-close (socket)
+  (let ((int-socket (socket-fd socket)))
+    (when int-socket
+      (prog1 (%socket-close int-socket)
+        (setf (socket-fd socket) nil)))))
+
+(defun socket-send (socket message)
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "SOCKET-SEND: Socket internal FD is NIL"))
+    (%socket-send int-socket message)))
+
+(defun socket-recv (socket &optional (buffer-size-hint 1024))
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "SOCKET-RECV: Socket internal FD is NIL"))
+    (%socket-send int-socket message)))
+
+(defun socket-recv-string (socket &optional (buffer-size-hint 1024))
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "SOCKET-RECV-STRING: Socket internal FD is NIL"))
+    (%socket-recv-string int-socket buffer-size-hint)))
+
+(defmethod stream-putchar ((stream socket) character)
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "STREAM-PUTCHAR: Socket internal FD is NIL"))
+    (%socket-send int-socket (make-string character))))
+
+(defmethod stream-puts ((stream socket) string)
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "STREAM-PUTS: Socket internal FD is NIL"))
+    (%socket-send int-socket string)))
