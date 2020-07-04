@@ -653,19 +653,21 @@ lisp_value lisp::parse(lisp_stream &stream)
             auto car_obj = parse(stream);
             if (car_obj.is_invalid())
                 return car_obj;
-            consume_whitespace(stream);
-            if (stream.peekc() == '.') {
-                stream.getc();
-                auto cdr_obj = parse(stream);
-                if (cdr_obj.is_invalid())
-                    return cdr_obj;
-                if (stream.peekc() == ')')
-                    stream.getc();
-                return cons(car_obj, cdr_obj);
-            }
             auto head = cons(car_obj, LISP_NIL);
             car_obj = head;
+            consume_whitespace(stream);
             while (stream.peekc() != ')') {
+                consume_whitespace(stream);
+                if (stream.peekc() == '.') {
+                    stream.getc();
+                    auto cdr_obj = parse(stream);
+                    if (cdr_obj.is_invalid())
+                        return cdr_obj;
+                    set_cdr(car_obj, cdr_obj);
+                    consume_whitespace(stream);
+                    break;
+                }
+
                 auto elem = parse(stream);
                 if (elem.is_invalid())
                     return elem;
