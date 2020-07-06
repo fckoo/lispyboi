@@ -587,6 +587,9 @@ struct lisp_stream {
     virtual int getc() = 0;
     virtual int peekc() = 0;
     virtual bool eof() = 0;
+    virtual int line_number() const = 0;
+    virtual int column_number() const = 0;
+    virtual std::string filepath() const = 0;
 };
 
 struct lisp_file_stream : lisp_stream {
@@ -603,6 +606,8 @@ struct lisp_file_stream : lisp_stream {
         : m_fp(nullptr)
         , m_path()
         , m_mode()
+        , m_line_number(1)
+        , m_column_number(0)
     {}
 
     inline const std::string &path() const {
@@ -678,6 +683,21 @@ struct lisp_file_stream : lisp_stream {
         }
     }
 
+    int line_number() const
+    {
+        return m_line_number;
+    }
+
+    int column_number() const
+    {
+        return m_column_number;
+    }
+    
+    std::string filepath() const
+    {
+        return path();
+    }
+
     int getc()
     {
         return read_byte();
@@ -699,7 +719,13 @@ struct lisp_file_stream : lisp_stream {
     uint8_t read_byte()
     {
         if (eof()) return end_of_file;
-        return fgetc(m_fp);
+        int c = fgetc(m_fp);
+        m_column_number++;
+        if (c == '\n') {
+            m_line_number++;
+            m_column_number = 0;
+        }
+        return c;
     }
 
     int32_t peek_utf8()
@@ -817,6 +843,8 @@ struct lisp_file_stream : lisp_stream {
     std::string m_path;
     io_mode m_mode;
     std::vector<int32_t> m_ungetted;
+    int m_line_number;
+    int m_column_number;
 };
 
 struct lisp_struct {

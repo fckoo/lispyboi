@@ -7,7 +7,7 @@
   (unless (fixnump number)
     (signal 'format-error "Not of type FIXNUM" number))
   (if (= number 0)
-      (stream-putchar stream #\0)
+      (output-stream-write-char stream #\0)
       (let ((digits)
             (negp (< number 0)))
         (setf number (abs number))
@@ -18,28 +18,28 @@
                      (push (code-char (+ (char-code #\0) rem)) digits)))
                (setf number (floor number radix)))
         (when negp
-          (stream-putchar stream #\-))
+          (output-stream-write-char stream #\-))
         (dolist (digit digits)
-          (stream-putchar stream digit)))))
+          (output-stream-write-char stream digit)))))
 
 (defun %format-cons (cons stream format-object-func)
-  (stream-putchar stream #\()
+  (output-stream-write-char stream #\()
   (while (consp (cdr cons))
          (funcall format-object-func (car cons) stream)
-         (stream-putchar stream #\Space)
+         (output-stream-write-char stream #\Space)
          (setf cons (cdr cons)))
   (cond ((null (cdr cons))
          (funcall format-object-func (car cons) stream))
         (t
          (funcall format-object-func (car cons) stream)
-         (stream-puts stream " . ")
+         (output-stream-write-string stream " . ")
          (funcall format-object-func (cdr cons) stream)))
-  (stream-putchar stream #\)))
+  (output-stream-write-char stream #\)))
 
 (defun %format-object-a (object stream)
   (typecase object
-    (string (stream-puts stream object))
-    (character (stream-putchar stream object))
+    (string (output-stream-write-string stream object))
+    (character (output-stream-write-char stream object))
     (cons (%format-cons object stream #'%format-object-a))
     (t (print-object object stream))))
 
@@ -82,12 +82,12 @@
 
                      ((eql #\~ spec)
                       (incf i 1)
-                      (string-stream-push ss #\~))
+                      (string-stream-write-char ss #\~))
 
                      ((eql #\% spec)
                       (incf i 1)
-                      (string-stream-push ss #\Newline))))
-                 (string-stream-push ss (aref format i))) 
+                      (string-stream-write-char ss #\Newline))))
+                 (string-stream-write-char ss (aref format i))) 
              (incf i)))
     (string-stream-str ss)))
 
@@ -113,6 +113,6 @@ NIL is returned."
     (when (eq t stream)
       (setf stream *STANDARD-OUTPUT*))
     (if stream
-        (progn (stream-puts stream formatted)
+        (progn (output-stream-write-string stream formatted)
                nil)
         formatted)))

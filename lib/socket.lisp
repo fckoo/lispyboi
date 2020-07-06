@@ -128,14 +128,14 @@
       (signal 'socket-error "SOCKET-RECV-STRING: Socket internal FD is NIL"))
     (%socket-recv-string int-socket buffer-size-hint)))
 
-(defmethod stream-putchar ((stream socket) character)
+(defmethod output-stream-write-char ((stream socket) character)
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
-      (signal 'socket-error "STREAM-PUTCHAR: Socket internal FD is NIL"))
+      (signal 'socket-error "OUTPUT-STREAM-WRITE-CHAR: Socket internal FD is NIL"))
     (%socket-send int-socket (make-string character))))
 
-(defmethod stream-puts ((stream socket) string)
+(defmethod output-stream-write-string ((stream socket) string)
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
-      (signal 'socket-error "STREAM-PUTS: Socket internal FD is NIL"))
+      (signal 'socket-error "OUTPUT-STREAM-WRITE-STRING: Socket internal FD is NIL"))
     (%socket-send int-socket string)))

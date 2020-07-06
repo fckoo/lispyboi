@@ -70,25 +70,25 @@ struct lisp_signal_exception : lisp_exception {};
 
 struct lisp_string_stream : lisp_stream {
     inline
-    lisp_string_stream()
-        : m_index(0) {}
-
-    inline
-    lisp_string_stream(const std::string &data)
-        : m_index(0)
-        , m_data(data) {}
-
-    inline
-    lisp_string_stream(const char *data)
-        : m_index(0)
-        , m_data(data) {}
+    lisp_string_stream(const std::string &name)
+        : m_name(name)
+        , m_index(0)
+        , m_line_number(1)
+        , m_column_number(0)
+    {}
 
     int getc()
     {
         if (m_index >= m_data.size()) {
             return end_of_file;
         }
-        return m_data[m_index++];
+        auto c = m_data[m_index++];
+        m_column_number++;
+        if (c == '\n') {
+            m_line_number++;
+            m_column_number = 0;
+        }
+        return c;
     }
 
     int peekc()
@@ -102,6 +102,21 @@ struct lisp_string_stream : lisp_stream {
     bool eof()
     {
         return m_index >= m_data.size();
+    }
+
+    int line_number() const
+    {
+        return m_line_number;
+    }
+
+    int column_number() const
+    {
+        return m_column_number;
+    }
+    
+    std::string filepath() const
+    {
+        return m_name;
     }
 
     inline
@@ -144,6 +159,33 @@ struct lisp_string_stream : lisp_stream {
     inline
     void index(size_t idx)
     {
+        //if (idx > m_index) {
+        //    for (size_t i = m_index; i <= idx; ++i) {
+        //        m_column_number++;
+        //        if (m_data[i] == '\n') {
+        //            m_line_number++;
+        //            m_column_number = 0;
+        //        }
+        //    }
+        //}
+        //else if (idx < m_index) {
+        //    size_t i = m_index;
+        //    for (; i >= idx; --i) {
+        //        m_column_number--;
+        //        if (m_data[i] == '\n') {
+        //            m_line_number--;
+        //            m_column_number = 0;
+        //        }
+        //    }
+        //    if (i != 0) {
+        //        m_column_number = 0;
+        //        do {
+        //            if (m_data[i] == '\n')
+        //                break;
+        //            m_column_number++;
+        //        } while (i != 0);
+        //    }
+        //}
         m_index = idx;
     };
 
@@ -154,8 +196,11 @@ struct lisp_string_stream : lisp_stream {
     }
 
   private:
-    size_t m_index;
     std::string m_data;
+    std::string m_name;
+    size_t m_index;
+    int m_line_number;
+    int m_column_number;
 };
 
 std::unordered_map<std::string, lisp_value> LISP_MACROS;
@@ -2056,7 +2101,7 @@ void initialize_globals()
 
 bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input)
 {
-    static lisp_string_stream stream;
+    static lisp_string_stream stream("stdin");
     if (stream.eof()) {
         char *input = readline(prompt_top_level);
         if (!input) return false;

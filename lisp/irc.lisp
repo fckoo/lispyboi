@@ -14,7 +14,7 @@
       (let ((c (ssl-read1 ssl)))
         (until (eql #\newline c)
                (unless (eql #\return c)
-                 (string-stream-push ss c))
+                 (string-stream-write-char ss c))
                (setf c (ssl-read1 ssl)))
         (string-stream-str ss))))
   

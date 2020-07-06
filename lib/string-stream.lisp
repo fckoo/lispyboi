@@ -9,7 +9,7 @@
   (dotimes (i n)
     (setf (aref destination i) (aref source i))))
 
-(defun string-stream-push (string-stream character)
+(defun string-stream-write-char (string-stream character)
   (labels ((copy-expand-string (str)
              (let ((new-str (make-array (* 2 (length str)) 'character)))
                (string-copy new-str str (length str))
@@ -23,15 +23,15 @@
       (incf (string-stream-length string-stream))
       string-stream)))
 
-(defun string-stream-append (string-stream str)
+(defun string-stream-write-string (string-stream str)
   (dotimes (i (length str))
-    (string-stream-push string-stream (aref str i))))
+    (string-stream-write-char string-stream (aref str i))))
 
 (defun string-stream-eof-p (string-stream)
   (= (string-stream-index string-stream)
      (string-stream-length string-stream)))
 
-(defun string-stream-peekc (string-stream &optional eof-error-p eof-value-p)
+(defun string-stream-peek-char (string-stream &optional eof-error-p eof-value-p)
   (if (>= (string-stream-index string-stream)
           (string-stream-length string-stream))
       (if eof-error-p
@@ -40,8 +40,8 @@
       (aref (string-stream-buffer string-stream)
             (string-stream-index string-stream))))
 
-(defun string-stream-getc (string-stream &optional eof-error-p eof-value-p)
-  (let ((c (string-stream-peekc string-stream eof-error-p eof-value-p)))
+(defun string-stream-read-char (string-stream &optional eof-error-p eof-value-p)
+  (let ((c (string-stream-peek-char string-stream eof-error-p eof-value-p)))
     (incf (string-stream-index string-stream))
     c))
 
@@ -57,27 +57,34 @@
 
 (defmacro with-input-from-string ((var string) &body body)
   `(let ((,var (make-string-stream)))
-     (string-stream-append ,var ,string)
+     (string-stream-write-string ,var ,string)
      ,@body))
+
+(defmacro with-output-to-string ((var string) &body body)
+  `(let ((,var (make-string-stream)))
+     ,@(when string `((string-stream-write-string ,var ,string)))
+     ,@body
+     (string-stream-str ,var)))
 
 (defmethod print-object ((ss string-stream) stream)
   (let ((len (string-stream-length ss))
         (buf (string-stream-buffer ss)))
     (dotimes (i len)
-      (stream-putchar stream (aref buf i))))
+      (output-stream-write-char stream (aref buf i))))
   ss)
 
-(defmethod stream-putchar ((ss string-stream) character)
-  (string-stream-push ss character))
+(defmethod output-stream-write-char ((ss string-stream) character)
+  (string-stream-write-char ss character))
 
-(defmethod stream-puts ((ss string-stream) string)
-  (string-stream-append ss string))
+(defmethod output-stream-write-string ((ss string-stream) string)
+  (string-stream-write-string ss string))
 
-(defmethod stream-eof-p ((ss string-stream))
+(defmethod input-stream-eof-p ((ss string-stream))
   (string-stream-eof-p ss))
 
-(defmethod stream-peekc ((ss string-stream) &optional eof-error-p eof-value)
-  (string-stream-peekc ss eof-error-p eof-value))
+(defmethod input-stream-peek-char ((ss string-stream) &optional eof-error-p eof-value)
+  (string-stream-peek-char ss eof-error-p eof-value))
 
-(defmethod stream-getc ((ss string-stream) &optional eof-error-p eof-value)
-  (string-stream-getc ss eof-error-p eof-value))
+(defmethod input-stream-read-char ((ss string-stream) &optional eof-error-p eof-value)
+  (string-stream-read-char ss eof-error-p eof-value))
+

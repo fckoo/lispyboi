@@ -111,8 +111,8 @@
   (with-ffi-array (array 'character (%ssl-read-pending (ssl-context-ssl ssl-context)))
     array))
 
-(defmethod stream-putchar ((stream ssl-context) character)
+(defmethod output-stream-write-char ((stream ssl-context) character)
   (%ssl-write (ssl-context-ssl stream) (make-string chracter)))
 
-(defmethod stream-puts ((stream ssl-context) string)
+(defmethod output-stream-write-string ((stream ssl-context) string)
   (%ssl-write (ssl-context-ssl stream) string))
