@@ -59,14 +59,13 @@
       (%file-peek-character file-stream)))
 
 (defun file-read-line (file-stream)
-  (let ((ss (make-string-stream)))
+  (with-output-to-string (ss)
     (until (or (file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
            (string-stream-write-char ss (file-read-character file-stream)))
     (when (and (not file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
-      (file-read-byte file-stream))
-    (string-stream-str ss)))
+      (file-read-byte file-stream))))
 
 (defmethod print-object ((fs file-stream) stream)
   (output-stream-write-string stream "#S(FILE-STREAM '")

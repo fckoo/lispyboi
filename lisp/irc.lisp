@@ -10,13 +10,12 @@
   (ssl-wrap-socket ssl socket)
 
   (defun read-line ()
-    (let ((ss (make-string-stream)))
+    (with-output-to-string (ss)
       (let ((c (ssl-read1 ssl)))
         (until (eql #\newline c)
                (unless (eql #\return c)
                  (string-stream-write-char ss c))
-               (setf c (ssl-read1 ssl)))
-        (string-stream-str ss))))
+               (setf c (ssl-read1 ssl))))))
   
   (defun privmsg (target message)
     (format nil "PRIVMSG ~a :~a~%" target message))
