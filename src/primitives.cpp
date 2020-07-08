@@ -1241,7 +1241,7 @@ void bind_value(lisp_value &environment, const std::string &symbol_name, lisp_va
     environment = cons(binding, environment);
 }
 
-void primitives::bind_primitives(lisp_value &environment)
+void primitives::bind_primitives(lisp_value &environment, char **script_args)
 {
     bind_primitive("%+", lisp_prim_plus);
     bind_primitive("%-", lisp_prim_minus);
@@ -1329,4 +1329,15 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_value(environment, "*STANDARD-OUTPUT*", lisp_obj::standard_output_stream());
     bind_value(environment, "*STANDARD-ERROR*", lisp_obj::standard_error_stream());
 
+    if (script_args) {
+        std::vector<lisp_value> v;
+        while (*script_args) {
+            v.push_back(lisp_obj::create_string(*script_args));
+            script_args++;
+        }
+        bind_value(environment, "*COMMAND-ARGS*", to_list(v));
+    }
+    else {
+        bind_value(environment, "*COMMAND-ARGS*", LISP_NIL);
+    }
 }

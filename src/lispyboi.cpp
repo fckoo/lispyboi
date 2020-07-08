@@ -2152,7 +2152,7 @@ lisp_value lisp_prim_get_num_handlers(lisp_value*, uint32_t, bool &)
 }
 
 static
-void initialize_globals()
+void initialize_globals(char **script_args)
 {
     LISP_T = intern_symbol("T");
 
@@ -2194,7 +2194,7 @@ void initialize_globals()
     LISP_SYM_SYSTEM_POINTER = intern_symbol("SYSTEM-POINTER");
 
     LISP_BASE_ENVIRONMENT = LISP_NIL;
-    primitives::bind_primitives(LISP_BASE_ENVIRONMENT);
+    primitives::bind_primitives(LISP_BASE_ENVIRONMENT, script_args);
 
     {
         intern_symbol("%%-INTERNAL-GET-NUM-CASE-HANDLERS")
@@ -2780,31 +2780,38 @@ int main(int argc, char *argv[])
     bool show_disassembly = false;
     std::vector<std::string> file_paths;
 
+    char **script_args = nullptr;
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
-        if (strcmp("-i", arg) == 0) {
-            repl = true;
-        }
-        else if (strcmp("--no-boot", arg) == 0) {
-            use_boot = false;
-        }
-        else if (strcmp("--boot", arg) == 0) {
-            use_boot = true;
-        }
-        else if (strcmp("--disassemble", arg) == 0) {
-            show_disassembly = true;
-        }
-        else if (strcmp("--debug", arg) == 0) {
-            LISP_SINGLE_STEP_DEBUGGER = true;
+        if (arg[0] == '-') {
+            if (strcmp("-i", arg) == 0) {
+                repl = true;
+            }
+            else if (strcmp("--no-boot", arg) == 0) {
+                use_boot = false;
+            }
+            else if (strcmp("--boot", arg) == 0) {
+                use_boot = true;
+            }
+            else if (strcmp("--disassemble", arg) == 0) {
+                show_disassembly = true;
+            }
+            else if (strcmp("--debug", arg) == 0) {
+                LISP_SINGLE_STEP_DEBUGGER = true;
+            }
+            else {
+                fprintf(stderr, "Unrecognized flag: %s\n", arg);
+            }
         }
         else {
             file_paths.push_back(arg);
+            script_args = argv+i;
+            break;
         }
     }
 
     if (!repl && file_paths.size() == 0)
         repl = true;
-
 
     std::vector<lisp_file_stream*> fstreams;
     if (use_boot) {
@@ -2833,7 +2840,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    initialize_globals();
+    initialize_globals(script_args);
     lisp_vm_state vm;
     THE_LISP_VM = &vm;
 
