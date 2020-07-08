@@ -179,6 +179,12 @@ struct lisp_value {
     {
         return tag_bits() == TAG_CONS;
     }
+    
+    FORCE_INLINE
+    bool is_list() const noexcept
+    {
+        return is_nil() || is_cons();
+    }
 
     FORCE_INLINE
     bool is_lisp_primitive() const noexcept
@@ -387,6 +393,7 @@ extern lisp_value LISP_SYM_HANDLER_CASE;
 extern lisp_value LISP_SYM_FILE_STREAM;
 extern lisp_value LISP_SYM_SYSTEM_POINTER;
 extern lisp_value LISP_SYM_TYPE_ERROR;
+extern lisp_value LISP_SYM_SIMPLE_ERROR;
 extern lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
 
 struct lisp_cons {

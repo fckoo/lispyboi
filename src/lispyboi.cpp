@@ -243,6 +243,7 @@ lisp_value LISP_SYM_SETQ;
 lisp_value LISP_SYM_DEFMACRO;
 lisp_value LISP_SYM_FIXNUM;
 lisp_value LISP_SYM_CONS;
+lisp_value LISP_SYM_LIST;
 lisp_value LISP_SYM_CHARACTER;
 lisp_value LISP_SYM_FUNCTION;
 lisp_value LISP_SYM_FUNCALL;
@@ -261,6 +262,7 @@ lisp_value LISP_SYM_AMP_OPTIONAL;
 lisp_value LISP_SYM_HANDLER_CASE;
 lisp_value LISP_SYM_FILE_STREAM;
 lisp_value LISP_SYM_TYPE_ERROR;
+lisp_value LISP_SYM_SIMPLE_ERROR;
 lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
 lisp_value LISP_SYM_SYSTEM_POINTER;
 }
@@ -966,7 +968,6 @@ struct lisp_vm_state {
     const uint8_t *execute(const uint8_t *ip, lisp_value env);
 
     void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const;
-
 
     FORCE_INLINE
     void push_param(lisp_value val)
@@ -1756,13 +1757,17 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
 
 #define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), LISP_SYM_FIXNUM)
 #define CHECK_CONS(what) TYPE_CHECK(what, is_cons(), LISP_SYM_CONS)
+#define CHECK_LIST(what) TYPE_CHECK(what, is_list(), LISP_SYM_LIST)
 #define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), LISP_SYM_CHARACTER)
-#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_CHARACTER)
+#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_SYMBOL)
 #define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
 
 
     static_assert(sizeof(*ip) == 1, "pointer arithmetic will not work as expected.");
     lisp_value signal_args;
+    lisp_value func;
+    lisp_value *args;
+    uint32_t nargs;
     while (1) {
         if (LISP_SINGLE_STEP_DEBUGGER) {
             debug_dump(std::cout, "VM EXEC", ip);
@@ -1770,15 +1775,35 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
         }
         const auto opcode = static_cast<bytecode_op>(*ip);
         switch (opcode) {
+            case bytecode_op::op_apply: {
+                func = pop_param();
+                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                if (nargs == 0) {
+                    signal_args = list(LISP_SYM_SIMPLE_ERROR, lisp_obj::create_string("Apply expects at least 2 arguments."));
+                    goto raise_signal;
+                }
+                auto last_arg = pop_param();
+                CHECK_LIST(last_arg);
+                nargs--;
+                param_stack_top -= nargs;
+                args = param_stack_top;
+                while (last_arg.is_not_nil()) {
+                    args[nargs++] = car(last_arg);
+                    last_arg = cdr(last_arg);
+                }
+                push_return(env, ip + 1 + sizeof(uint32_t));
+                goto do_call;
+            } break;
             case bytecode_op::op_funcall:
                 push_return(env, ip + 1 + sizeof(uint32_t));
                 // fallthrough
             case bytecode_op::op_gotocall: {
-                auto func = pop_param();
-                auto ofunc = func;
-                auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                func = pop_param();
+                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
                 param_stack_top -= nargs;
-                auto args = param_stack_top;
+                args = param_stack_top;
+            do_call:
+                auto ofunc = func;
                 if (func.is_type(SYM_TYPE)) {
                     func = func.as_object()->symbol()->function;
                 }
@@ -2079,49 +2104,6 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 LISP_SINGLE_STEP_DEBUGGER = value.is_not_nil();
                 ip += 1;
             } break;
-            case bytecode_op::op_apply: {
-                auto func = pop_param();
-                auto ofunc = func;
-                auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-                if (nargs == 0) {
-                    throw lisp_unhandleable_exception{ intern_symbol("APPLY"), "Argument count mismatch, at least 2 expected" };
-                }
-                auto last_arg = pop_param(); // @TODO: typecheck this as list
-                nargs--;
-                param_stack_top -= nargs;
-                auto args = param_stack_top;
-                while (last_arg.is_not_nil()) {
-                    args[nargs++] = car(last_arg);
-                    last_arg = cdr(last_arg);
-                }
-                if (func.is_type(SYM_TYPE)) {
-                    func = func.as_object()->symbol()->function;
-                }
-                if (func.is_lisp_primitive()) {
-                    bool raised_signal = false;
-                    auto result = func.as_lisp_primitive()(args, nargs, raised_signal);
-                    if (raised_signal) {
-                        signal_args = result;
-                        goto raise_signal;
-                    }
-                    else {
-                        push_param(result);
-                        ip += 1 + sizeof(nargs);
-                    }
-                    break;
-                }
-                if (func.is_type(LAMBDA_TYPE)) {
-                    push_return(env, ip + 1 + sizeof(uint32_t));
-                    auto lambda = func.as_object()->lambda();
-                    auto shadowed = lambda->env();
-                    ip = apply_arguments(shadowed, lambda, args, nargs);
-                    env = shadowed;
-                    break;
-                }
-                signal_args = list(intern_symbol("OBJECT-NOT-CALLABLE"), ofunc);
-                goto raise_signal;
-            } break;
-
         }
     }
     done:
@@ -2181,6 +2163,7 @@ void initialize_globals()
     INTERN_GLOBAL(SETQ);
     INTERN_GLOBAL(FIXNUM);
     INTERN_GLOBAL(CONS);
+    INTERN_GLOBAL(LIST);
     INTERN_GLOBAL(CHARACTER);
     INTERN_GLOBAL(FUNCTION);
     INTERN_GLOBAL(FUNCALL);
@@ -2205,6 +2188,7 @@ void initialize_globals()
     LISP_SYM_FILE_STREAM = intern_symbol("FILE-STREAM");
 
     LISP_SYM_TYPE_ERROR = intern_symbol("TYPE-ERROR");
+    LISP_SYM_SIMPLE_ERROR = intern_symbol("SIMPLE-ERROR");
     LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
 
     LISP_SYM_SYSTEM_POINTER = intern_symbol("SYSTEM-POINTER");
@@ -2471,7 +2455,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
     static auto GO = intern_symbol("GO");
     if (expr.is_cons()) {
         auto thing = first(expr);
-        if (thing != LISP_SYM_QUOTE) {
+        if (thing != LISP_SYM_QUOTE && thing != LISP_SYM_FUNCTION) {
             e.map_here_to(expr);
         }
         if (thing == LISP_SYM_QUOTE) {
@@ -2650,13 +2634,13 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
 lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
 {
     bytecode_emitter e;
-    auto expanded = macro_expand_impl(expr);
-    compile(e, expanded, true);
-    e.emit_halt();
-    e.lock();
-
     lisp_vm_state vm;
     try {
+        auto expanded = macro_expand_impl(expr);
+        compile(e, expanded, true);
+        e.emit_halt();
+        e.lock();
+
         vm.execute(e.bytecode().data(), LISP_BASE_ENVIRONMENT);
     }
     catch (lisp_signal_exception e) {
@@ -2748,7 +2732,14 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
         if (!read_stdin(prompt_lisp, prompt_ws, parsed, &input)) {
             break;
         }
-        auto expanded = macro_expand_impl(parsed);
+        lisp_value expanded = LISP_NIL;
+        try {
+            expanded = macro_expand_impl(parsed);
+        }
+        catch (lisp_signal_exception e) {
+            trace_unhandled_signal(e);
+            continue;
+        }
         bytecode_emitter e;
         auto here = e.position();
         compile(e, expanded, true);

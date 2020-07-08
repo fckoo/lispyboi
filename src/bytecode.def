@@ -26,9 +26,20 @@
 #define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring)
 #endif
 
+BYTECODE_DEF(apply,
+0, // opcode
+1, // noperands
+2, // nargs
+1+sizeof(uint32_t), // size
+"Pop A from P-stack as the function to call\n"
+"Pop B from P-stack as the list of arguments to be merged.\n"
+"Lisp APPLY form, similar to FUNCALL except the last argument(B) must be a list.\n"
+"The last argument is dropped the the contents of it are appened to the rest\n"
+"of the arguments before calling the function.")
+
 
 BYTECODE_DEF(funcall,
-0, // opcode
+1, // opcode
 1, // noperands
 1, // nargs
 1+sizeof(uint32_t), // size
@@ -47,7 +58,7 @@ BYTECODE_DEF(funcall,
 
 
 BYTECODE_DEF(gotocall,
-1, // opcode
+2, // opcode
 1, // noperands
 1, // nargs
 1+sizeof(uint32_t), // size
@@ -56,7 +67,7 @@ BYTECODE_DEF(gotocall,
 
 
 BYTECODE_DEF(return,
-2, // opcode
+3, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -64,7 +75,7 @@ BYTECODE_DEF(return,
 
 
 BYTECODE_DEF(jump,
-3, // opcode
+4, // opcode
 1, // noperands
 0, // nargs
 1+sizeof(int32_t), // size
@@ -72,7 +83,7 @@ BYTECODE_DEF(jump,
 
 
 BYTECODE_DEF(pop_jump_if_nil,
-4, // opcode
+5, // opcode
 1, // noperands
 1, // nargs
 1+sizeof(uint32_t), // size
@@ -86,7 +97,7 @@ BYTECODE_DEF(pop_jump_if_nil,
 
 
 BYTECODE_DEF(get_value,
-5, // opcode
+6, // opcode
 1, // noperands
 0, // nargs
 1+sizeof(lisp::lisp_value), // size
@@ -98,7 +109,7 @@ BYTECODE_DEF(get_value,
 
 
 BYTECODE_DEF(set_value,
-6, // opcode
+7, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -114,7 +125,7 @@ BYTECODE_DEF(set_value,
 
 
 BYTECODE_DEF(function_value,
-7, // opcode
+8, // opcode
 1, // noperands
 0, // nargs
 1+sizeof(lisp::lisp_value), // size
@@ -126,7 +137,7 @@ BYTECODE_DEF(function_value,
 
 
 BYTECODE_DEF(define_function,
-8, // opcode
+9, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -138,7 +149,7 @@ BYTECODE_DEF(define_function,
 
 
 BYTECODE_DEF(pop,
-9, // opcode
+10, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -146,7 +157,7 @@ BYTECODE_DEF(pop,
 
 
 BYTECODE_DEF(push_value,
-10, // opcode
+11, // opcode
 1, // noperands
 0, // nargs
 1+sizeof(lisp::lisp_value), // size
@@ -156,7 +167,7 @@ BYTECODE_DEF(push_value,
 // The literal values NIL, 0, and 1 are so common they deserve their own opcodes
 
 BYTECODE_DEF(push_nil,
-11, // opcode
+12, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -164,7 +175,7 @@ BYTECODE_DEF(push_nil,
 
 
 BYTECODE_DEF(push_fixnum_0,
-12, // opcode
+13, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -172,7 +183,7 @@ BYTECODE_DEF(push_fixnum_0,
 
 
 BYTECODE_DEF(push_fixnum_1,
-13, // opcode
+14, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -180,7 +191,7 @@ BYTECODE_DEF(push_fixnum_1,
 
 
 BYTECODE_DEF(instantiate_lambda,
-14, // opcode
+15, // opcode
 0, // noperands
 1, // nargs
 1, // size
@@ -189,7 +200,7 @@ BYTECODE_DEF(instantiate_lambda,
 
 
 BYTECODE_DEF(cons,
-15, // opcode
+16, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -199,7 +210,7 @@ BYTECODE_DEF(cons,
 
 
 BYTECODE_DEF(car,
-16, // opcode
+17, // opcode
 0, // noperands
 1, // nargs
 1, // size
@@ -207,7 +218,7 @@ BYTECODE_DEF(car,
 
 
 BYTECODE_DEF(cdr,
-17, // opcode
+18, // opcode
 0, // noperands
 1, // nargs
 1, // size
@@ -215,7 +226,7 @@ BYTECODE_DEF(cdr,
 
 
 BYTECODE_DEF(halt,
-18, // opcode
+19, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -223,7 +234,7 @@ BYTECODE_DEF(halt,
 
 
 BYTECODE_DEF(push_handler_case,
-19, // opcode
+20, // opcode
 2, // noperands
 0, // nargs
 1+sizeof(uint32_t)+sizeof(uint32_t), // size
@@ -235,7 +246,7 @@ BYTECODE_DEF(push_handler_case,
 
 
 BYTECODE_DEF(pop_handler_case,
-20, // opcode
+21, // opcode
 0, // noperands
 0, // nargs
 1, // size
@@ -243,7 +254,7 @@ BYTECODE_DEF(pop_handler_case,
 "Pop one HANDLER-CASE from the VM's HANDLER-CASE stack.")
 
 BYTECODE_DEF(raise_signal,
-21, // opcode
+22, // opcode
 1, // noperands
 1, // nargs
 1+sizeof(uint32_t), // size
@@ -251,7 +262,7 @@ BYTECODE_DEF(raise_signal,
 
 
 BYTECODE_DEF(eq,
-22, // opcode
+23, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -264,7 +275,7 @@ BYTECODE_DEF(eq,
 
 
 BYTECODE_DEF(rplaca,
-23, // opcode
+24, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -274,7 +285,7 @@ BYTECODE_DEF(rplaca,
 
 
 BYTECODE_DEF(rplacd,
-24, // opcode
+25, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -284,7 +295,7 @@ BYTECODE_DEF(rplacd,
 
 
 BYTECODE_DEF(aref,
-25, // opcode
+26, // opcode
 0, // noperands
 2, // nargs
 1, // size
@@ -294,7 +305,7 @@ BYTECODE_DEF(aref,
 
 
 BYTECODE_DEF(aset,
-26, // opcode
+27, // opcode
 0, // noperands
 3, // nargs
 1, // size
@@ -305,22 +316,11 @@ BYTECODE_DEF(aset,
 
 
 BYTECODE_DEF(debug_trap,
-27, // opcode
+28, // opcode
 0, // noperands
 1, // nargs
 1, // size
 "Pop top of P-stack, if it's NIL disable debugger, otherwise enable it.")
 
-
-BYTECODE_DEF(apply,
-28, // opcode
-1, // noperands
-2, // nargs
-1+sizeof(uint32_t), // size
-"Pop A from P-stack as the function to call\n"
-"Pop B from P-stack as the list of arguments to be merged.\n"
-"Lisp APPLY form, similar to FUNCALL except the last argument(B) must be a list.\n"
-"The last argument is dropped the the contents of it are appened to the rest\n"
-"of the arguments before calling the function.")
 
 #undef BYTECODE_DEF
