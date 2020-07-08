@@ -416,43 +416,6 @@ lisp_value lisp_prim_eval(lisp_value *args, uint32_t nargs, bool &raised_signal)
     return lisp::evaluate(args[0], raised_signal);
 }
 
-lisp_value lisp_prim_apply(lisp_value *real_args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (apply func &rest args args-list)
-    */
-    CHECK_AT_LEAST_N(nargs, 1);
-
-    auto function = real_args[0];
-    if (nargs == 1) {
-        return lisp::apply(function, nullptr, 0, raised_signal);
-    }
-    
-    auto args = to_list(real_args+1, nargs-1);
-    auto head = LISP_NIL;
-    auto current = head;
-    while (args.is_not_nil()) {
-        if (rest(args).is_nil()) break;
-        if (head.is_nil()) {
-            head = list(first(args));
-            current = head;
-        }
-        else {
-            set_cdr(current, cons(first(args), LISP_NIL));
-            current = rest(current);
-        }
-        args = rest(args);
-    }
-    if (head.is_nil()) {
-        head = first(args);
-    }
-    else {
-        set_cdr(current, first(args));
-    }
-    auto vec = to_vector(head);
-    return lisp::apply(function, vec.data(), vec.size(), raised_signal);   
-}
-
 lisp_value lisp_prim_gensym(lisp_value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -1291,7 +1254,6 @@ void primitives::bind_primitives(lisp_value &environment)
     bind_primitive("%READ", lisp_prim_read);
     bind_primitive("%MACRO-EXPAND", lisp_prim_macro_expand);
     bind_primitive("%EVAL", lisp_prim_eval);
-    bind_primitive("%APPLY", lisp_prim_apply);
     bind_primitive("%GENSYM", lisp_prim_gensym);
     bind_primitive("%MAKE-SYMBOL", lisp_prim_make_symbol);
     bind_primitive("%SYMBOL-NAME", lisp_prim_symbol_name);

@@ -1120,7 +1120,7 @@ lisp_value parse(lisp_stream &stream);
 bool read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input = nullptr);
 lisp_value macro_expand(lisp_value obj);
 lisp_value evaluate(lisp_value obj, bool &raised_signal);
-lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal);
+//lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal);
 
 static FORCE_INLINE void set_car(lisp_value cons, lisp_value val)
 {

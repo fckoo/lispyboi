@@ -453,8 +453,8 @@ std::string lisp::repr(const lisp_value *obj)
     return repr(*obj);
 }
 
-static
-lisp_value apply_and_reraise(lisp_value function, lisp_value *args, uint32_t nargs);
+static lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs);
+
 
 void lisp::pretty_print(lisp_value obj, int depth)
 {
@@ -468,7 +468,7 @@ void lisp::pretty_print(lisp_value obj, int depth)
     else {
         try {
             lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
-            apply_and_reraise(print_object->function, args, 2);
+            apply(print_object->function, args, 2);
             printf("\n");
         }
         catch (lisp_unhandleable_exception e) {
@@ -762,9 +762,8 @@ struct bytecode_emitter {
     void emit_push_fixnum_0();
     void emit_push_fixnum_1();
     void emit_funcall(uint32_t how_many);
-    void emit_funcall(lisp_value what, uint32_t how_many);
     void emit_gotocall(uint32_t how_many);
-    void emit_gotocall(lisp_value what, uint32_t how_many);
+    void emit_apply(uint32_t how_many);
     void emit_return();
 
     // These branch emitters return the bytecode offset of their 'where' component,
@@ -1110,38 +1109,26 @@ bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &ou
     return found;
 }
 
-lisp_value lisp::apply(lisp_value function, lisp_value *args, uint32_t nargs, bool &raised_signal)
+static
+lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs)
 {
     if (function.is_lisp_primitive()) {
-        return function.as_lisp_primitive()(args, nargs, raised_signal);
+        bool raised_signal = false;
+        auto result = function.as_lisp_primitive()(args, nargs, raised_signal);
+        if (raised_signal) {
+            throw lisp_signal_exception(result);
+        }
+        return result;
     }
     if (function.is_type(LAMBDA_TYPE)) {
         auto lambda = function.as_object()->lambda();
         auto shadowed = lambda->env();
         lisp_vm_state vm;
-        try {
-            auto ip = apply_arguments(shadowed, lambda, args, nargs);
-            vm.execute(ip, shadowed);
-        }
-        catch (lisp_signal_exception e) {
-            raised_signal = true;
-            return e.what;
-        }
-        auto result = vm.param_top();
-        return result;
+        auto ip = apply_arguments(shadowed, lambda, args, nargs);
+        vm.execute(ip, shadowed);
+        return vm.param_top();
     }
     throw lisp_unhandleable_exception{ {function}, "Cannot APPLY because not a FUNCTION: " };
-}
-
-static
-lisp_value apply_and_reraise(lisp_value function, lisp_value *args, uint32_t nargs)
-{
-    bool raised = false;
-    auto val = apply(function, args, nargs, raised);
-    if (raised) {
-        throw lisp_signal_exception(val);
-    }
-    return val;
 }
 
 template<typename Function, typename ...ExtraArgs>
@@ -1229,7 +1216,7 @@ lisp_value macro_expand_impl(lisp_value obj)
             auto function = it->second;
             auto args = rest(obj);
             auto vec = to_vector(args);
-            auto expand1 = apply_and_reraise(function, vec.data(), vec.size());
+            auto expand1 = apply(function, vec.data(), vec.size());
             auto expand_all = macro_expand_impl(expand1);
             return expand_all;
         }
@@ -1414,21 +1401,17 @@ void bytecode_emitter::emit_funcall(uint32_t how_many)
     append(bytecode_op::op_funcall);
     append(how_many);
 }
-void bytecode_emitter::emit_funcall(lisp_value what, uint32_t how_many)
-{
-    emit_push_value(what);
-    emit_funcall(how_many);
-}
 
 void bytecode_emitter::emit_gotocall(uint32_t how_many)
 {
     append(bytecode_op::op_gotocall);
     append(how_many);
 }
-void bytecode_emitter::emit_gotocall(lisp_value what, uint32_t how_many)
+
+void bytecode_emitter::emit_apply(uint32_t how_many)
 {
-    emit_push_value(what);
-    emit_gotocall(how_many);
+    append(bytecode_op::op_apply);
+    append(how_many);
 }
 
 void bytecode_emitter::emit_return()
@@ -1605,6 +1588,7 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
             ip += size;
         } break;
 
+        case bytecode_op::op_apply:
         case bytecode_op::op_raise_signal:
         case bytecode_op::op_funcall:
         case bytecode_op::op_gotocall: {
@@ -1787,7 +1771,8 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
         const auto opcode = static_cast<bytecode_op>(*ip);
         switch (opcode) {
             case bytecode_op::op_funcall:
-                push_return(env, ip + bytecode_op_size(opcode));
+                push_return(env, ip + 1 + sizeof(uint32_t));
+                // fallthrough
             case bytecode_op::op_gotocall: {
                 auto func = pop_param();
                 auto ofunc = func;
@@ -1798,7 +1783,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     func = func.as_object()->symbol()->function;
                 }
                 if (func.is_lisp_primitive()) {
-                    if (opcode == bytecode_op::op_funcall) {
+                    if (opcode != bytecode_op::op_gotocall) {
                         pop_return();
                     }
                     bool raised_signal = false;
@@ -2094,6 +2079,49 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 LISP_SINGLE_STEP_DEBUGGER = value.is_not_nil();
                 ip += 1;
             } break;
+            case bytecode_op::op_apply: {
+                auto func = pop_param();
+                auto ofunc = func;
+                auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                if (nargs == 0) {
+                    throw lisp_unhandleable_exception{ intern_symbol("APPLY"), "Argument count mismatch, at least 2 expected" };
+                }
+                auto last_arg = pop_param(); // @TODO: typecheck this as list
+                nargs--;
+                param_stack_top -= nargs;
+                auto args = param_stack_top;
+                while (last_arg.is_not_nil()) {
+                    args[nargs++] = car(last_arg);
+                    last_arg = cdr(last_arg);
+                }
+                if (func.is_type(SYM_TYPE)) {
+                    func = func.as_object()->symbol()->function;
+                }
+                if (func.is_lisp_primitive()) {
+                    bool raised_signal = false;
+                    auto result = func.as_lisp_primitive()(args, nargs, raised_signal);
+                    if (raised_signal) {
+                        signal_args = result;
+                        goto raise_signal;
+                    }
+                    else {
+                        push_param(result);
+                        ip += 1 + sizeof(nargs);
+                    }
+                    break;
+                }
+                if (func.is_type(LAMBDA_TYPE)) {
+                    push_return(env, ip + 1 + sizeof(uint32_t));
+                    auto lambda = func.as_object()->lambda();
+                    auto shadowed = lambda->env();
+                    ip = apply_arguments(shadowed, lambda, args, nargs);
+                    env = shadowed;
+                    break;
+                }
+                signal_args = list(intern_symbol("OBJECT-NOT-CALLABLE"), ofunc);
+                goto raise_signal;
+            } break;
+
         }
     }
     done:
@@ -2438,6 +2466,7 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
     static auto perc_AREF = intern_symbol("%AREF");
     static auto perc_ASET = intern_symbol("%ASET");
     static auto perc_DEBUGGER = intern_symbol("%DEBUGGER");
+    static auto perc_APPLY = intern_symbol("%APPLY");
     static auto TAGBODY = intern_symbol("TAGBODY");
     static auto GO = intern_symbol("GO");
     if (expr.is_cons()) {
@@ -2591,6 +2620,17 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, second(expr), toplevel);
             e.emit_debug_trap();
         }
+        else if (thing == perc_APPLY) {
+            uint32_t nargs = 0;
+            auto args = cddr(expr);
+            while (args.is_not_nil()) {
+                compile(e, car(args), toplevel);
+                nargs++;
+                args = cdr(args);
+            }
+            compile(e, second(expr), toplevel);
+            e.emit_apply(nargs);
+        }
         else {
             compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
         }
@@ -2633,7 +2673,7 @@ void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_
 
     if (load_sym.as_object()->symbol()->function.is_not_nil()) {
         auto args = lisp_obj::create_string(filepath);
-        apply_and_reraise(load_sym.as_object()->symbol()->function, &args, 1);
+        apply(load_sym.as_object()->symbol()->function, &args, 1);
     }
     else {
         auto here_path = std::filesystem::current_path();
