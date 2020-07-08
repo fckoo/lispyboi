@@ -59,14 +59,42 @@ lisp_cons *lisp::cons_pool_pop()
 }
 
 
+struct vm_return_state {
+    lisp_value env;
+    const uint8_t *address;
+};
 
 struct lisp_exception {
+    lisp_exception(lisp_value what)
+        : what(what)
+    {}
+
     lisp_value what;
 };
+
 struct lisp_unhandleable_exception : lisp_exception {
     const char *msg;
 };
-struct lisp_signal_exception : lisp_exception {};
+
+struct lisp_signal_exception : lisp_exception {
+    lisp_signal_exception(lisp_value what)
+        : lisp_exception(what)
+        , ip(nullptr)
+        , stack_trace_top(nullptr)
+        , stack_trace_bottom(nullptr)
+    {}
+
+    lisp_signal_exception(lisp_value what, const void *ip, vm_return_state *stack_top, vm_return_state *stack_bottom)
+        : lisp_exception(what)
+        , ip(ip)
+        , stack_trace_top(stack_top)
+        , stack_trace_bottom(stack_bottom)
+    {}
+
+    const void *ip;
+    const vm_return_state *stack_trace_top;
+    const vm_return_state *stack_trace_bottom;
+};
 
 struct lisp_string_stream : lisp_stream {
     inline
@@ -113,7 +141,7 @@ struct lisp_string_stream : lisp_stream {
     {
         return m_column_number;
     }
-    
+
     std::string filepath() const
     {
         return m_name;
@@ -507,13 +535,6 @@ bool is_symbol_char(int c)
 }
 
 static FORCE_INLINE
-std::string str_lower(std::string in)
-{
-    std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::tolower(c) ; } );
-    return in;
-}
-
-static FORCE_INLINE
 std::string str_upper(std::string in)
 {
     std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::toupper(c) ; } );
@@ -732,6 +753,10 @@ lisp_value lisp::parse(lisp_stream &stream)
 
 struct bytecode_emitter {
 
+    bytecode_emitter() : m_locked(false) {}
+
+    void map_here_to(lisp_value expr);
+
     void emit_push_value(lisp_value val);
     void emit_push_nil();
     void emit_push_fixnum_0();
@@ -777,6 +802,8 @@ struct bytecode_emitter {
     void emit_aref();
     void emit_aset();
 
+    void emit_debug_trap();
+
     void set_raw_8(size_t offset, uint8_t v);
     void set_raw_16(size_t offset, uint16_t v);
     void set_raw_32(size_t offset, uint32_t v);
@@ -785,19 +812,28 @@ struct bytecode_emitter {
 
     int32_t position() const;
     const std::vector<uint8_t> &bytecode() const;
-    std::vector<uint8_t> &&move_bytecode();
+    std::vector<uint8_t> &&move_bytecode()
+    {
+        return std::move(m_bytecode);
+    }
 
     void push_labels();
     void pop_labels();
     bool get_label(lisp_value tag, int32_t &out_offset);
     int32_t make_label(lisp_value tag);
     void backfill(int32_t offset, lisp_value tag);
+
+    void lock();
   private:
     struct backfill_info { int32_t offs; lisp_value tag; };
     using label_map = std::unordered_map<lisp_value, int32_t>;
     template<typename T>
     void append(T val)
     {
+        if (m_locked) {
+            fprintf(stderr, "cannot write to locked bytecode_emitter!\n");
+            bt::trace_and_abort();
+        }
         m_bytecode.resize(m_bytecode.size() + sizeof(T), 0xCC);
         auto end = m_bytecode.data() + m_bytecode.size();
         auto slot = reinterpret_cast<T*>(end - sizeof(T));
@@ -807,6 +843,10 @@ struct bytecode_emitter {
     template<typename T>
     void set_raw(size_t offset, T val)
     {
+        if (m_locked) {
+            fprintf(stderr, "cannot write to locked bytecode_emitter!\n");
+            bt::trace_and_abort();
+        }
         assert(offset + sizeof(val) - 1 < m_bytecode.size());
         auto slot = reinterpret_cast<decltype(val)*>(m_bytecode.data() + offset);
         *slot = val;
@@ -814,7 +854,17 @@ struct bytecode_emitter {
     std::vector<uint8_t> m_bytecode;
     std::vector<label_map> m_labels;
     std::list<backfill_info> m_backfills;
+
+    struct index_value_pair { size_t index; lisp_value value; };
+    std::vector<index_value_pair> m_debug_map;
+    bool m_locked;
 };
+
+void bytecode_emitter::map_here_to(lisp_value expr)
+{
+    auto here = m_bytecode.size();
+    m_debug_map.push_back({here, expr});
+}
 
 void bytecode_emitter::push_labels()
 {
@@ -876,12 +926,7 @@ void bytecode_emitter::backfill(int32_t offset, lisp_value tag)
     m_backfills.push_back({offset, tag});
 }
 
-void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position = false);
-
-struct vm_return_state {
-    lisp_value env;
-    const uint8_t *address;
-};
+static void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position = false);
 
 struct lisp_vm_state {
     lisp_vm_state()
@@ -1094,7 +1139,7 @@ lisp_value apply_and_reraise(lisp_value function, lisp_value *args, uint32_t nar
     bool raised = false;
     auto val = apply(function, args, nargs, raised);
     if (raised) {
-        throw lisp_signal_exception{ {val} };
+        throw lisp_signal_exception(val);
     }
     return val;
 }
@@ -1225,23 +1270,6 @@ std::string bytecode_op_name(bytecode_op op)
     return "??";
 }
 
-template<>
-void bytecode_emitter::append(bytecode_op val)
-{
-    m_bytecode.push_back(static_cast<uint8_t>(val));
-}
-
-template<>
-void bytecode_emitter::append(lisp_value val)
-{
-    append(val.bits());
-}
-
-std::vector<uint8_t> &&bytecode_emitter::move_bytecode()
-{
-    return std::move(m_bytecode);
-}
-
 void bytecode_emitter::set_raw_8(size_t offset, uint8_t v)
 {
     set_raw<decltype(v)>(offset, v);
@@ -1272,8 +1300,79 @@ int32_t bytecode_emitter::position() const
     return static_cast<int32_t>(m_bytecode.size());
 }
 
+struct debug_info {
+    struct region {
+
+        region() = default;
+
+        region(const void *start, size_t size)
+            : m_start(start)
+            , m_size(size)
+        {}
+
+        bool contains(const void *ptr) const
+        {
+            auto start = reinterpret_cast<uintptr_t>(m_start);
+            auto end = start + m_size;
+            auto p = reinterpret_cast<uintptr_t>(ptr);
+
+            return start <= p && p < end;
+        }
+      private:
+        const void *m_start;
+        size_t m_size;
+    };
+
+    static bool find(const void *address, lisp_value &out_expr)
+    {
+        for (auto it = m_bytecode_address_expr_map.rbegin();
+             it != m_bytecode_address_expr_map.rend();
+             ++it) {
+            if (it->first.contains(address)) {
+                out_expr = it->second;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void push(const void *start, size_t size, lisp_value expr)
+    {
+        m_bytecode_address_expr_map.push_back({region(start, size), expr});
+    }
+  private:
+    static std::vector<std::pair<region, lisp_value>> m_bytecode_address_expr_map;
+};
+std::vector<std::pair<debug_info::region, lisp_value>> debug_info::m_bytecode_address_expr_map;
+
+void bytecode_emitter::lock()
+{
+    m_locked = true;
+    if (m_debug_map.size() != 0) {
+        for (size_t i = 0; i < m_debug_map.size()-1; ++i) {
+            const auto &cur = m_debug_map[i];
+            const auto &next = m_debug_map[i+1];
+
+            auto size = next.index - cur.index;
+            auto addr = m_bytecode.data() + cur.index;
+
+            debug_info::push(addr, size, cur.value);
+        }
+        {
+            const auto &last = m_debug_map.back();
+            auto size = m_bytecode.size() - last.index;
+            auto addr = m_bytecode.data() + last.index;
+            debug_info::push(addr, size, last.value);
+        }
+    }
+}
+
 const std::vector<uint8_t> &bytecode_emitter::bytecode() const
 {
+    if (!m_locked) {
+        fprintf(stderr, "you must lock the bytecode emitter before trying to use its bytecode!");
+        bt::trace_and_abort();
+    }
     return m_bytecode;
 }
 
@@ -1467,6 +1566,10 @@ void bytecode_emitter::emit_aset()
 {
     append(bytecode_op::op_aset);
 }
+void bytecode_emitter::emit_debug_trap()
+{
+    append(bytecode_op::op_debug_trap);
+}
 
 static
 void put_bytes(std::ostream &out, const uint8_t *bytes, size_t nbytes, size_t min_width=10*3)
@@ -1563,7 +1666,8 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         case bytecode_op::op_rplaca:
         case bytecode_op::op_rplacd:
         case bytecode_op::op_aref:
-        case bytecode_op::op_aset: {
+        case bytecode_op::op_aset:
+        case bytecode_op::op_debug_trap: {
             put_bytes(out, ip, size);
             out << name;
             ip += size;
@@ -1909,7 +2013,12 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                     env = shadowed;
                 }
                 else {
-                    throw lisp_signal_exception{ {signal_args} };
+                    auto top = return_stack_top;
+                    auto bottom = return_stack_bottom;
+                    // Cannot forget to clean these up...
+                    return_stack_top = return_stack_bottom;
+                    param_stack_top = param_stack_bottom;
+                    throw lisp_signal_exception(signal_args, ip, top, bottom);
                 }
             } break;
 
@@ -1980,6 +2089,11 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 push_param(value);
                 ip += 1;
             } break;
+            case bytecode_op::op_debug_trap: {
+                auto value = pop_param();
+                LISP_SINGLE_STEP_DEBUGGER = value.is_not_nil();
+                ip += 1;
+            } break;
         }
     }
     done:
@@ -2001,6 +2115,7 @@ lisp_value lisp_prim_disassemble(lisp_value *args, uint32_t nargs, bool &)
         auto expanded = macro_expand_impl(expr);
         bytecode_emitter e;
         compile(e, expanded, true);
+        e.lock();
         disassemble(std::cout, "DISASSEMBLY", e);
     }
     else if (expr.is_fixnum()) {
@@ -2019,18 +2134,6 @@ lisp_value lisp_prim_disassemble(lisp_value *args, uint32_t nargs, bool &)
         disassemble(std::cout, "DISASSEMBLY", lambda->earliest_entry(), lambda->end(), lambda->begin(-1));
     }
     return LISP_NIL;
-}
-
-lisp_value lisp_prim_debugger(lisp_value *args, uint32_t nargs, bool &)
-{
-    if (nargs == 0 || args[0].is_not_nil()) {
-        LISP_SINGLE_STEP_DEBUGGER = true;
-        return LISP_T;
-    }
-    else {
-        LISP_SINGLE_STEP_DEBUGGER = false;
-        return LISP_NIL;
-    }
 }
 
 lisp_value lisp_prim_get_num_handlers(lisp_value*, uint32_t, bool &)
@@ -2087,11 +2190,6 @@ void initialize_globals()
             ->symbol()
             ->function = lisp_value::wrap_primitive(lisp_prim_get_num_handlers);
 
-        intern_symbol("%DEBUGGER")
-            .as_object()
-            ->symbol()
-            ->function = lisp_value::wrap_primitive(lisp_prim_debugger);
-
         intern_symbol("DISASSEMBLE")
             .as_object()
             ->symbol()
@@ -2142,6 +2240,7 @@ bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued
 }
 
 
+static
 bool effect_free(lisp_value expr)
 {
     if (!expr.is_cons()) {
@@ -2153,6 +2252,7 @@ bool effect_free(lisp_value expr)
     return false;
 }
 
+static
 void compile_body(bytecode_emitter &e, lisp_value body, bool tail_position)
 {
     while (cdr(body).is_not_nil()) {
@@ -2165,6 +2265,7 @@ void compile_body(bytecode_emitter &e, lisp_value body, bool tail_position)
     compile(e, car(body), false, tail_position);
 }
 
+static
 void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool toplevel)
 {
     auto name = second(expr);
@@ -2240,10 +2341,17 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     auto lambda_offs = function.position();
     compile_body(function, body, true);
     function.emit_return();
+    function.lock();
 
     auto size = function.bytecode().size();
-    auto p = new uint8_t[size];
-    memcpy(p, function.bytecode().data(), size);
+    // Moving the bytecode into a new'd vector is a dumb hack so when function.lock() binds
+    // debug info it won't point to a stale addresses.
+    // This is also intentionally leaked.
+    // Something to be aware about is the possibility that new'ing a vector with a move reference
+    // might not move the underlying buffer. I'm not sure how this may occur but it might happen.
+    // It might be better to implement a byte_vector with a guaranteed move.
+    auto leaked = new std::vector<uint8_t>(function.move_bytecode());
+    auto p = leaked->data();
     auto main_entry = p + lambda_offs;
     auto endpoint = p + size;
     std::vector<const uint8_t*> optional_initializers;
@@ -2277,6 +2385,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     }
 }
 
+static
 void compile_function_call(bytecode_emitter &e, lisp_value func, lisp_value args, bool toplevel, bool tail_position, bool funcall)
 {
     uint32_t nargs = 0;
@@ -2316,6 +2425,7 @@ void compile_function_call(bytecode_emitter &e, lisp_value func, lisp_value args
     }
 }
 
+static
 void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position)
 {
     static auto perc_SIGNAL = intern_symbol("%SIGNAL");
@@ -2327,10 +2437,14 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
     static auto perc_RPLACD = intern_symbol("%RPLACD");
     static auto perc_AREF = intern_symbol("%AREF");
     static auto perc_ASET = intern_symbol("%ASET");
+    static auto perc_DEBUGGER = intern_symbol("%DEBUGGER");
     static auto TAGBODY = intern_symbol("TAGBODY");
     static auto GO = intern_symbol("GO");
     if (expr.is_cons()) {
         auto thing = first(expr);
+        if (thing != LISP_SYM_QUOTE) {
+            e.map_here_to(expr);
+        }
         if (thing == LISP_SYM_QUOTE) {
             e.emit_push_value(second(expr));
         }
@@ -2473,6 +2587,10 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, fourth(expr), toplevel);
             e.emit_aset();
         }
+        else if (thing == perc_DEBUGGER) {
+            compile(e, second(expr), toplevel);
+            e.emit_debug_trap();
+        }
         else {
             compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
         }
@@ -2495,6 +2613,7 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
     auto expanded = macro_expand_impl(expr);
     compile(e, expanded, true);
     e.emit_halt();
+    e.lock();
 
     lisp_vm_state vm;
     try {
@@ -2507,10 +2626,11 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
     return vm.param_top();
 }
 
+static
 void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_stream &stm, bool show_disassembly)
 {
     static auto load_sym = intern_symbol("LOAD");
-    
+
     if (load_sym.as_object()->symbol()->function.is_not_nil()) {
         auto args = lisp_obj::create_string(filepath);
         apply_and_reraise(load_sym.as_object()->symbol()->function, &args, 1);
@@ -2542,6 +2662,7 @@ void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_
             auto expanded = macro_expand_impl(parsed);
             compile(e, expanded, true);
             e.emit_halt();
+            e.lock();
             auto ip = e.bytecode().data();
             if (ip != nullptr) {
                 auto stack_before = vm.param_stack_top;
@@ -2557,6 +2678,25 @@ void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_
     }
 }
 
+static
+void trace_unhandled_signal(const lisp_signal_exception &e)
+{
+    printf("Unhandled signal: IP=%p\n    ", e.ip);
+    pretty_print(e.what);
+    if (e.ip != nullptr) {
+        lisp_value expr;
+        for (auto it = e.stack_trace_bottom; it != e.stack_trace_top; ++it) {
+            if (debug_info::find(it->address, expr)) {
+                pretty_print(expr);
+            }
+        }
+        if (debug_info::find(e.ip, expr)) {
+            printf("Signal happened here --> "); pretty_print(expr);
+        }
+    }
+}
+
+static
 void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
 {
     static const char *prompt_lisp = "LISP-NASA> ";
@@ -2568,14 +2708,16 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
         if (!read_stdin(prompt_lisp, prompt_ws, parsed, &input)) {
             break;
         }
-        bytecode_emitter e;
         auto expanded = macro_expand_impl(parsed);
+        bytecode_emitter e;
+        auto here = e.position();
         compile(e, expanded, true);
         e.emit_halt();
-        auto ip = e.bytecode().data();
+        e.lock();
+        auto ip = e.bytecode().data() + here;
         if (show_disassembly) {
-            auto start = e.bytecode().data();
-            auto end = start + e.bytecode().size();
+            auto start = e.bytecode().data() + here;
+            auto end = e.bytecode().data() + e.bytecode().size();
             disassemble(std::cout, input, start, end, ip);
         }
 
@@ -2588,8 +2730,7 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
             pretty_print(e.what);
         }
         catch (lisp_signal_exception e) {
-            printf("Unhandled signal:\n    ");
-            pretty_print(e.what);
+            trace_unhandled_signal(e);
         }
 
         if (vm.param_stack_top != stack_before) {
@@ -2678,8 +2819,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     catch (lisp_signal_exception e) {
-        printf("Unhandled signal:\n    ");
-        pretty_print(e.what);
+        trace_unhandled_signal(e);
         return 1;
     }
 

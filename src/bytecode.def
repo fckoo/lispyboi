@@ -303,4 +303,11 @@ BYTECODE_DEF(aset,
 "A = Top of P-stack as array\n"
 "Set the B'th element of A to C")
 
+BYTECODE_DEF(debug_trap,
+27, // opcode
+0, // noperands
+1, // nargs
+1, // size
+"Pop top of P-stack, if it's NIL disable debugger, otherwise enable it.")
+
 #undef BYTECODE_DEF
