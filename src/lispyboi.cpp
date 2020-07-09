@@ -3,12 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
+#include <stddef.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <algorithm>
 #include <unordered_map>
 #include <sstream>
-#include <cassert>
 #include <filesystem>
 #include <set>
 #include <list>
@@ -911,6 +912,34 @@ struct lisp_vm_state {
         return_stack_top = return_stack_bottom = nullptr;
     }
 
+    struct save_state {
+        lisp_value *param_stack_bottom;
+        lisp_value *param_stack_top;
+
+        vm_return_state *return_stack_bottom;
+        vm_return_state *return_stack_top;
+    };
+
+    save_state save() const
+    {
+        return {
+            param_stack_bottom,
+            param_stack_top,
+
+            return_stack_bottom,
+            return_stack_top
+        };
+    }
+
+    void restore(const save_state &state)
+    {
+        param_stack_bottom = state.param_stack_bottom;
+        param_stack_top = state.param_stack_top;
+
+        return_stack_bottom = state.return_stack_bottom;
+        return_stack_top = state.return_stack_top;
+    }
+
     lisp_value *param_stack_bottom;
     lisp_value *param_stack_top;
 
@@ -982,8 +1011,8 @@ struct lisp_vm_state {
 
     bool find_handler(lisp_value tag, bool auto_pop, handler_case &out_case_state, lisp_value &out_handler);
 
-    lisp_value *m_params;
-    vm_return_state *m_returns;
+    lisp_value *m_params; // pointer to the original buffer
+    vm_return_state *m_returns; // pointer to the original buffer
     std::vector<handler_case> m_handler_cases;
 };
 lisp_vm_state *THE_LISP_VM;
@@ -2598,7 +2627,8 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
 lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
 {
     bytecode_emitter e;
-    lisp_vm_state vm;
+    auto &vm = *THE_LISP_VM;
+    auto save = vm.save();
     try {
         auto expanded = macro_expand_impl(expr);
         compile(e, expanded, true);
@@ -2609,9 +2639,12 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
     }
     catch (lisp_signal_exception e) {
         raised_signal = true;
+        vm.restore(save);
         return e.what;
     }
-    return vm.param_top();
+    auto result = vm.param_top();
+    vm.restore(save);
+    return result;
 }
 
 static
@@ -2847,8 +2880,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    initialize_globals(script_args);
     lisp_vm_state vm;
+    initialize_globals(script_args);
     THE_LISP_VM = &vm;
 
     try {
