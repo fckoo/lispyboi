@@ -774,11 +774,6 @@ may be provided or left NIL."
     (cons (apply #'append first rest))
     (array (apply #'concatenate-arrays first rest))))
 
-(defun compile (name definition)
-  (if name
-      (%define-function name definition)
-      definition))
-
 (defun load (file-path)
   (let* ((here-path *file-path*)
          (here-dir (get-working-directory))
