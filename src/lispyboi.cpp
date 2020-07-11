@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <sstream>
+#include <fstream>
 #include <filesystem>
 #include <set>
 #include <list>
@@ -388,12 +389,15 @@ std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
     }
     else if (obj.is_lisp_primitive()) {
         ss << "#<PRIMITIVE 0x";
-        ss << std::hex << reinterpret_cast<uintptr_t>(obj.as_lisp_primitive());
+        auto p = reinterpret_cast<void*>(obj.as_lisp_primitive());
+        ss << std::hex << reinterpret_cast<uintptr_t>(p);
+        ss << " " << primitives::primitive_name(p);
         ss << ">";
         result = ss.str();
     }
     return result;
 }
+
 std::string lisp::repr(lisp_value obj)
 {
     std::set<uint64_t> seen;
@@ -402,35 +406,6 @@ std::string lisp::repr(lisp_value obj)
 std::string lisp::repr(const lisp_value *obj)
 {
     return repr(*obj);
-}
-
-static lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs);
-
-
-void lisp::pretty_print(lisp_value obj, int depth)
-{
-    if (depth >= 5) {
-        return;
-    }
-    static auto print_object = intern_symbol("PRINT-OBJECT").as_object()->symbol();
-    if (print_object->function.is_nil()) {
-        printf("%s\n", repr(obj).c_str());
-    }
-    else {
-        try {
-            lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
-            apply(print_object->function, args, 2);
-            printf("\n");
-        }
-        catch (lisp_unhandleable_exception e) {
-            printf("%s\n", e.msg);
-            printf("    %s\n", repr(e.what).c_str());
-        }
-        catch (lisp_signal_exception e) {
-            printf("Unhandled signal:\n");
-            printf("    %s\n", repr(e.what).c_str());
-        }
-    }
 }
 
 static FORCE_INLINE
@@ -885,9 +860,9 @@ static void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool ta
 struct lisp_vm_state {
     lisp_vm_state()
     {
-        constexpr int buffer = 16;
+        constexpr int buffer = 0;
         {
-            auto p = new lisp_value[0x1000];
+            auto p = new lisp_value[0x10000];
             m_params = p;
             for (int i = 0; i < buffer; ++i) {
                 p[i] = LISP_NIL;
@@ -895,7 +870,7 @@ struct lisp_vm_state {
             param_stack_top = param_stack_bottom = p+buffer;
         }
         {
-            auto p = new vm_return_state[0x1000];
+            auto p = new vm_return_state[0x10000];
             m_returns = p;
             for (int i = 0; i < buffer; ++i) {
                 p[i] = { LISP_NIL, nullptr };
@@ -947,8 +922,11 @@ struct lisp_vm_state {
     vm_return_state *return_stack_top;
 
     const uint8_t *execute(const uint8_t *ip, lisp_value env);
+    lisp_value call_lisp_function(lisp_value function, lisp_value *args, uint32_t nargs);
 
     void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const;
+    void stack_dumps(std::ostream &out, size_t max_size) const;
+
 
     FORCE_INLINE
     void push_param(lisp_value val)
@@ -1016,6 +994,32 @@ struct lisp_vm_state {
     std::vector<handler_case> m_handler_cases;
 };
 lisp_vm_state *THE_LISP_VM;
+
+void lisp::pretty_print(lisp_value obj, int depth)
+{
+    if (depth >= 5) {
+        return;
+    }
+    static auto print_object = intern_symbol("PRINT-OBJECT").as_object()->symbol();
+    if (print_object->function.is_nil()) {
+        printf("%s\n", repr(obj).c_str());
+    }
+    else {
+        try {
+            lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
+            THE_LISP_VM->call_lisp_function(print_object->function, args, 2);
+            printf("\n");
+        }
+        catch (lisp_unhandleable_exception e) {
+            printf("%s\n", e.msg);
+            printf("    %s\n", repr(e.what).c_str());
+        }
+        catch (lisp_signal_exception e) {
+            printf("Unhandled signal:\n");
+            printf("    %s\n", repr(e.what).c_str());
+        }
+    }
+}
 
 static FORCE_INLINE
 lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
@@ -1091,8 +1095,7 @@ bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &ou
     return found;
 }
 
-static
-lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs)
+lisp_value lisp_vm_state::call_lisp_function(lisp_value function, lisp_value *args, uint32_t nargs)
 {
     if (function.is_lisp_primitive()) {
         bool raised_signal = false;
@@ -1105,17 +1108,17 @@ lisp_value apply(lisp_value function, lisp_value *args, uint32_t nargs)
     if (function.is_type(LAMBDA_TYPE)) {
         auto lambda = function.as_object()->lambda();
         auto shadowed = lambda->env();
-        lisp_vm_state vm;
         auto ip = apply_arguments(shadowed, lambda, args, nargs);
-        vm.execute(ip, shadowed);
-        return vm.param_top();
+
+        ip = execute(ip, shadowed);
+        return pop_param();
     }
-    throw lisp_unhandleable_exception{ {function}, "Cannot APPLY because not a FUNCTION: " };
+    throw lisp_unhandleable_exception{ {function}, "Cannot call lisp function because not a FUNCTION: " };
 }
 
 template<typename Function, typename ...ExtraArgs>
 static
-lisp_value map(lisp_value list, Function func, ExtraArgs... args)
+lisp_value map(lisp_value list, Function func, ExtraArgs&... args)
 {
     if (list.is_nil())
         return list;
@@ -1150,7 +1153,7 @@ lisp_value zip3(lisp_value a, lisp_value b, lisp_value c)
 }
 
 static
-lisp_value macro_expand_impl(lisp_value obj)
+lisp_value macro_expand_impl(lisp_value obj, lisp_vm_state &vm)
 {
     if (!obj.is_cons()) {
         return obj;
@@ -1161,34 +1164,34 @@ lisp_value macro_expand_impl(lisp_value obj)
             return obj;
         }
         if (car == LISP_SYM_IF) {
-            auto condition = macro_expand_impl(second(obj));
-            auto consequence = macro_expand_impl(third(obj));
-            auto alternative = macro_expand_impl(fourth(obj));
+            auto condition = macro_expand_impl(second(obj), vm);
+            auto consequence = macro_expand_impl(third(obj), vm);
+            auto alternative = macro_expand_impl(fourth(obj), vm);
             return list(LISP_SYM_IF, condition, consequence, alternative);
         }
         if (car == LISP_SYM_DEFMACRO) {
             auto macro_name = second(obj);
             auto params_list = third(obj);
-            auto body = map(cdddr(obj), macro_expand_impl);
+            auto body = map(cdddr(obj), macro_expand_impl, vm);
             return cons(LISP_SYM_DEFMACRO, cons(macro_name, cons(params_list, body)));
         }
         if (car == LISP_SYM_LAMBDA) {
             auto args = second(obj);
-            auto body = map(cddr(obj), macro_expand_impl);
+            auto body = map(cddr(obj), macro_expand_impl, vm);
             return cons(LISP_SYM_LAMBDA, cons(args, body));
         }
         if (car == LISP_SYM_SETQ) {
             auto variable_name = second(obj);
-            auto value = macro_expand_impl(third(obj));
+            auto value = macro_expand_impl(third(obj), vm);
             return list(LISP_SYM_SETQ, variable_name, value);
         }
         if (car == LISP_SYM_HANDLER_CASE) {
-            auto form = macro_expand_impl(second(obj));
+            auto form = macro_expand_impl(second(obj), vm);
             auto handlers = cddr(obj);
             auto handler_tags = map(handlers, first);
             auto handler_lambda_lists = map(handlers, second);
             auto handler_bodies = map(handlers, cddr);
-            auto expanded_bodies = map(handler_bodies, macro_expand_impl);
+            auto expanded_bodies = map(handler_bodies, macro_expand_impl, vm);
             auto expanded_handlers = zip3(handler_tags, handler_lambda_lists, expanded_bodies);
             return cons(LISP_SYM_HANDLER_CASE, cons(form, expanded_handlers));
         }
@@ -1198,18 +1201,33 @@ lisp_value macro_expand_impl(lisp_value obj)
             auto function = it->second;
             auto args = rest(obj);
             auto vec = to_vector(args);
-            auto expand1 = apply(function, vec.data(), vec.size());
-            auto expand_all = macro_expand_impl(expand1);
+            // A macro may call %MACRO-EXPAND, which effectively should make the VM call stack
+            // look something like:
+            //
+            //   3 LISP CODE
+            //   2 NATIVE CODE (macro_expand_impl)
+            //   1 LISP CODE
+            //   0 NATIVE CODE (macro_expand_impl)
+            //
+            // Which effectively means when (3) LISP CODE returns it'll pop the (1) LISP CODE
+            // frame from the return stack effectively causing the macro to return to a place
+            // it should not. The VM understands that it cannot return to a nullptr address
+            // and will just pop the return frame and cease execution.
+            // We have no way to indicate a "native" return address so this just acts as a
+            // dummy guard when that happens.
+            vm.push_return(LISP_NIL, nullptr);
+            auto expand1 = vm.call_lisp_function(function, vec.data(), vec.size());
+            auto expand_all = macro_expand_impl(expand1, vm);
             return expand_all;
         }
     }
-    return map(obj, macro_expand_impl);
+    return map(obj, macro_expand_impl, vm);
 }
 
 
 lisp_value lisp::macro_expand(lisp_value obj)
 {
-    return macro_expand_impl(obj);
+    return macro_expand_impl(obj, *THE_LISP_VM);
 }
 
 
@@ -1325,15 +1343,37 @@ struct debug_info {
         return found;
     }
 
+    static bool find_function(const void *address, const lisp_lambda **out_lambda)
+    {
+        for (auto it : m_functions) {
+            region r(it->earliest_entry(), it->end() - it->earliest_entry());
+            if (r.contains(address)) {
+                *out_lambda = it;
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void push(const void *start, size_t size, lisp_value expr)
     {
         region r(start, size);
         m_bytecode_address_expr_map.push_back({r, expr});
     }
+
+    static void track_function(const lisp_lambda *lambda)
+    {
+        if (lambda) {
+            m_functions.push_back(lambda);
+        }
+    }
+
   private:
     static std::vector<std::pair<region, lisp_value>> m_bytecode_address_expr_map;
+    static std::vector<const lisp_lambda*> m_functions;
 };
 std::vector<std::pair<debug_info::region, lisp_value>> debug_info::m_bytecode_address_expr_map;
+std::vector<const lisp_lambda*> debug_info::m_functions;
 
 void bytecode_emitter::lock()
 {
@@ -1687,23 +1727,33 @@ void disassemble(const char *tag, const uint8_t *start, const uint8_t *end, cons
 }
 
 
-static
-void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
-                 const vm_return_state *rb, const vm_return_state *rt,
-                 size_t n)
+void lisp_vm_state::stack_dumps(std::ostream &out, size_t max_size) const
 {
+    auto rt = return_stack_top;
+    auto rb = return_stack_bottom;
+
+    auto pt = param_stack_top;
+    auto pb = param_stack_bottom;
+
     auto r_stack_delta = rt - rb;
     out << std::setfill(' ') << std::dec;
     out << "|R-stack " << std::setw(9) << r_stack_delta << " |         P-stack\n";
     out << "|==================|================\n";
     out << std::setfill('0');
-    for (;n != 0; n--) {
+    for (;max_size != 0; max_size--) {
+        rt--;
+        pt--;
+        if (rt == rb) {
+            out << "bot->";
+        }
+        else {
+            out << "     ";
+        }
         if (reinterpret_cast<uintptr_t>(rt) < reinterpret_cast<uintptr_t>(rb)) {
             out << "| **************** |";
         }
         else {
             out << "| " << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(rt->address) << " |";
-            rt--;
         }
 
         if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) {
@@ -1718,7 +1768,6 @@ void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
             else {
                 out << " " << obj_repr.substr(0, n-3) << "...";
             }
-            pt--;
         }
         out << "\n";
     }
@@ -1727,11 +1776,15 @@ void stack_dumps(std::ostream &out, const lisp_value *pb, const lisp_value *pt,
 void lisp_vm_state::debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const
 {
     //disassemble_up_to(out, tag, e.bytecode(), ip, -15, 15);
-    disassemble1(std::cout, ip, true);
-    stack_dumps(out,
-                param_stack_bottom, param_stack_top-1,
-                return_stack_bottom, return_stack_top-1,
-                15);
+    out << tag << "\n";
+    const lisp_lambda *lambda;
+    if (debug_info::find_function(ip, &lambda)) {
+        disassemble(out, "DISASSEMBLY", lambda->earliest_entry(), lambda->end(), ip);
+    }
+    else {
+        disassemble(out, "DISASSEMBLY", ip, true);
+    }
+    stack_dumps(out, 15);
 }
 
 const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
@@ -1825,6 +1878,9 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
             } break;
 
             case bytecode_op::op_return: {
+                if (return_stack_top == return_stack_bottom) {
+                    goto done;
+                }
                 auto ret = pop_return();
                 if (ret.address == nullptr) {
                     goto done;
@@ -1973,6 +2029,9 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
             } break;
             case bytecode_op::op_pop_handler_case: {
                 pop_handler_case();
+                if (return_stack_top == return_stack_bottom) {
+                    goto done;
+                }
                 auto ret = pop_return();
                 if (ret.address == nullptr) {
                     goto done;
@@ -2090,7 +2149,7 @@ const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
                 ip += 1;
             } break;
             case bytecode_op::op_debug_trap: {
-                auto value = pop_param();
+                auto value = param_top();
                 LISP_SINGLE_STEP_DEBUGGER = value.is_not_nil();
                 ip += 1;
             } break;
@@ -2112,7 +2171,7 @@ lisp_value lisp_prim_disassemble(lisp_value *args, uint32_t nargs, bool &)
     }
     auto expr = args[0];
     if (expr.is_cons()) {
-        auto expanded = macro_expand_impl(expr);
+        auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
         bytecode_emitter e;
         compile(e, expanded, true);
         e.lock();
@@ -2364,11 +2423,13 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
         optional_initializers.push_back(p + offs);
     }
 
+    const lisp_lambda *llambda = nullptr;
     if (macro) {
         auto macro = lisp_obj::create_lambda(LISP_BASE_ENVIRONMENT,
                                              std::move(params), has_rest, optionals_start_at, obody,
                                              main_entry, endpoint,
                                              std::move(optional_initializers));
+        llambda = macro.as_object()->lambda();
         LISP_MACROS[name.as_object()->symbol()->name] = macro;
     }
     else if (toplevel) {
@@ -2376,6 +2437,7 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
                                               std::move(params), has_rest, optionals_start_at, obody,
                                               main_entry, endpoint,
                                               std::move(optional_initializers));
+        llambda = lambda.as_object()->lambda();
         e.emit_push_value(lambda);
     }
     else {
@@ -2383,8 +2445,10 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
                                                        std::move(params), has_rest, optionals_start_at, obody,
                                                        main_entry, endpoint,
                                                        std::move(optional_initializers));
+        llambda = lambda_template.as_object()->lambda();
         e.emit_instantiate_lambda(lambda_template);
     }
+    debug_info::track_function(llambda);
 }
 
 static
@@ -2630,7 +2694,7 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
     auto &vm = *THE_LISP_VM;
     auto save = vm.save();
     try {
-        auto expanded = macro_expand_impl(expr);
+        auto expanded = macro_expand_impl(expr, vm);
         compile(e, expanded, true);
         e.emit_halt();
         e.lock();
@@ -2650,11 +2714,11 @@ lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
 static
 void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_stream &stm, bool show_disassembly)
 {
-    static auto load_sym = intern_symbol("LOAD");
+    static auto load_sym = intern_symbol("LOAD").as_object()->symbol();
 
-    if (load_sym.as_object()->symbol()->function.is_not_nil()) {
+    if (load_sym->function.is_not_nil()) {
         auto args = lisp_obj::create_string(filepath);
-        apply(load_sym.as_object()->symbol()->function, &args, 1);
+        vm.call_lisp_function(load_sym->function, &args, 1);
     }
     else {
         auto here_path = std::filesystem::current_path();
@@ -2680,7 +2744,7 @@ void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_
                 abort();
             }
             bytecode_emitter e;
-            auto expanded = macro_expand_impl(parsed);
+            auto expanded = macro_expand_impl(parsed, vm);
             compile(e, expanded, true);
             e.emit_halt();
             e.lock();
@@ -2775,7 +2839,7 @@ void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
         }
         lisp_value expanded = LISP_NIL;
         try {
-            expanded = macro_expand_impl(parsed);
+            expanded = macro_expand_impl(parsed, vm);
         }
         catch (lisp_signal_exception e) {
             trace_unhandled_signal(e);
@@ -2864,7 +2928,16 @@ int main(int argc, char *argv[])
         }
         else {
             fprintf(stderr, "boot.lisp inaccessible at %s\n", boot_path.c_str());
-            return -1;
+            boot_path = std::filesystem::current_path()/"lib"/"boot.lisp";
+            auto f = new lisp_file_stream();
+            f->open(boot_path, lisp_file_stream::io_mode::read);
+            if (f->ok()) {
+                fstreams.push_back(f);
+            }
+            else {
+                fprintf(stderr, "boot.lisp inaccessible at %s\n", boot_path.c_str());
+                return -1;
+            }
         }
     }
 
@@ -2880,13 +2953,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    lisp_vm_state vm;
+    THE_LISP_VM = new lisp_vm_state;
     initialize_globals(script_args);
-    THE_LISP_VM = &vm;
 
     try {
         for (auto fs : fstreams) {
-            eval_fstream(vm, fs->path(), *fs, show_disassembly);
+            eval_fstream(*THE_LISP_VM, fs->path(), *fs, show_disassembly);
             fs->close();
             delete fs;
         }
@@ -2902,7 +2974,7 @@ int main(int argc, char *argv[])
     }
 
     if (repl) {
-        repl_compile_and_execute(vm, show_disassembly);
+        repl_compile_and_execute(*THE_LISP_VM, show_disassembly);
     }
     return 0;
 }
