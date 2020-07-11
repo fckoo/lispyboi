@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <chrono>
+#include <unordered_map>
 #include "platform.hpp"
 #include "primitives.hpp"
 #include "ffi.hpp"
@@ -1224,10 +1225,12 @@ lisp_value lisp_prim_set_slot(lisp_value *args, uint32_t nargs, bool &raised_sig
     return value;
 }
 
+static std::unordered_map<void*, std::string> PRIMITIVE_NAMES;
 
 static inline
 void bind_primitive(const std::string &symbol_name, lisp_primitive primitive)
 {
+    PRIMITIVE_NAMES[reinterpret_cast<void*>(primitive)] = symbol_name;
     auto symbol = intern_symbol(symbol_name);
     auto prim_object = lisp_value::wrap_primitive(primitive);
     symbol.as_object()->symbol()->function = prim_object;
@@ -1240,6 +1243,16 @@ void bind_value(lisp_value &environment, const std::string &symbol_name, lisp_va
     auto binding = cons(symbol, value);
     environment = cons(binding, environment);
 }
+
+
+std::string primitives::primitive_name(void *ptr)
+{
+    auto it = PRIMITIVE_NAMES.find(ptr);
+    if (it != PRIMITIVE_NAMES.end())
+        return it->second;
+    return "???";
+}
+
 
 void primitives::bind_primitives(lisp_value &environment, char **script_args)
 {
