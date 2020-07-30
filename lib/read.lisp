@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "read")
 (require "format")
 
@@ -226,6 +227,33 @@
 
 (set-sharpsign-macro #\' (lambda (stream char) (list 'function (read stream))))
 
+(defun %has-package-p (string)
+  (labels ((aux (i)
+             (cond ((= i (length string))
+                    nil)
+                   ((eql #\: (aref string i))
+                    (let ((pkg-name (substring string 0 i)))
+                      (when (> (+ 1 i) (length string))
+                        (signal 'symbol-error "Package Specifier without symbol" string))
+                      (if (eql #\: (aref string (+ 1 i)))
+                          (list pkg-name (substring string (+ 2 i)) t)
+                          (list pkg-name (substring string (+ 1 i)) nil))))
+                   (t
+                    (aux (+ i 1))))))
+    (aux 0)))
+
+(defun %read-intern (string)
+  (cond ((string= string "NIL")
+         nil)
+        ((eql #\: (aref string 0))
+         (intern (substring string 1) "KEYWORD"))
+        (t
+         (destructuring-bind (pkg-name symbol-name interned-p)
+             (%has-package-p string)
+           (if pkg-name
+               (intern symbol-name pkg-name)
+               (intern string *package*))))))
+
 (defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
   (handler-case
       (progn
@@ -254,10 +282,8 @@
                               (setf numberp nil)))
                           (signal 'return (if numberp
                                               (parse-integer (string-stream-str buf))
-                                              (let ((string (string-upcase! (string-stream-str buf))))
-                                                (if (string= string "NIL")
-                                                    nil
-                                                    (intern string)))))))
+                                              (%read-intern
+                                               (string-upcase! (string-stream-str buf)))))))
                        (t
                         (let ((buf (make-string-stream)))
                           (string-stream-write-char buf c)
@@ -265,13 +291,32 @@
                                      (get-reader-macro (peek-char nil stream t))
                                      (spacep (peek-char nil stream t)))
                                  (string-stream-write-char buf (read-char stream t)))
-                          (signal 'return (let ((string (string-upcase! (string-stream-str buf))))
-                                            (if (string= string "NIL")
-                                                nil
-                                                (intern string)))))))))
+                          (signal 'return (%read-intern
+                                           (string-upcase! (string-stream-str buf)))))))))
         (signal 'end-of-file))
     (return (val) val)
     (end-of-file ()
       (if eof-error-p
           (signal 'end-of-file)
           eof-value))))
+
+(export '(set-reader-macro
+          set-reader-macros
+          get-reader-macro
+          get-readtable
+          set-readtable
+          set-sharpsign-macro
+          set-sharpsign-macros
+
+          binary-digit-p
+          octal-digit-p
+          decimal-digit-p
+          hexadecimal-digit-p
+          symbol-char-p
+          spacep
+
+          peek-char
+          read-char
+          parse-integer
+
+          read))

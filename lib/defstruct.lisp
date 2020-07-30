@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "defstruct")
 
 (let ((struct-type-registry))
@@ -85,3 +86,7 @@
     `(let ((,var ,instance))
        (symbol-macrolet (,@(map1 (lambda (slot) `(,slot (slot-value ,var ',slot))) slots))
          ,@body))))
+
+(export '(defstruct
+          slot-value
+          with-slots))

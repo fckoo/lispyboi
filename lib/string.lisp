@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "string")
 
 (defun string-split (string &optional (delimiter #\Space) max-splits)
@@ -43,3 +44,9 @@
     (when (<= 0 (char-code (aref string i)) 127)
       (setf (aref string i) (char-downcase (aref string i)))))
   string)
+
+(export '(string-split
+          char-downcase
+          char-upcase
+          string-upcase!
+          string-downcase!))

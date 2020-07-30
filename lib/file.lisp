@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "file")
 
 (defmacro open (file-path direction) `(%open ,file-path ,direction))
@@ -14,9 +15,6 @@
 
 (defmacro file-path (file-stream) `(%file-path ,file-stream))
 (defun file-path (file-stream) (file-path file-stream))
-
-(defmacro file-length (file-stream) `(%file-length ,file-stream))
-(defun file-length (file-stream) (file-length file-stream))
 
 (defmacro file-flush (file-stream) `(%file-flush ,file-stream))
 (defun file-flush (file-stream) (file-flush file-stream))
@@ -63,7 +61,7 @@
     (until (or (file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
            (string-stream-write-char ss (file-read-character file-stream)))
-    (when (and (not file-eof-p file-stream)
+    (when (and (not (file-eof-p file-stream))
                (eql #\newline (code-char (file-peek-byte file-stream))))
       (file-read-byte file-stream))))
 
@@ -89,3 +87,16 @@
 
 (defmethod input-stream-read-char ((stream file-stream) &optional eof-error-p eof-value)
   (file-read-character stream eof-error-p eof-value))
+
+(export '(open
+          close
+          file-ok-p
+          file-eof-p
+          file-path
+          file-flush
+          file-mode
+          file-read-byte
+          file-peek-byte
+          file-read-character
+          file-peek-character
+          file-read-line))

@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "stream")
 
 (defgeneric output-stream-write-char (stream character)
@@ -14,3 +15,10 @@
 
 (defgeneric input-stream-read-char (stream eof-error-p eof-value)
   "Consumes and returns the next character in STREAM.")
+
+(export '(output-stream-write-char
+          output-stream-write-string
+
+          input-stream-eof-p
+          input-stream-peek-char
+          input-stream-read-char))

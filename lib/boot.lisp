@@ -1,8 +1,157 @@
-(%define-macro cons (x y) (%cons '%cons (%cons x (%cons y nil))))
+(kernel:%in-package :lispyboi)
 
-(%define-function 'cons (lambda (x y) (cons x y)))
+(%export
+ '(defun
+   list
+   cons
+   defmacro
+   car
+   cdr
+   setq
+   tagbody
+   go
+   handler-case
+
+   package-name
+   make-package
+   in-package
+   use-package
+   export
+
+   eval
+   apply
+   funcall
+
+   - + * / < = > /= <= >=
+
+   putchar
+   null
+   not
+
+   caar cadr cdar cddr
+   caaar caadr cadar caddr cdaar cdadr cddar cdddr
+   caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
+   cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
+
+   first
+   rest
+   second
+   third
+   fourth
+   fifth
+
+   gensym
+   symbol-package
+   symbol-name
+   make-symbol
+   intern
+
+   exit
+   signal
+   error
+
+   append
+   foldl
+   foldl-for-effect
+   map1
+   map
+   filter1
+   copy-list
+
+   reverse
+   reverse!
+
+   assoc
+   member
+
+   and
+   or
+   symbol-macrolet
+   let
+   let*
+   flet
+   labels
+
+   quote
+   quasiquote
+   unquote
+   unquote-splicing
+
+   progn
+   prog1
+   when
+   unless
+   while
+   until
+
+   type-of
+   consp
+   symbolp
+   numberp
+   fixnump
+   listp
+   arrayp
+   characterp
+   stringp
+
+   eq
+   eql
+   equal
+   string=
+   string/=
+
+   cond
+   case
+   typecase
+
+   get-setf-functions
+   get-setf-expansion
+   defsetf
+   setf
+   incf
+   defc
+
+   dolist
+   dotimes
+
+   push
+   push!
+   pop
+   pop!
+
+   make-array
+   array-type
+   aref
+
+   nth
+   elt
+
+   length
+   min
+   max
+
+   char-code
+   code-char
+
+   substring
+
+   print
+   print-line
+   macro-print
+   read
+
+   unwind-protect
+   ignore-errors
+   with-open-file
+   concatenate
+   load)
+ :lispyboi)
 
 (%define-function 'list (lambda (&rest lst) lst))
+
+(%define-macro cons (x y) (list '%cons x y))
+
+(%define-function 'cons (lambda (x y) (cons x y)))
 
 (%define-macro defmacro (name argslist &body body)
                (cons '%define-macro (cons name (cons argslist body))))
@@ -19,6 +168,21 @@
 (defmacro eq (x y) (list '%eq x y))
 (defun eq (x y) (eq x y))
 
+(defmacro setq (x y &rest documentation) (list '%setq x y))
+(defmacro tagbody (&body body) (cons '%tagbody body))
+(defmacro go (tag) (list '%go tag))
+(defmacro handler-case (&body body) (cons '%handler-case body))
+
+(defmacro package-name (package-designator) (list '%package-name package-designator))
+(defun package-name (package-designator) (package-name package-designator))
+
+(defmacro make-package (package) (list '%make-package package))
+(defmacro in-package (package) (list '%in-package package))
+(defmacro use-package (to-use &optional (in-package *package*)) (list '%use-package to-use in-package))
+
+(defmacro export (symbols &optional (package *package*)) (list '%export symbols package))
+(defun export (symbols &optional (package *package*)) (export symbols package))
+
 (defmacro type-of (obj) (list '%type-of obj))
 (defun type-of (obj) (type-of obj))
 
@@ -27,7 +191,7 @@
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defun eval (expr)
-  (%eval (%macro-expand expr)))
+  (%eval expr))
 
 (defmacro apply (func &rest args)
   (cons '%apply (cons func args)))
@@ -63,29 +227,49 @@
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
-(defun cadr (lst) (car (cdr lst)))
-(defun cadar (lst) (car (cdr (car lst))))
-(defun caddr (lst) (car (cdr (cdr lst))))
-(defun cadddr (lst) (car (cdr (cdr (cdr lst)))))
-(defun caddddr (lst) (car (cdr (cdr (cdr (cdr lst))))))
-(defun caar (lst) (car (car lst)))
-(defun caaar (lst) (car (car (car lst))))
-(defun caadr (lst) (car (car (cdr lst))))
-(defun caaadr (lst) (car (car (car (cdr lst)))))
-(defun caaaadr (lst) (car (car (car (car (cdr lst))))))
-(defun cddr (lst) (cdr (cdr lst)))
-(defun cdddr (lst) (cdr (cdr (cdr lst))))
-(defun cddddr (lst) (cdr (cdr (cdr (cdr lst)))))
-(defun cdddddr (lst) (cdr (cdr (cdr (cdr (cdr lst))))))
+(defun id (x) x)
+
+(defun caar (x) (car (car x)))
+(defun cadr (x) (car (cdr x)))
+(defun cdar (x) (cdr (car x)))
+(defun cddr (x) (cdr (cdr x)))
+(defun caaar (x) (car (car (car x))))
+(defun caadr (x) (car (car (cdr x))))
+(defun cadar (x) (car (cdr (car x))))
+(defun caddr (x) (car (cdr (cdr x))))
+(defun cdaar (x) (cdr (car (car x))))
+(defun cdadr (x) (cdr (car (cdr x))))
+(defun cddar (x) (cdr (cdr (car x))))
+(defun cdddr (x) (cdr (cdr (cdr x))))
+(defun caaaar (x) (car (car (car (car x)))))
+(defun caaadr (x) (car (car (car (cdr x)))))
+(defun caadar (x) (car (car (cdr (car x)))))
+(defun caaddr (x) (car (car (cdr (cdr x)))))
+(defun cadaar (x) (car (cdr (car (car x)))))
+(defun cadadr (x) (car (cdr (car (cdr x)))))
+(defun caddar (x) (car (cdr (cdr (car x)))))
+(defun cadddr (x) (car (cdr (cdr (cdr x)))))
+(defun cdaaar (x) (cdr (car (car (car x)))))
+(defun cdaadr (x) (cdr (car (car (cdr x)))))
+(defun cdadar (x) (cdr (car (cdr (car x)))))
+(defun cdaddr (x) (cdr (car (cdr (cdr x)))))
+(defun cddaar (x) (cdr (cdr (car (car x)))))
+(defun cddadr (x) (cdr (cdr (car (cdr x)))))
+(defun cdddar (x) (cdr (cdr (cdr (car x)))))
+(defun cddddr (x) (cdr (cdr (cdr (cdr x)))))
+
 (defun first (lst) (car lst))
 (defun rest (lst) (cdr lst))
 (defun second (lst) (cadr lst))
 (defun third (lst) (caddr lst))
 (defun fourth (lst) (cadddr lst))
-(defun fifth (lst) (caddddr lst))
+(defun fifth (lst) (car (cddddr lst)))
 
 (defmacro gensym (&optional (hint "G")) (list '%gensym hint))
 (defun gensym (&optional (hint "G")) (gensym hint))
+
+(defmacro symbol-package (symbol) (list '%symbol-package symbol))
+(defun symbol-package (symbol) (symbol-package symbol))
 
 (defmacro symbol-name (symbol) (list '%symbol-name symbol))
 (defun symbol-name (symbol) (symbol-name symbol))
@@ -93,8 +277,9 @@
 (defmacro make-symbol (symbol-name) (list '%make-symbol symbol-name))
 (defun make-symbol (symbol-name) (make-symbol symbol-name))
 
-(defmacro intern (symbol-name) (list '%intern symbol-name))
-(defun intern (symbol-name) (intern symbol-name))
+(defun intern (symbol-name &optional (package *package*))
+  ;;(%print package symbol-name)
+  (%intern symbol-name package))
 
 (defmacro exit (&optional (n 0)) (list '%exit n))
 (defun exit (&optional (n 0)) (exit n))
@@ -125,9 +310,6 @@
     (funcall func (first list))
     (foldl-for-effect func (rest list))))
 
-(defun reverse (list)
-  (foldl #'cons nil list))
-
 (defun map1 (func seq)
   ;; NOT TAIL RECURSIVE! later definitions are
   (if seq (cons (funcall func (car seq))
@@ -141,6 +323,9 @@
           (cons (apply func (map1 #'car seqs))
                 (apply #'map func (map1 #'cdr seqs))))))
 
+(defun copy-list (list)
+  (map1 #'id list))
+
 (defmacro let (args &body body)
   (cons (cons 'lambda (cons (map #'first args) body))
         (map #'second args)))
@@ -148,7 +333,8 @@
 (defmacro let* (args &body body)
   (let ((names (map #'first args))
         (vals (map #'second args)))
-    (let ((setqs (map (lambda (name val) (list 'setq name val))
+    (let ((setqs (map (lambda (name val)
+                        (list 'setq name val))
                       names
                       vals)))
       (cons (cons 'lambda (cons names (append setqs body)))
@@ -165,6 +351,21 @@
 
 (defmacro unless (test &body body)
   (list 'if test nil (cons 'progn body)))
+
+(defun reverse (list)
+  (foldl #'cons nil list))
+
+(defun reverse! (list)
+  (let ((prev nil) (next nil) (curr list))
+    (tagbody
+     loop
+       (when curr
+         (setq next (cdr curr))
+         (%rplacd curr prev)
+         (setq prev curr)
+         (setq curr next)
+         (go loop)))
+    prev))
 
 (defun assoc (item alist &optional (test #'eq))
   (when alist
@@ -305,6 +506,7 @@ may be provided or left NIL."
 
 
 
+
 ;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
 ;; and we have some friendlier constructs to define them now
 (defun map1 (func seq)
@@ -312,7 +514,7 @@ may be provided or left NIL."
              (if list
                  (map1-aux (cons (funcall func (car list)) accum)
                            (cdr list))
-                 (reverse accum))))
+                 (reverse! accum))))
     (map1-aux nil seq)))
 
 (defun map (func &rest seqs)
@@ -323,7 +525,7 @@ may be provided or left NIL."
                      (if (car lists)
                          (map-aux (cons (apply func (map1 #'car lists)) accum)
                                   (map1 #'cdr lists))
-                         (reverse accum))))
+                         (reverse! accum))))
             (map-aux nil seqs)))))
 
 (defun filter1 (func seq)
@@ -332,7 +534,7 @@ may be provided or left NIL."
                  (if (funcall func (car list))
                      (filter1-aux (cons (car list) accum) (cdr list))
                      (filter1-aux accum (cdr list)))
-                 (reverse accum))))
+                 (reverse! accum))))
     (filter1-aux nil seq)))
 
 (defmacro and (&rest exprs)
@@ -487,9 +689,13 @@ may be provided or left NIL."
                    keyform
                    body))
 
-(let ((*setf-functions* nil))
+(let ((setf-functions nil))
+
+  (defun get-setf-functions ()
+    (copy-list setf-functions))
+
   (defun %defsetf (access-fn update-fn)
-    (setq *setf-functions* (cons (cons access-fn update-fn) *setf-functions*))
+    (setq setf-functions (cons (cons access-fn update-fn) setf-functions))
     access-fn)
 
   (defun get-setf-expansion (form)
@@ -497,7 +703,7 @@ may be provided or left NIL."
       (cond ((symbolp form)
              `(setq ,form))
             ((consp form)
-             (let ((set-functions (assoc (car form) *setf-functions*)))
+             (let ((set-functions (assoc (car form) setf-functions)))
                (if set-functions
                    (append (list (cdr set-functions)) (rest form))
                    (err (car form)))))
@@ -511,13 +717,11 @@ may be provided or left NIL."
 (defun %set-car (cons obj)
   (%rplaca cons obj)
   obj)
+(defsetf car %set-car)
 
 (defun %set-cdr (cons obj)
   (%rplacd cons obj)
   obj)
-
-(defsetf car %set-car)
-
 (defsetf cdr %set-cdr)
 
 (defmacro setf (place value)
@@ -710,14 +914,19 @@ may be provided or left NIL."
         str)))
 
 (defun print (object &optional (stm *standard-output*))
-  (%file-write stm object)
-  ;;(print-object object stm) 
+  (if #'print-object
+      (print-object object stm)
+      (%file-write stm object))
   object)
 
 (defun print-line (object &optional (stm *standard-output*))
   (print object stm)
   (putchar #\Newline)
   object)
+
+(defmacro macro-print (object)
+  (print (eval object))
+  nil)
 
 (defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
   (%read stm eof-error-p eof-value))
@@ -790,11 +999,12 @@ may be provided or left NIL."
                         (handler-case
                             (%eval (read file t))
                           (end-of-file () 'ok)))
-                 (signal 'load-error "Cannot open file" file-path)))
+                 (signal 'load-error "Cannot open file" file-path full-path)))
         (change-directory here-dir)
         (setq *file-path* here-path)))))
 
-(load "modules.lisp")
 
+
+(load "modules.lisp")
 (provide "boot")
 (require "stdlib")

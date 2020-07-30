@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "time-it")
 
 (defmacro time-it (time-var expr &body body)
@@ -7,3 +8,5 @@
        (let ((,time-var (%/ (- (get-clock-ticks) ,start-sym)
                             1000)))
          ,@body))))
+
+(export '(time-it))

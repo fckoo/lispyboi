@@ -1,7 +1,7 @@
+(in-package :lispyboi)
 (provide "format")
 (require "math")
 (require "string-stream")
-
 
 (defun %format-fixnum (number stream &optional (radix 10))
   (unless (fixnump number)
@@ -115,3 +115,5 @@ NIL is returned."
         (progn (output-stream-write-string stream formatted)
                nil)
         formatted)))
+
+(export '(format))

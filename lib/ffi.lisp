@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "ffi")
 
 (setq *ffi-pointer-size* 8)
@@ -95,7 +96,7 @@
       (push type-obj *ffi-type-registry*)
       (map (lambda (name size type offset)
              (let ((offset (third offset))
-                   (getter-name (intern (concatenate (symbol-name struct-name) "-GET-" (symbol-name name))))
+                   (getter-name (intern (concatenate (symbol-name struct-name) "-" (symbol-name name))))
                    (setter-name (intern (concatenate (symbol-name struct-name) "-SET-" (symbol-name name)))))
                (push 
                 `(defun ,getter-name (,struct-name)
@@ -104,7 +105,8 @@
                (push
                 `(defun ,setter-name (,struct-name value)
                    (,(%ffi-setter-function size) (ffi-ref ,struct-name ,offset) value))
-                functions)))
+                functions)
+               (push `(defsetf ,getter-name ,setter-name) functions)))
            field-names
            field-sizes
            field-types
@@ -125,7 +127,7 @@
 (defun ffi-nullptr-p (obj)
   (eq (ffi-nullptr) obj))
 
-(defun with-ffi-array ((array-var bytespec buffer-expr) &body body)
+(defmacro with-ffi-array ((array-var bytespec buffer-expr) &body body)
   (let ((buffer (gensym))
         (size (gensym))
         (ref-function)
@@ -165,7 +167,7 @@
             (long
              (setf ref-function 'ffi-ref-64)
              (setf ref-offset-calc '(* i 8)))
-            (t (signal 'bytespec-error "BYTESPEC must be one of" *ffi-bytespecs*)))
+            (t (signal 'bytespec-error "BYTESPEC must be one of" *ffi-bytespecs* bytespec)))
           `(let ((,tmp-expr ,buffer-expr))
              (when ,tmp-expr
                (destructuring-bind (,buffer ,size) ,tmp-expr
@@ -190,3 +192,48 @@
 (defmethod print-object ((o system-pointer) stream)
   (format stream "#<SYSTEM-POINTER ~X>" (ffi-coerce-fixnum o))
   o)
+
+(export '(ffi-get-type
+          ffi-sizeof
+          ffi-offset-of
+          ffi-type-of
+          ffi-defstruct
+          ffi-get-symbol-or-signal
+          ffi-nullptr-p
+          with-ffi-array
+          ffi-with-symbols
+
+          ffi-open
+          ffi-close
+          ffi-get-symbol
+          ffi-call
+          ffi-nullptr
+          ffi-alloc
+          ffi-zero-alloc
+          ffi-free
+          ffi-marshal
+          ffi-strlen
+          ffi-coerce-fixnum
+          ffi-coerce-int
+          ffi-coerce-string
+          ffi-ref
+          ffi-ref-8
+          ffi-ref-16
+          ffi-ref-32
+          ffi-ref-64
+          ffi-set-ref
+          ffi-set-ref-8
+          ffi-set-ref-16
+          ffi-set-ref-32
+          ffi-set-ref-64
+
+          uint8
+          uint16
+          uint32
+          uint64
+          char
+          short
+          int
+          long))
+
+(export *ffi-bytespecs*)

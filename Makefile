@@ -1,21 +1,21 @@
 CC := clang++
 CFLAGS := -std=c++17 -fpic -Wall
-LDFLAGS := -lreadline -ldl
+LDFLAGS := -ldl
 
 .PHONY: all clean debug release
 
 all: debug
 
-debug: CFLAGS += -O1 -g3 -DDEBUG=1
+debug: CFLAGS += -O0 -g3 -DDEBUG=3
 #debug: CFLAGS += -fsanitize=address -fsanitize-recover=all
 debug: CFLAGS += -fno-omit-frame-pointer -fno-optimize-sibling-calls
 debug: LDFLAGS += -Wl,--export-dynamic
-debug: clean lispyboi
+debug: lispyboi
 
 release: CFLAGS += -O3
-release: clean lispyboi
+release: lispyboi
 
-lispyboi: obj/primitives.o obj/lispyboi.o obj/backtrace.o obj/platform.o obj/ffi.o
+lispyboi: obj/lispyboi.o obj/backtrace.o obj/platform.o obj/ffi.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 obj/%.o: src/%.cpp obj

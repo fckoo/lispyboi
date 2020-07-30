@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "stdlib")
 
 (require "list")
@@ -5,12 +6,14 @@
 (require "destructuring-bind")
 (require "typep")
 (require "defgeneric")
-(require "defstruct")
 (require "stream")
 (require "print-object")
+(require "defstruct")
 (require "string-stream")
 (require "file")
 (require "read")
+
+(require "defpackage")
 
 (require "math")
 (require "setf")

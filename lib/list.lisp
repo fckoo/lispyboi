@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "list")
 
 
@@ -46,3 +47,8 @@
   list)
 
 
+(export '(index-of
+          nthcdr
+          only
+          insert-after
+          insert-before))

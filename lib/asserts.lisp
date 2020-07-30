@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "asserts")
 
 (defmacro assert-true (expr)
@@ -52,3 +53,12 @@
   (%assert 'string/= expected actual))
 
 
+(export '(assert-true
+          assert-false
+          assert-eq
+          assert-eql
+          assert-equal
+          assert-=
+          assert-/=
+          assert-string=
+          assert-string/=))

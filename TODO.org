@@ -1,0 +1,93 @@
+*** DONE Implement garbage collector
+    +Need a global object table for literals+
+    +Implement gc_mark for VM_State+
+*** DONE Implement Lambda
+*** DONE Implement File_Stream
+    +Just wrap std::fstream?+
+*** DONE Implement VM_State
+    +return stack+
+    +args and local variables stack+
+*** DONE Implement bytecode emitter
+    +need Set_Global N and Get_Global N+
+
+    +need Set_Local N and Get_Local N+
+     positive N will be local variables and negative N will be arguments
+
+    +need Set_Ref P, and Get_Ref P+
+      this is to implement lambda captures
+      
+    ? can emit_set/get_value(symbol) determine locality? (global, local, arg, capture ref)
+      
+*** DONE Implement bytecode disassembler
+*** DONE Implement reader
+    +CONS+
+    +LIST+
+    +CHARACTER+
+    +STRING+
+    +QUOTE+
+    +QUASIQUOTE+
+    +UNQUOTE+
+    +UNQUOTE-SPLICING+
+*** DONE Implement compiler
+    +compile_function+
+    +compile LAMBDA+
+    +compile DEFMACRO+
+    +compile HANDLER-CASE+
+*** DONE Implement virtual machine
+*** DONE Implement macro expander
+    +call_lisp_function(function, argc, argv)+
+
+      
+*** DONE Raise signals in VM
+*** DONE Re-implement primitives from old project
+    +evaluate
+*** DONE Need a way to define global variables
+*** DONE Keywords need to resolve to self
+*** DONE Implement GOTOCALL
+    1. Construct &REST if exists
+       * Do this first so GC will not collect args.
+    2. Save args position as m_stack_top - nargs
+    3. Set m_stack_top to m_locals
+    4. Push from args to m_stack_top
+    5. Push &REST if exists
+    6. Jump to function
+
+
+    
+
+* Convert to emitting list of instructions, then when locking flatten to bytecode vector?
+  There could also be passes before that eliminate/transform no-ops such as:
+
+    set_local 4
+    pop
+    get_local 4
+    pop_jump_if_nil f
+    get_local 4
+    
+  which could be reduced to a new instruction "pop_if_nil_and_jump f"
+
+  This would allow us to swap instructions with different widths, gotcha here is resolving
+  branch offsets.
+
+  
+
+
+*** TODO re-open values or something so handler-case handlers can write to their closed values
+*** TODO move tests to their own package
+*** TODO create sub-packages (by naming convention only) for stdlib and export from stdlib package
+*** TODO implement %import
+*** TODO implement :import-from in defpackage macro
+*** TODO implement ffi marshalling
+*** TODO make lib/socket.lisp work
+*** TODO make lib/socket.ssl work
+*** TODO make lisp/irc.lisp work
+*** TODO implement more math operations
+    +sin
+    +cos
+    +tan
+    +atan
+    +pow
+*** TODO implement threads via ffi
+*** TODO implement echo server
+*** TODO implement echo client
+*** TODO implement httpd

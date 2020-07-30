@@ -1,5 +1,7 @@
 #include "platform.hpp"
 
+#include <cstdlib>
+
 #include <unistd.h> // readlink
 #include <limits.h> // PATH_MAX
 
@@ -21,4 +23,9 @@ std::filesystem::path plat::get_executable_path()
         return std::string(path, len);
     }
     return std::string();
+}
+
+void plat::clear_console()
+{
+    std::system("clear");
 }

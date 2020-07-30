@@ -1,1340 +1,2882 @@
-#include <iostream>
-#include <iomanip>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <assert.h>
-#include <stddef.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-#include <algorithm>
+#include <string.h>
+#include <type_traits>
+#include <string>
+#include <vector>
+#include <list>
 #include <unordered_map>
+#include <unordered_set>
+#include <functional>
+#include <algorithm>
+#include <chrono>
+
+#include <filesystem>
+#include <iostream>
 #include <sstream>
 #include <fstream>
-#include <filesystem>
-#include <set>
-#include <list>
 
-#include "lisp.hpp"
-#include "primitives.hpp"
+#include "ffi.hpp"
 #include "platform.hpp"
 #include "backtrace.hpp"
 
-using namespace lisp;
+#if !defined(DEBUG)
+#define DEBUG 0
+#endif
 
-bool LISP_SINGLE_STEP_DEBUGGER = false;
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
+#if DEBUG > 1
+#define ENSURE_VALUE(value, expr) do {                                  \
+        if (!(expr)) {                                                  \
+            fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
+            fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr);      \
+            bt::trace_and_abort(10);                                    \
+        }                                                               \
+    } while (0)
 
-static
-struct lisp_cons_pool {
-    lisp_cons_pool()
-        : m_pool_index(0)
-        , m_cons_index(0)
+#else
+#define ENSURE_VALUE(value, expr) ((void)value)
+#endif
+
+#define GC_DIAGNOSTICS 0
+
+#if DEBUG > 2
+#ifndef GC_DIAGNOSTICS
+#define GC_DIAGNOSTICS 1
+#endif
+#define FORCE_INLINE inline __attribute__((noinline))
+#define FLATTEN __attribute__((noinline))
+
+#elif DEBUG > 1
+#define FORCE_INLINE inline
+#define FLATTEN
+
+#else
+#define FORCE_INLINE inline __attribute__((always_inline))
+#define FLATTEN __attribute__((flatten))
+#define GC_NO_OPT 0
+#endif
+
+#ifndef GC_NO_OPT
+#define GC_NO_OPT 1
+#endif
+
+namespace lisp
+{
+
+using Fixnum = int64_t;
+
+struct Cons;
+struct Object;
+struct Value;
+
+struct Symbol;
+struct Closure;
+struct Package;
+struct File_Stream;
+struct Simple_Array;
+struct Structure;
+struct Function;
+
+using System_Pointer = void*;
+
+using Primitive = Value (*)(Value *args, uint32_t nargs, bool &raised_signal);
+
+enum class Object_Type
+{
+    Symbol,
+    Closure,
+    Package,
+    File_Stream,
+    Simple_Array,
+    System_Pointer,
+    Structure,
+};
+
+struct Value
+{
+    using Bits_Type = uint64_t;
+
+    FORCE_INLINE
+    Value() = default;
+
+    constexpr explicit FORCE_INLINE
+    Value(Bits_Type bits) noexcept
+        : m_bits(bits)
+    {}
+
+    FORCE_INLINE
+    bool operator==(const Value &other) const noexcept
     {
-        m_pools.reserve(10000);
-        m_current_pool = new lisp_cons[pool_size];
-        m_pools.push_back(m_current_pool);
+        return m_bits == other.m_bits;
     }
 
-    lisp_cons *pop()
+    FORCE_INLINE
+    bool operator!=(const Value &other) const noexcept
     {
-        if (m_cons_index >= pool_size) {
-            m_pool_index++;
-            m_current_pool = new lisp_cons[pool_size];
-            m_pools.push_back(m_current_pool);
-            m_cons_index = 0;
-        }
-        return &m_current_pool[m_cons_index++];
+        return m_bits != other.m_bits;
+    }
+
+    // The operators (+, -, +=, and -=) are implemented in a way that allows us to abuse
+    // the underlying representation where LSB(0) is 0.
+    FORCE_INLINE
+    Value operator+(const Value &other) const noexcept
+    {
+        return Value(m_bits + other.m_bits);
+    }
+
+    FORCE_INLINE
+    Value operator-(const Value &other) const noexcept
+    {
+        return Value(m_bits - other.m_bits);
+    }
+
+    FORCE_INLINE
+    Value &operator+=(const Value &other) noexcept
+    {
+        m_bits += other.m_bits;
+        return *this;
+    }
+
+    FORCE_INLINE
+    Value &operator-=(const Value &other) noexcept
+    {
+        m_bits -= other.m_bits;
+        return *this;
+    }
+
+    FORCE_INLINE
+    Bits_Type bits() const noexcept
+    {
+        return m_bits;
+    }
+
+    FORCE_INLINE
+    Bits_Type tag_bits() const noexcept
+    {
+        return m_bits & 0b111;
+    }
+
+    FORCE_INLINE
+    Bits_Type wide_tag_bits() const noexcept
+    {
+        return m_bits & 0xFF;
+    }
+
+    static FORCE_INLINE
+    Value wrap_fixnum(Fixnum fixnum) noexcept
+    {
+        union
+        {
+            struct
+            {
+                Fixnum tag : 1;
+                Fixnum value : 63;
+            } f;
+            Bits_Type bits;
+        } u;
+        u.f.tag = 0;
+        u.f.value = fixnum;
+        return Value(u.bits);
+    }
+
+    static FORCE_INLINE
+    Value wrap_cons(Cons *cons) noexcept
+    {
+        union
+        {
+            Cons *cons;
+            Bits_Type bits;
+        } u;
+        u.cons = cons;
+        u.bits |= TAG_CONS;
+        return Value(u.bits);
+    }
+
+    static FORCE_INLINE
+    Value wrap_object(Object *object) noexcept
+    {
+        union
+        {
+            Object *object;
+            Bits_Type bits;
+        } u;
+        u.object = object;
+        u.bits |= TAG_OBJECT;
+        return Value(u.bits);
+    }
+
+    static FORCE_INLINE
+    Value wrap_primitive(Primitive func) noexcept
+    {
+        union
+        {
+            Primitive func;
+            Bits_Type bits;
+        } u;
+        u.func = func;
+        u.bits <<= 3;
+        u.bits |= TAG_PRIM_FUNC;
+        return Value(u.bits);
+    }
+
+    static FORCE_INLINE
+    Value wrap_character(int32_t codepoint) noexcept
+    {
+        union
+        {
+            struct
+            {
+                int32_t _unused;
+                int32_t codepoint;
+            } c;
+            Bits_Type bits;
+        } u;
+        u.bits = WTAG_CHAR;
+        u.c.codepoint = codepoint;
+        return Value(u.bits);
+    }
+
+    static FORCE_INLINE
+    Value nil() noexcept
+    {
+        return Value(WTAG_NIL);
+    }
+
+    FORCE_INLINE
+    bool is_fixnum() const noexcept
+    {
+        return (bits() & 1) == 0;
+    }
+
+    FORCE_INLINE
+    bool is_character() const noexcept
+    {
+        return wide_tag_bits() == WTAG_CHAR;
+    }
+
+    FORCE_INLINE
+    bool is_nil() const noexcept
+    {
+        return nil() == *this;
+    }
+
+    FORCE_INLINE
+    bool is_cons() const noexcept
+    {
+        return tag_bits() == TAG_CONS;
+    }
+
+    FORCE_INLINE
+    bool is_list() const noexcept
+    {
+        return is_nil() || is_cons();
+    }
+    
+    FORCE_INLINE
+    bool is_garbage_collected() const noexcept
+    {
+        return is_cons() || is_object();
+    }
+
+    FORCE_INLINE
+    bool is_lisp_primitive() const noexcept
+    {
+        return tag_bits() == TAG_PRIM_FUNC;
+    }
+
+    FORCE_INLINE
+    bool is_object() const noexcept
+    {
+        return tag_bits() == TAG_OBJECT;
+    }
+    
+    bool is_type(Object_Type type) const noexcept;
+    
+    FORCE_INLINE
+    Fixnum as_fixnum() const noexcept
+    {
+        ENSURE_VALUE(this, is_fixnum());
+        union
+        {
+            struct
+            {
+                Fixnum tag : 1;
+                Fixnum value : 63;
+            } f;
+            Bits_Type bits;
+        } u;
+        u.bits = m_bits;
+        return u.f.value;
+    }
+
+    FORCE_INLINE
+    Cons *as_cons() const noexcept
+    {
+        ENSURE_VALUE(this, is_cons());
+        union
+        {
+            Cons *cons;
+            Bits_Type bits;
+        } u;
+        u.bits = m_bits & ~BITS_MASK;
+        return u.cons;
+    }
+
+    FORCE_INLINE
+    Object *as_object() const noexcept
+    {
+        ENSURE_VALUE(this, is_object());
+        union
+        {
+            Object *object;
+            Bits_Type bits;
+        } u;
+        u.bits = m_bits & ~BITS_MASK;
+        return u.object;
+    }
+
+    FORCE_INLINE
+    Primitive as_lisp_primitive() const noexcept
+    {
+        ENSURE_VALUE(this, is_lisp_primitive());
+        union
+        {
+            Primitive func;
+            Bits_Type bits;
+        } u;
+        u.bits = m_bits;
+        u.bits >>= 3;
+        return u.func;
+    }
+
+    FORCE_INLINE
+    int32_t as_character() const noexcept
+    {
+        ENSURE_VALUE(this, is_character());
+        union
+        {
+            struct
+            {
+                int32_t _unused;
+                int32_t codepoint;
+            } c;
+            Bits_Type bits;
+        } u;
+        u.bits = m_bits;
+        return u.c.codepoint;
+    }
+    
+    FORCE_INLINE
+    void *unwrap_pointer() const noexcept
+    {
+        return reinterpret_cast<void*>(bits() & ~BITS_MASK);
     }
 
   private:
-    static constexpr size_t pool_size = 10000; // number of conses to allocate per pool
-    size_t m_pool_index; // index of current pools
-    size_t m_cons_index; // index next cons
-    lisp_cons *m_current_pool;
-    std::vector<lisp_cons*> m_pools;
+    // Do not be fooled into thinking this is another layer of indirection.
+    // This struct, or rather _value_, is a mere 8-bytes and allows us to
+    // represent several primitive data-types alongside a more general object
+    // structure. On 64-bit arch a pointer is 8 bytes so word-aligned
+    // addresses have the LSB(3) bits set to 0. We can exploit this and give
+    // meaning to those bits.
 
-} cons_pool;
+    // bits 7 6 5 4 3 2 1 0
+    // --------------------
+    // - - - - - - - 0 -> FIXNUM
+    // t t t t t 0 1 1 -> Other immediate; the 5 't' bits are extra tag bits
+    //                    this gives us 2^5 = 32 distinct tags and 56 bits
+    //                    worth of storage. We can store things like:
+    //                    byte literal, utf-8 codepoints, 32-bit floats,
+    //                    56-bit bit vector, etc.
+    // - - - - - 1 0 1 -> Cons
+    // - - - - - 1 1 1 -> Primitive Function
+    // - - - - - 0 0 1 -> POINTER/OBJECT
 
-lisp_cons *lisp::cons_pool_pop()
+    // You'll notice we don't reuse LSB(0) and that is because we want to
+    // maximize the range of fixnums. This means when there is a 0 at LSB(0)
+    // then the other 63 bits must represent the fixnum.
+
+    // Another side-effect of this decision is that fixnum adds and subracts
+    // do not need to be unwrapped because a LSB(0) of 0 means the number
+    // is even and adding two even integers always results in an even integer,
+    // effectively meaning LSB(0) has no impact to the underlying fixnum.
+    static constexpr Bits_Type BITS_MASK = 0b111ULL;
+
+    static constexpr Bits_Type TAG_OBJECT    = 0b001ULL;
+    static constexpr Bits_Type TAG_OTHER_IMM = 0b011ULL;
+    static constexpr Bits_Type TAG_CONS      = 0b101ULL;
+    static constexpr Bits_Type TAG_PRIM_FUNC = 0b111ULL;
+
+    static constexpr Bits_Type WTAG_NIL       = (0b00000ULL << 3) | TAG_OTHER_IMM;
+    static constexpr Bits_Type WTAG_CHAR      = (0b00001ULL << 3) | TAG_OTHER_IMM;
+
+    Bits_Type m_bits;
+};
+
+static_assert(std::is_trivial<Value>::value, "Value not trivial type.");
+
+struct Closure_Reference
 {
-    return cons_pool.pop();
+    Closure_Reference()
+        : next(nullptr)
+        , m_location(nullptr)
+        , m_closed_value(0)
+    {}
+    
+    Closure_Reference(Value *location)
+        : next(nullptr)
+        , m_location(location)
+        , m_closed_value(0)
+    {}
+    
+    FORCE_INLINE
+    void close()
+    {
+        m_closed_value = *m_location;
+        m_location = &m_closed_value;
+    }
+    
+    Value &value()
+    {
+        return *m_location;
+    }
+    
+    const Value *location() const
+    {
+        return m_location;
+    }
+    
+    Closure_Reference *next;
+  private:
+    Value *m_location;
+    Value m_closed_value;
+};
+
+static bool read_gc_paused(std::istream &source, Value &out_result);
+static std::string repr(Value value);
+namespace bytecode
+{
+static
+int disassemble(std::ostream &out, const std::string &tag, const Function *function, const uint8_t *ip = nullptr);
 }
 
+}
 
-struct vm_return_state {
-    lisp_value env;
-    const uint8_t *address;
+namespace std
+{
+
+template <>
+struct hash<lisp::Value>
+{
+    std::size_t operator()(const lisp::Value& v) const
+    {
+        return std::hash<lisp::Value::Bits_Type>()(v.bits());
+    }
 };
 
-struct lisp_exception {
-    lisp_exception(lisp_value what)
-        : what(what)
-    {}
+}
 
-    lisp_value what;
+namespace lisp
+{
+
+struct Cons
+{
+    Value car;
+    Value cdr;
 };
 
-struct lisp_unhandleable_exception : lisp_exception {
-    const char *msg;
-};
+FORCE_INLINE
+void set_car(Value cons, Value val)
+{
+    cons.as_cons()->car = val;
+}
 
-struct lisp_signal_exception : lisp_exception {
-    lisp_signal_exception(lisp_value what)
-        : lisp_exception(what)
-        , ip(nullptr)
-        , stack_trace_top(nullptr)
-        , stack_trace_bottom(nullptr)
-    {}
+FORCE_INLINE
+void set_cdr(Value cons, Value val)
+{
+    cons.as_cons()->cdr = val;
+}
 
-    lisp_signal_exception(lisp_value what, const void *ip, vm_return_state *stack_top, vm_return_state *stack_bottom)
-        : lisp_exception(what)
-        , ip(ip)
-        , stack_trace_top(stack_top)
-        , stack_trace_bottom(stack_bottom)
-    {}
+FORCE_INLINE
+Value car(Value obj)
+{
+    if (obj.is_nil()) return obj;
+    return obj.as_cons()->car;
+}
 
-    const void *ip;
-    const vm_return_state *stack_trace_top;
-    const vm_return_state *stack_trace_bottom;
-};
+FORCE_INLINE
+Value cdr(Value obj)
+{
+    if (obj.is_nil()) return obj;
+    return obj.as_cons()->cdr;
+}
 
-struct lisp_string_stream : lisp_stream {
-    inline
-    lisp_string_stream(const std::string &name)
+FLATTEN inline Value cddr(Value obj)   { return cdr(cdr(obj)); }
+FLATTEN inline Value cdddr(Value obj)  { return cdr(cdr(cdr(obj))); }
+FLATTEN inline Value cadr(Value obj)   { return car(cdr(obj)); }
+FLATTEN inline Value caddr(Value obj)  { return car(cdr(cdr(obj))); }
+FLATTEN inline Value cadddr(Value obj) { return car(cdr(cdr(cdr(obj)))); }
+FLATTEN inline Value caar(Value obj)   { return car(car(obj)); }
+FLATTEN inline Value cdar(Value obj)   { return cdr(car(obj)); }
+FLATTEN inline Value first(Value obj)  { return car(obj); }
+FLATTEN inline Value rest(Value obj)   { return cdr(obj); }
+FLATTEN inline Value second(Value obj) { return cadr(obj); }
+FLATTEN inline Value third(Value obj)  { return caddr(obj); }
+FLATTEN inline Value fourth(Value obj) { return cadddr(obj); }
+
+struct Symbol
+{
+    Symbol(const std::string &name)
         : m_name(name)
-        , m_index(0)
+        , m_function(Value::nil())
+        , m_package(nullptr)
+    {}
+    
+    Symbol(const std::string &name, Package *package)
+        : m_name(name)
+        , m_function(Value::nil())
+        , m_package(package)
+    {}
+    
+    Symbol(const std::string &name, Value function, Package *package)
+        : m_name(name)
+        , m_function(function)
+        , m_package(package)
+    {}
+        
+    bool is_keyword() const;
+    std::string qualified_name() const;
+    const std::string &name() const
+    {
+        return m_name;
+    }
+    
+    Value function() const
+    {
+        return m_function;
+    }
+    
+    void function(Value new_func)
+    {
+        m_function = new_func;
+    }
+    
+    Package *package() const
+    {
+        return m_package;
+    }
+  private:
+    friend struct GC;
+    std::string m_name;
+    Value m_function;
+    Package *m_package;
+};
+
+struct Structure
+{
+    Structure(Value type, Fixnum num_slots)
+        : m_type(type)
+        , m_num_slots(num_slots)
+        , m_slots(new Value[num_slots])
+    {}
+    
+    ~Structure()
+    {
+        delete[] m_slots;
+    }
+
+    Value type() const
+    {
+        return m_type;
+    }
+    
+    Fixnum num_slots() const
+    {
+        return m_num_slots;
+    }
+    
+    Value &slot_value(Fixnum slot)
+    {
+        return m_slots[slot];
+    }
+    
+    Value type_name() const
+    {
+        return car(m_type);
+    }
+
+  private:
+    friend struct GC;
+    Value m_type;
+    Fixnum m_num_slots;
+    Value *m_slots;
+};
+
+struct Simple_Array
+{
+    Simple_Array(Value element_type, Fixnum capacity)
+        : m_element_type(element_type)
+        , m_size(capacity)
+        , m_buffer(capacity <= 0 ? nullptr : new Value[capacity]{Value(0)})
+    {}
+    
+    Value element_type() const
+    {
+        return m_element_type;
+    }
+    
+    Fixnum size() const
+    {
+        return m_size;
+    }
+    
+    Value &at(Fixnum n) const
+    {
+        return m_buffer[n];
+    }
+
+  private:
+    friend struct GC;
+    Value m_element_type;
+    Fixnum m_size;
+    Value *m_buffer;
+};
+
+struct File_Stream
+{
+    File_Stream(const std::string &path, std::ios_base::openmode mode)
+        : m_stream(path, mode)
+        , m_path(path)
+        , m_mode(mode)
+    {}
+    
+    std::fstream &stream()
+    {
+        return m_stream;
+    }
+    
+    const std::string &path() const
+    {
+        return m_path;
+    }
+
+    std::ios_base::openmode mode() const
+    {
+        return m_mode;
+    }
+    
+    int32_t peek_character()
+    {
+        if (m_ungetted.size() != 0)
+        {
+            return m_ungetted.back();
+        }
+        else
+        {
+            auto c = read_character();
+            m_ungetted.push_back(c);
+            return c;
+        }
+    }
+    
+    int32_t read_character() 
+    {
+        if (m_ungetted.size() != 0)
+        {
+            auto c = m_ungetted.back();
+            m_ungetted.pop_back();
+            return c;
+        }
+        else {
+            int32_t c = m_stream.get() & 0xff;
+            if ((c & 0xf8) == 0)
+            {
+                c |= (m_stream.get() & 0xff) << 8;
+                c |= (m_stream.get() & 0xff) << 16;
+                c |= (m_stream.get() & 0xff) << 24;
+            }
+            else if ((c & 0xf0) == 0xe0)
+            {
+                c |= (m_stream.get() & 0xff) << 8;
+                c |= (m_stream.get() & 0xff) << 16;
+            }
+            else if ((c & 0xe0) == 0xc0)
+            {
+                c |= (m_stream.get() & 0xff) << 8;
+            }
+
+            return c;
+        }
+    }
+    
+    Fixnum write_character(int32_t c)
+    {
+        if (m_stream.good())
+        {
+            auto p = reinterpret_cast<const char*>(&c);
+            if ((c & 0xf8) == 0xf0) 
+            {
+                m_stream.write(p, 4);
+                return 4;
+            }
+            else if ((c & 0xf0) == 0xe0) 
+            {
+                m_stream.write(p, 3);
+                return 3;
+            }
+            else if ((c & 0xe0) == 0xc0) 
+            {
+                m_stream.write(p, 2);
+                return 2;
+            }
+            else 
+            {
+                m_stream.write(p, 1);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    
+    void flush()
+    {
+        m_stream.flush();
+    }
+
+  private:
+    std::fstream m_stream;
+    std::vector<int32_t> m_ungetted;
+    std::string m_path;
+    std::ios_base::openmode m_mode;
+};
+
+struct Function
+{
+    struct Capture_Offset
+    {
+        uint32_t index;
+        bool is_local;
+        std::string name;
+    };
+
+    Function(std::vector<uint8_t> &&code,
+             std::vector<uint32_t> &&entrypoints,
+             std::vector<const Symbol*> &&parameters,
+             std::vector<Capture_Offset> &&capture_offsets,
+             uint32_t main_entry,
+             uint32_t optionals_start_at,
+             uint32_t num_locals,
+             bool has_rest,
+             bool has_optionals)
+        : m_code(std::move(code))
+        , m_entrypoints(std::move(entrypoints))
+        , m_parameters(std::move(parameters))
+        , m_capture_offsets(std::move(capture_offsets))
+        , m_main_entry(main_entry)
+        , m_optionals_start_at(optionals_start_at)
+        , m_num_locals(num_locals)
+        , m_has_rest(has_rest)
+        , m_has_optionals(has_optionals)
     {}
 
-    int getc()
+    size_t arity() const
     {
-        if (m_index >= m_data.size()) {
-            return end_of_file;
+        return m_parameters.size();
+    }
+    
+    const uint8_t *main_entry() const
+    {
+        return &m_code[m_main_entry];
+    }
+    
+    const uint8_t *entrypoint(uint32_t nth_param) const
+    {
+        if (nth_param >= arity())
+        {
+            return &m_code[m_main_entry];
         }
-        return m_data[m_index++];
+        auto ep = m_entrypoints[nth_param];
+        return &m_code[ep];
     }
-
-    int peekc()
+    
+    const uint8_t *begin() const
     {
-        if (m_index >= m_data.size()) {
-            return end_of_file;
+        return m_code.data();
+    }
+    
+    const uint8_t *end() const
+    {
+        return m_code.data() + m_code.size();
+    }
+    
+    const std::vector<const Symbol*> &parameters() const
+    {
+        return m_parameters;
+    }
+    
+    const std::vector<Capture_Offset> &capture_offsets() const
+    {
+        return m_capture_offsets;
+    }
+    
+    bool has_rest() const
+    {
+        return m_has_rest;
+    }
+    
+    uint32_t rest_index() const
+    {
+        return m_parameters.size() - 1;
+    }
+    
+    bool has_captures() const
+    {
+        return m_capture_offsets.size() != 0;
+    }
+    
+    uint32_t optionals_start_at() const
+    {
+        return m_optionals_start_at;
+    }
+    
+    bool has_optionals() const
+    {
+        return m_has_optionals;
+    }
+    
+    bool is_too_many_args(uint32_t n) const
+    {
+        return !has_rest() && n > arity();
+    }
+    
+    bool is_too_few_args(uint32_t n) const
+    {
+        if (has_optionals())
+        {
+            return n < optionals_start_at();
         }
-        return m_data[m_index];
+        if (has_rest())
+        {
+            return n < rest_index();
+        }
+        return n < arity();
     }
-
-    bool eof()
+    
+    uint32_t num_locals() const
     {
-        return m_index >= m_data.size();
+        return m_num_locals;
     }
-
-    inline
-    void clear()
+    
+    // for gdb
+    __attribute__((used, noinline))
+    void ez_disassemble() const
     {
-        m_index = 0;
-        m_data = "";
-    }
-
-    inline
-    void append(const std::string &data)
-    {
-        m_data.append(data);
-    }
-
-    inline
-    void append(const char *data)
-    {
-        m_data.append(data);
-    }
-
-    inline
-    void append(char c)
-    {
-        m_data.push_back(c);
-    }
-
-    inline
-    void puts() const
-    {
-        printf("%s\n", m_data.c_str() + m_index);
-    }
-
-    inline
-    size_t index() const
-    {
-        return m_index;
-    };
-
-    inline
-    void index(size_t idx)
-    {
-        m_index = idx;
-    };
-
-    inline
-    std::string substr(size_t start, size_t end)
-    {
-        return m_data.substr(start, end);
+        bytecode::disassemble(std::cout, "Function", this, main_entry());
     }
 
   private:
-    std::string m_data;
-    std::string m_name;
-    size_t m_index;
+    std::vector<uint8_t> m_code;
+    std::vector<uint32_t> m_entrypoints;
+    std::vector<const Symbol*> m_parameters;
+    std::vector<Capture_Offset> m_capture_offsets;
+    uint32_t m_main_entry;
+    uint32_t m_optionals_start_at;
+    uint32_t m_num_locals;
+    bool m_has_rest;
+    bool m_has_optionals;
 };
 
-std::unordered_map<std::string, lisp_value> LISP_MACROS;
-namespace lisp {
-lisp_value LISP_BASE_ENVIRONMENT;
 
-lisp_value LISP_T;
-lisp_value LISP_SYM_QUOTE;
-lisp_value LISP_SYM_IF;
-lisp_value LISP_SYM_LAMBDA;
-lisp_value LISP_SYM_SETQ;
-lisp_value LISP_SYM_DEFMACRO;
-lisp_value LISP_SYM_FIXNUM;
-lisp_value LISP_SYM_CONS;
-lisp_value LISP_SYM_LIST;
-lisp_value LISP_SYM_CHARACTER;
-lisp_value LISP_SYM_FUNCTION;
-lisp_value LISP_SYM_FUNCALL;
-lisp_value LISP_SYM_SYMBOL;
-lisp_value LISP_SYM_STRING;
-lisp_value LISP_SYM_NULL;
-lisp_value LISP_SYM_BOOLEAN;
-lisp_value LISP_SYM_QUASIQUOTE;
-lisp_value LISP_SYM_UNQUOTE;
-lisp_value LISP_SYM_UNQUOTESPLICING;
-lisp_value LISP_SYM_SIMPLE_ARRAY;
-lisp_value LISP_SYM_ARRAY;
-lisp_value LISP_SYM_AMP_REST;
-lisp_value LISP_SYM_AMP_BODY;
-lisp_value LISP_SYM_AMP_OPTIONAL;
-lisp_value LISP_SYM_HANDLER_CASE;
-lisp_value LISP_SYM_FILE_STREAM;
-lisp_value LISP_SYM_TYPE_ERROR;
-lisp_value LISP_SYM_SIMPLE_ERROR;
-lisp_value LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR;
-lisp_value LISP_SYM_SYSTEM_POINTER;
-}
-
-lisp_value lisp::intern_symbol(const std::string &symbol_name)
+struct Closure
 {
-    static std::unordered_map<std::string, lisp_value> interned_symbols;
-    auto it = interned_symbols.find(symbol_name);
-    if (it != interned_symbols.end())
-        return it->second;
-    auto symbol = lisp_obj::create_symbol(symbol_name);
-    symbol.as_object()->symbol()->interned = true;
-    interned_symbols[symbol_name] = symbol;
-    return symbol;
-}
-
-std::string repr_impl(lisp_value obj, std::set<uint64_t> &seen)
-{
-    if (seen.find(obj.bits()) != seen.end()) {
-        return "#<CIRCULAR REFERENCE>";
+    Closure(const Function *function)
+        : m_function(function)
+    {
+        m_captures.resize(function->capture_offsets().size(), nullptr);
     }
-    if (obj.is_cons() || obj.is_type(SIMPLE_ARRAY_TYPE)) {
-        seen.insert(obj.bits());
+    
+    void capture_reference(size_t idx, Closure_Reference *p)
+    {
+        m_captures[idx] = p;
     }
-    std::string result;
-    std::stringstream ss;
-    if (obj.is_fixnum()) {
-        result = std::to_string(obj.as_fixnum());
+    
+    Value get_capture(size_t idx) const
+    {
+        return m_captures[idx]->value();
     }
-    else if (obj.is_nil()) {
-        result = "NIL";
+    
+    void set_capture(size_t idx, Value new_val)
+    {
+        m_captures[idx]->value() = new_val;
     }
-    else if (obj.is_cons()) {
-        result += "(";
-        result += repr_impl(car(obj), seen);
-        if (cdr(obj).is_nil()) {
-            /* List with one element */
-            ;
+    
+    Closure_Reference *get_reference(size_t idx)
+    {
+        if (idx >= m_captures.size())
+        {
+            return nullptr;
         }
-        else if (cdr(obj).is_cons()) {
-            lisp_value current = cdr(obj);
-            while (current.is_not_nil()) {
-                result += " ";
-                result += repr_impl(car(current), seen);
-                current = cdr(current);
-                if (!current.is_nil() && !current.is_cons()) {
-                    result += " . ";
-                    result += repr_impl(current, seen);
-                    break;
-                }
-            }
+        return m_captures[idx];
+    }
+    
+    const Function *function() const
+    {
+        return m_function;
+    }
+    
+    const std::vector<Closure_Reference*> &captures() const
+    {
+        return m_captures;
+    }
+
+  private:
+    std::vector<Closure_Reference*> m_captures;
+    const Function *m_function;
+};
+
+struct Object
+{
+    Object_Type type() const
+    {
+        return m_type;
+    }
+
+    Symbol *symbol() const
+    {
+        return u.symbol;
+    }
+
+    Closure *closure() const
+    {
+        return u.closure;
+    }
+
+    Package *package() const
+    {
+        return u.package;
+    }
+
+    File_Stream *file_stream() const
+    {
+        return u.file_stream;
+    }
+
+    Simple_Array *simple_array() const
+    {
+        return u.simple_array;
+    }
+
+    Structure *structure() const
+    {
+        return u.structure;
+    }
+
+    System_Pointer system_pointer() const
+    {
+        return u.system_pointer;
+    }
+
+    void system_pointer(System_Pointer new_val)
+    {
+        u.system_pointer = new_val;
+    }
+    
+    System_Pointer pointer_ref()
+    {
+        return &u.system_pointer;
+    }
+
+    Object(Symbol *symbol) : m_type(Object_Type::Symbol)
+    {
+        u.symbol = symbol;
+    }
+
+    Object(Closure *closure) : m_type(Object_Type::Closure)
+    {
+        u.closure = closure;
+    }
+
+    Object(Package *package) : m_type(Object_Type::Package)
+    {
+        u.package = package;
+    }
+
+    Object(File_Stream *file_stream) : m_type(Object_Type::File_Stream)
+    {
+        u.file_stream = file_stream;
+    }
+
+    Object(Simple_Array *simple_array) : m_type(Object_Type::Simple_Array)
+    {
+        u.simple_array = simple_array;
+    }
+
+    Object(Structure *structure) : m_type(Object_Type::Structure)
+    {
+        u.structure = structure;
+    }
+
+    Object(System_Pointer system_pointer) : m_type(Object_Type::System_Pointer)
+    {
+        u.system_pointer = system_pointer;
+    }
+    
+    ~Object()
+    {
+        switch (m_type)
+        {
+            case Object_Type::Symbol: delete u.symbol; break;
+            case Object_Type::Closure: delete u.closure; break;
+            case Object_Type::Package: break;
+            case Object_Type::File_Stream: delete u.file_stream; break;
+            case Object_Type::Simple_Array: delete u.simple_array; break;
+            case Object_Type::System_Pointer: break;
+            case Object_Type::Structure: delete u.structure; break;
+        }
+    }
+
+  private:
+    friend struct GC;
+    Object_Type m_type;
+    union
+    {
+        Symbol *symbol;
+        Closure *closure;
+        Package *package;
+        File_Stream *file_stream;
+        Simple_Array *simple_array;
+        Structure *structure;
+        System_Pointer system_pointer;
+    } u;
+    static_assert(sizeof(u) == sizeof(void*));
+};
+
+static
+std::string lisp_string_to_native_string(Value str)
+{
+    std::string ret;
+    auto array = str.as_object()->simple_array();
+    for (Fixnum i = 0; i < array->size(); ++i) {
+        auto obj = array->at(i);
+        if (!obj.is_character()) break;
+        auto c = obj.as_character();
+        if ((c & 0xf8) == 0xf0) {
+            ret.push_back(static_cast<char>((c >>  0) & 0xff));
+            ret.push_back(static_cast<char>((c >>  8) & 0xff));
+            ret.push_back(static_cast<char>((c >> 16) & 0xff));
+            ret.push_back(static_cast<char>((c >> 24) & 0xff));
+        }
+        else if ((c & 0xf0) == 0xe0) {
+            ret.push_back(static_cast<char>((c >>  0) & 0xff));
+            ret.push_back(static_cast<char>((c >>  8) & 0xff));
+            ret.push_back(static_cast<char>((c >> 16) & 0xff));
+        }
+        else if ((c & 0xe0) == 0xc0) {
+            ret.push_back(static_cast<char>((c >>  0) & 0xff));
+            ret.push_back(static_cast<char>((c >>  8) & 0xff));
         }
         else {
-            result += " . ";
-            result += repr_impl(cdr(obj), seen);
-        }
-        result += ")";
-    }
-    else if (obj.is_character()) {
-        auto codepoint = obj.as_character();
-        switch (codepoint) {
-            default:
-                result = std::string("#\\") + reinterpret_cast<const char*>(&codepoint);
-                break;
-            case ' ':
-                result = "#\\Space";
-                break;
-            case '\t':
-                result = "#\\Tab";
-                break;
-            case '\n':
-                result = "#\\Newline";
-                break;
-            case '\r':
-                result = "#\\Return";
-                break;
+            ret.push_back(static_cast<char>(c & 0xff));
         }
     }
-    else if (obj.is_object()) {
-        switch (obj.as_object()->type()) {
-            case SYM_TYPE:
-                if (obj.as_object()->symbol()->interned == false) {
-                    ss << "#:" << obj.as_object()->symbol()->name;
-                    result = ss.str();
-                }
-                else {
-                    result = obj.as_object()->symbol()->name;
-                }
-                break;
-            case LAMBDA_TYPE: {
-                result += "(LAMBDA (";
-                auto const &lambda = *obj.as_object()->lambda();
-                auto const &params = lambda.params();
-                auto optionals_start_at = lambda.optionals_start_at();
-                for (size_t i = 0; i < optionals_start_at; ++i) {
-                    if (lambda.has_rest() && i + 1 == params.size()) {
-                        result += "&REST ";
-                    }
-                    result += repr(params[i]);
-                    if (i + 1 < optionals_start_at) {
-                        result += " ";
-                    }
-                }
-                if (optionals_start_at < params.size()) {
-                    result += " &OPTIONAL ";
-                    for (size_t i = optionals_start_at; i < params.size()-1; ++i) {
-                        result += repr(params[i]);
-                        result += " ";
-                    }
-                    if (lambda.has_rest()) {
-                        result += "&REST ";
-                    }
-                    result += repr(params.back());
-                }
-                result += ") ";
-                auto body = obj.as_object()->lambda()->body();
-                while (body.is_not_nil()) {
-                    result += repr_impl(car(body), seen);
-                    body = cdr(body);
-                }
-                result += ")";
-            } break;
-            case SIMPLE_ARRAY_TYPE: {
-                auto array = obj.as_object()->simple_array();
-                if (array->type() == LISP_SYM_CHARACTER) {
-                    result += '"';
-                    auto native = lisp_string_to_native_string(obj);
-                    for (auto c : native) {
-                        switch (c) {
-                            default: result += c; break;
-                            case '\t': result += "\\t"; break;
-                            case '\r': result += "\\r"; break;
-                            case '\n': result += "\\n"; break;
-                        }
-                    }
-                    result += '"';
-                }
-                else {
-                    result += "#(";
-                    if (array->length() != 0) {
-                        fixnum i = 0;
-                        fixnum end = array->length() - 1;
-                        for (; i < end; ++i) {
-                            result += repr_impl(array->get(i), seen);
-                            result += " ";
-                        }
-                        if (i < array->length()) {
-                            result += repr_impl(array->get(i), seen);
-                        }
-                    }
-                    result += ")";
-                }
-            } break;
-            case FILE_STREAM_TYPE: {
-                auto f = obj.as_object()->file_stream();
-                result += "#<FILE-STREAM ";
-                result += f->path();
-                result += " :OK ";
-                result += f->ok() ? "T" : "NIL";
-                result += " :EOF ";
-                result += f->eof() ? "T" : "NIL";
-                result += ">";
-            } break;
-            case SYSTEM_POINTER_TYPE: {
-                ss << "#<SYSTEM-POINTER 0x" << std::hex << reinterpret_cast<uintptr_t>(obj.as_object()->ptr()) << ">";
-                result = ss.str();
-            } break;
-            case STRUCT_TYPE: {
-                result += "#S(";
-                result += repr(obj.as_object()->structure()->type_name());
-                result += ")";
-            } break;
-        }
-    }
-    else if (obj.is_lisp_primitive()) {
-        ss << "#<PRIMITIVE 0x";
-        auto p = reinterpret_cast<void*>(obj.as_lisp_primitive());
-        ss << std::hex << reinterpret_cast<uintptr_t>(p);
-        ss << " " << primitives::primitive_name(p);
-        ss << ">";
-        result = ss.str();
-    }
-    return result;
+    return ret;
 }
 
-std::string lisp::repr(lisp_value obj)
+
+FORCE_INLINE
+bool Value::is_type(Object_Type type) const noexcept
 {
-    std::set<uint64_t> seen;
-    return repr_impl(obj, seen);
+    return is_object() && as_object()->type() == type;
 }
-std::string lisp::repr(const lisp_value *obj)
+
+FORCE_INLINE
+bool symbolp(Value v)
 {
-    return repr(*obj);
+    return v.is_type(Object_Type::Symbol);
 }
 
-static FORCE_INLINE
-bool is_whitespace(int c)
+bool stringp(Value v);
+
+struct GC
 {
-    return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
-}
-
-static FORCE_INLINE
-bool is_digit(int c)
-{
-    return ('0' <= c && c <= '9');
-}
-
-static FORCE_INLINE
-bool is_hex_digit(int c)
-{
-    return ('0' <= c && c <= '9')
-        || ('A' <= c && c <= 'F')
-        || ('a' <= c && c <= 'f');
-}
-
-static FORCE_INLINE
-bool is_oct_digit(int c)
-{
-    return '0' <= c && c <= '7';
-}
-
-static FORCE_INLINE
-bool is_bin_digit(int c)
-{
-    return c == '0' || c == '1';
-}
-
-static FORCE_INLINE
-bool is_symbol_start_char(int c)
-{
-    if (c == lisp_stream::end_of_file)
-        return false;
-    if (c == '(' || c == ')'
-        || c == '\'' || c == '"' || c == '`' || c == ','
-        || is_whitespace(c)
-        || is_digit(c))
-        return false;
-    else
-        return true;
-}
-
-static FORCE_INLINE
-bool is_symbol_char(int c)
-{
-    return is_symbol_start_char(c) || is_digit(c);
-}
-
-static FORCE_INLINE
-std::string str_upper(std::string in)
-{
-    std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::toupper(c) ; } );
-    return in;
-}
-
-static FORCE_INLINE
-void consume_whitespace(lisp_stream &stream)
-{
-    while (is_whitespace(stream.peekc()))
-        stream.getc();
-}
-
-lisp_value lisp::parse(lisp_stream &stream)
-{
-    while (!stream.eof()) {
-        consume_whitespace(stream);
-        if (stream.peekc() == ';') {
-            stream.getc();
-            while (stream.peekc() != '\n') {
-                stream.getc();
-            }
-        }
-        if (stream.peekc() == '-' || stream.peekc() == '+' || is_digit(stream.peekc())) {
-            std::string number_str;
-            number_str += stream.getc();
-            char firstc = number_str[0];
-            while (is_digit(stream.peekc())) {
-                number_str += stream.getc();
-            }
-
-            bool is_number = !is_symbol_char(stream.peekc());
-            while (is_symbol_char(stream.peekc())) {
-                number_str += stream.getc();
-            }
-            if (is_number && (firstc == '-' || firstc == '+') && number_str.size() == 1) {
-                is_number = false;
-            }
-
-            if (is_number) {
-                fixnum result = std::stoll(number_str);
-                return lisp_value::wrap_fixnum(result);
-            }
-            else {
-                return intern_symbol(str_upper(number_str));
-            }
-        }
-        else if (stream.peekc() == '#') {
-            stream.getc();
-            if (stream.peekc() == '\'') {
-                stream.getc();
-                auto func = parse(stream);
-                return list(LISP_SYM_FUNCTION, func);
-            }
-            else if (stream.peekc() == '\\') {
-                stream.getc();
-                std::string character;
-                while (is_symbol_char(stream.peekc())) {
-                    character += stream.getc();
-                }
-                if (character.size() == 0) {
-                    character += stream.getc();
-                }
-                if (character.size() == 1) {
-                    return lisp_value::wrap_character(character[0]);
-                }
-                else  {
-                    character = str_upper(character);
-                    if (character == "SPACE") {
-                        return lisp_value::wrap_character(' ');
-                    }
-                    else if (character == "RETURN") {
-                        return lisp_value::wrap_character('\r');
-                    }
-                    else if (character == "NEWLINE") {
-                        return lisp_value::wrap_character('\n');
-                    }
-                    else if (character == "TAB") {
-                        return lisp_value::wrap_character('\t');
-                    }
-                    else {
-                        auto it = *reinterpret_cast<const int32_t*>(character.c_str());
-                        return lisp_value::wrap_character(it);
-                    }
-                }
-            }
-            else if (stream.peekc() == 'x' || stream.peekc() == 'X') {
-                stream.getc();
-                std::string hexnum;
-                while (is_hex_digit(stream.peekc())) {
-                    hexnum += stream.getc();
-                }
-                fixnum result = std::stoll(hexnum, 0, 16);
-                return lisp_value::wrap_fixnum(result);
-            }
-            else if (stream.peekc() == 'b' || stream.peekc() == 'B') {
-                stream.getc();
-                std::string binnum;
-                while (is_bin_digit(stream.peekc())) {
-                    binnum += stream.getc();
-                }
-                fixnum result = std::stoll(binnum, 0, 2);
-                return lisp_value::wrap_fixnum(result);
-            }
-            else if (stream.peekc() == 'o' || stream.peekc() == 'O') {
-                stream.getc();
-                std::string octnum;
-                while (is_oct_digit(stream.peekc())) {
-                    octnum += stream.getc();
-                }
-                fixnum result = std::stoll(octnum, 0, 8);
-                return lisp_value::wrap_fixnum(result);
-            }
-        }
-        else if (stream.peekc() == '"') {
-            stream.getc(); // consume opening "
-            std::string str;
-            while (stream.peekc() != '"') {
-                auto c = stream.getc();
-                if (c == '\\') {
-                    c = stream.getc();
-                    switch (c) {
-                        case 'r': c = '\r'; break;
-                        case 't': c = '\t'; break;
-                        case 'n': c = '\n'; break;
-                    }
-                }
-                str += c;
-            }
-            stream.getc(); // consume closing "
-            return lisp_obj::create_string(str);
-        }
-        else if (stream.peekc() == '\'') {
-            stream.getc();
-            auto quoted_val = parse(stream);
-            if (quoted_val.is_invalid())
-                return quoted_val;
-            return list(LISP_SYM_QUOTE, quoted_val);
-        }
-        else if (stream.peekc() == '`') {
-            stream.getc();
-            auto quoted_val = parse(stream);
-            if (quoted_val.is_invalid())
-                return quoted_val;
-            return list(LISP_SYM_QUASIQUOTE, quoted_val);
-        }
-        else if (stream.peekc() == ',') {
-            stream.getc();
-            auto symbol = LISP_SYM_UNQUOTE;
-            if (stream.peekc() == '@') {
-                stream.getc();
-                symbol = LISP_SYM_UNQUOTESPLICING;
-            }
-            auto val = parse(stream);
-            if (val.is_invalid())
-                return val;
-            return list(symbol, val);
-        }
-        else if (is_symbol_start_char(stream.peekc())) {
-            std::string symbol;
-            symbol += stream.getc();
-            while (is_symbol_char(stream.peekc())) {
-                symbol += stream.getc();
-            }
-            symbol = str_upper(symbol);
-            if (symbol == "NIL")
-                return LISP_NIL;
-            if (symbol == "T")
-                return LISP_T;
-            return intern_symbol(symbol);
-        }
-        else if (stream.peekc() == ')') {
-            break;
-        }
-        else if (stream.peekc() == '(') {
-            stream.getc();
-            consume_whitespace(stream);
-            if (stream.peekc() == ')') {
-                stream.getc();
-                return LISP_NIL;
-            }
-            auto car_obj = parse(stream);
-            if (car_obj.is_invalid())
-                return car_obj;
-            auto head = cons(car_obj, LISP_NIL);
-            car_obj = head;
-            consume_whitespace(stream);
-            while (stream.peekc() != ')') {
-                consume_whitespace(stream);
-                if (stream.peekc() == '.') {
-                    stream.getc();
-                    auto cdr_obj = parse(stream);
-                    if (cdr_obj.is_invalid())
-                        return cdr_obj;
-                    set_cdr(car_obj, cdr_obj);
-                    consume_whitespace(stream);
-                    break;
-                }
-
-                auto elem = parse(stream);
-                if (elem.is_invalid())
-                    return elem;
-
-                set_cdr(car_obj, cons(elem, LISP_NIL));
-                car_obj = cdr(car_obj);
-                consume_whitespace(stream);
-            }
-            if (stream.peekc() == ')')
-                stream.getc();
-            return head;
-        }
-    }
-    return lisp_value::invalid_object();
-}
-
-
-struct bytecode_emitter {
-
-    bytecode_emitter() : m_locked(false) {}
-
-    void emit_push_value(lisp_value val);
-    void emit_push_nil();
-    void emit_push_fixnum_0();
-    void emit_push_fixnum_1();
-    void emit_funcall(uint32_t how_many);
-    void emit_gotocall(uint32_t how_many);
-    void emit_apply(uint32_t how_many);
-    void emit_return();
-
-    // These branch emitters return the bytecode offset of their 'where' component,
-    // this is useful for backfilling labels upon their location discovery
-    int32_t emit_jump(int32_t where);
-    int32_t emit_jump();
-    int32_t emit_pop_jump_if_nil(int32_t where);
-    int32_t emit_pop_jump_if_nil();
-
-    void emit_get_value(lisp_value symbol);
-    void emit_set_value();
-    void emit_set_value(lisp_value symbol, lisp_value val);
-
-    void emit_function_value(lisp_value symbol);
-    void emit_define_function(lisp_value symbol, lisp_value val);
-    void emit_define_function();
-
-    void emit_pop();
-
-    void emit_instantiate_lambda(lisp_value lambda);
-    void emit_instantiate_lambda();
-
-    void emit_cons();
-    void emit_car();
-    void emit_cdr();
-    void emit_halt();
-
-    int32_t emit_push_handler_case(uint32_t how_many);
-    void emit_pop_handler_case();
-    void emit_raise_signal(uint32_t how_many);
-
-    void emit_eq();
-    void emit_rplaca();
-    void emit_rplacd();
-    void emit_aref();
-    void emit_aset();
-
-    void emit_debug_trap();
-
-    void set_raw_8(size_t offset, uint8_t v);
-    void set_raw_16(size_t offset, uint16_t v);
-    void set_raw_32(size_t offset, uint32_t v);
-    void set_raw_s32(size_t offset, int32_t v);
-    void set_raw_lisp_value(size_t offset, lisp_value v);
-
-    int32_t position() const;
-    const std::vector<uint8_t> &bytecode() const;
-    std::vector<uint8_t> &&move_bytecode()
+    GC()
+        : m_is_paused(false)
+        , m_is_warmed_up(false)
     {
-        return std::move(m_bytecode);
+        m_free_small_bins.resize(SMALL_BINS_SIZE);
     }
 
-    void push_labels();
-    void pop_labels();
-    bool get_label(lisp_value tag, int32_t &out_offset);
-    int32_t make_label(lisp_value tag);
-    void backfill(int32_t offset, lisp_value tag);
-
-    void lock();
-
-    void map_range_to(size_t begin, size_t end, lisp_value expr);
-  private:
-    struct backfill_info { int32_t offs; lisp_value tag; };
-    using label_map = std::unordered_map<lisp_value, int32_t>;
-    template<typename T>
-    void append(T val)
+    struct Reference
     {
-        if (m_locked) {
-            fprintf(stderr, "cannot write to locked bytecode_emitter!\n");
-            bt::trace_and_abort();
-        }
-        m_bytecode.resize(m_bytecode.size() + sizeof(T), 0xCC);
-        auto end = m_bytecode.data() + m_bytecode.size();
-        auto slot = reinterpret_cast<T*>(end - sizeof(T));
-        *slot = val;
-    }
-
-    template<typename T>
-    void set_raw(size_t offset, T val)
-    {
-        if (m_locked) {
-            fprintf(stderr, "cannot write to locked bytecode_emitter!\n");
-            bt::trace_and_abort();
-        }
-        assert(offset + sizeof(val) - 1 < m_bytecode.size());
-        auto slot = reinterpret_cast<decltype(val)*>(m_bytecode.data() + offset);
-        *slot = val;
-    }
-    std::vector<uint8_t> m_bytecode;
-    std::vector<label_map> m_labels;
-    std::list<backfill_info> m_backfills;
-
-    struct range_value_pair {
-        size_t begin;
-        size_t end;
-        lisp_value value;
-    };
-
-    std::vector<range_value_pair> m_debug_map;
-    bool m_locked;
-};
-
-void bytecode_emitter::map_range_to(size_t begin, size_t end, lisp_value expr)
-{
-    m_debug_map.push_back({begin, end, expr});
-}
-
-void bytecode_emitter::push_labels()
-{
-    m_labels.push_back(label_map());
-}
-void bytecode_emitter::pop_labels()
-{
-    assert(m_labels.size() != 0);
-
-    {
-        auto it = m_backfills.begin();
-        while (it != m_backfills.end()) {
-            int32_t label_offs;
-            if (get_label(it->tag, label_offs)) {
-                auto set_offs = it->offs;
-
-                set_raw_s32(set_offs, label_offs - (set_offs - 1));
-
-                it = m_backfills.erase(it);
-            }
-            else {
-                it++;
-            }
-        }
-    }
-
-    m_labels.pop_back();
-    if (m_labels.size() == 0 && !m_backfills.empty()) {
-        for (auto const &it : m_backfills) {
-            printf("No tag found for: "); pretty_print(it.tag);
-        }
-        abort();
-    }
-}
-bool bytecode_emitter::get_label(lisp_value tag, int32_t &out_offset)
-{
-    for (auto it = m_labels.rbegin(); it != m_labels.rend(); ++it) {
-        auto found = it->find(tag);
-        if (found != it->end()) {
-            out_offset = found->second;
-            return true;
-        }
-    }
-    return false;
-}
-
-int32_t bytecode_emitter::make_label(lisp_value tag)
-{
-    assert(m_labels.size() != 0);
-    assert(m_labels.back().find(tag) == m_labels.back().end());
-    auto pos = position();
-    m_labels.back()[tag] = pos;
-    return pos;
-}
-
-void bytecode_emitter::backfill(int32_t offset, lisp_value tag)
-{
-    assert(m_labels.size() != 0);
-    m_backfills.push_back({offset, tag});
-}
-
-static void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position = false);
-
-struct lisp_vm_state {
-    lisp_vm_state()
-    {
-        constexpr int buffer = 0;
+        enum Type : uint32_t
         {
-            auto p = new lisp_value[0x10000];
-            m_params = p;
-            for (int i = 0; i < buffer; ++i) {
-                p[i] = LISP_NIL;
-            }
-            param_stack_top = param_stack_bottom = p+buffer;
-        }
-        {
-            auto p = new vm_return_state[0x10000];
-            m_returns = p;
-            for (int i = 0; i < buffer; ++i) {
-                p[i] = { LISP_NIL, nullptr };
-            }
-            return_stack_top = return_stack_bottom = p+buffer;
-        }
-    }
-
-    ~lisp_vm_state()
-    {
-        delete[] m_params;
-        delete[] m_returns;
-        param_stack_top = param_stack_bottom = nullptr;
-        return_stack_top = return_stack_bottom = nullptr;
-    }
-
-    struct save_state {
-        lisp_value *param_stack_bottom;
-        lisp_value *param_stack_top;
-
-        vm_return_state *return_stack_bottom;
-        vm_return_state *return_stack_top;
-    };
-
-    save_state save() const
-    {
-        return {
-            param_stack_bottom,
-            param_stack_top,
-
-            return_stack_bottom,
-            return_stack_top
+            Cons,
+            Object,
+            Closure_Reference,
         };
-    }
 
-    void restore(const save_state &state)
-    {
-        param_stack_bottom = state.param_stack_bottom;
-        param_stack_top = state.param_stack_top;
+        #if GC_NO_OPT
+        static constexpr uint32_t MAGIC_CONSTANT = 0xFEEDFACE;
+        uint32_t magic;
+        #endif
 
-        return_stack_bottom = state.return_stack_bottom;
-        return_stack_top = state.return_stack_top;
-    }
+        uint32_t size;
 
-    lisp_value *param_stack_bottom;
-    lisp_value *param_stack_top;
+        uint32_t collections_survived : 20;
+        uint32_t type : 10;
+        uint32_t marking : 1;
+        uint32_t marked : 1;
 
-    vm_return_state *return_stack_bottom;
-    vm_return_state *return_stack_top;
+        #if GC_NO_OPT
+        uint32_t _pad;
+        #endif
 
-    const uint8_t *execute(const uint8_t *ip, lisp_value env);
-    lisp_value call_lisp_function(lisp_value function, lisp_value *args, uint32_t nargs);
-
-    void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const;
-    void stack_dumps(std::ostream &out, size_t max_size) const;
-
-
-    FORCE_INLINE
-    void push_param(lisp_value val)
-    {
-        *param_stack_top++ = val;
-    }
-
-    FORCE_INLINE
-    lisp_value pop_param()
-    {
-        return *--param_stack_top;
-    }
-
-    FORCE_INLINE
-    lisp_value &param_top()
-    {
-        return *(param_stack_top-1);
-    }
-
-    FORCE_INLINE
-    void push_return(lisp_value env, const uint8_t *addr)
-    {
-        *return_stack_top++ = { env, addr };
-    }
-
-    FORCE_INLINE
-    vm_return_state pop_return()
-    {
-        return *--return_stack_top;
-    }
-
-    FORCE_INLINE
-    fixnum num_handlers()
-    {
-        return static_cast<fixnum>(m_handler_cases.size());
-    }
-
-    struct handler_case {
-        lisp_value env;
-        lisp_value *param_stack_top;
-        vm_return_state *return_stack_top;
-        lisp_value handlers;
+        char data[0];
+        
+        template<typename T>
+        T *as()
+        {
+            return reinterpret_cast<T*>(&data);
+        }
     };
+    #if GC_NO_OPT
+    static_assert(offsetof(Reference, magic) == 0);
+    static_assert(offsetof(Reference, size) == 4);
+    static_assert(offsetof(Reference, data) == 16);
+    #else
+    static_assert(offsetof(Reference, size) == 0);
+    static_assert(offsetof(Reference, data) == 8);
+    #endif
+
+    
+    Closure_Reference *make_closure_reference(Value *v)
+    {
+        return allocate<true, Closure_Reference>(v);
+    }
+
+    template<typename T, typename... Args>
+    Value alloc_object(Args... args)
+    {
+        if constexpr (std::is_same<T, System_Pointer>::value)
+        {
+            return Value::wrap_object(allocate<true, Object>((void*)args...));
+        }
+        else
+        {
+            return Value::wrap_object(allocate<true, Object>(new T{args...}));
+        }
+    }
+
+    template<typename T, typename... Args>
+    Value alloc_object_unmanaged(Args... args)
+    {
+        if constexpr (std::is_same<T, System_Pointer>::value)
+        {
+            return Value::wrap_object(allocate<false, Object>((void*)args...));
+        }
+        else
+        {
+            return Value::wrap_object(allocate<false, Object>(new T{args...}));
+        }
+    }
+    
+    Value alloc_string(const char *str, Fixnum len);
+    Value alloc_string(const std::string &str);
+
+    Value cons(Value car, Value cdr)
+    {
+        return Value::wrap_cons(allocate<true, Cons>(car, cdr));
+    }
+
+    bool paused() const
+    {
+        return m_is_paused;
+    }
+    
+    bool pause()
+    {
+        auto tmp = m_is_paused;
+        m_is_paused = true;
+        return tmp;
+    }
+
+    void set_paused(bool new_val)
+    {
+        m_is_paused = new_val;
+    }
+
+    using Mark_Function = std::function<void(GC&)>;
+
+    void register_marking_function(Mark_Function func)
+    {
+        m_mark_functions.push_back(func);
+    }
+
+    void mark()
+    {
+        for (auto it : m_pinned_values)
+        {
+            mark_value(it);
+        }
+
+        for (auto it : m_mark_functions)
+        {
+            it(*this);
+        }
+    }
+    
+    inline void mark_symbol(Symbol *symbol)
+    {
+        mark_value(symbol->m_function);
+    }
+    
+    void mark_closure_reference(Closure_Reference *clos_ref)
+    {
+        while (clos_ref)
+        {
+            auto ref = ptr_to_ref(clos_ref);
+            if (ref && !ref->marking)
+            {
+                ref->marking = true;
+            
+                mark_value(clos_ref->value());
+
+                ref->collections_survived++;
+                ref->marked = true;
+                ref->marking = false;
+                m_marked++;
+            }
+            clos_ref = clos_ref->next;
+        }
+    }
+
+    inline void mark_closure(Closure *closure)
+    {
+        for (auto clos_ref : closure->captures())
+        {
+            mark_closure_reference(clos_ref);
+        }
+    }
+
+    inline void mark_simple_array(Simple_Array *simple_array)
+    {
+        for (Fixnum i = 0; i < simple_array->size(); ++i)
+        {
+            mark_value(simple_array->at(i));
+        }
+    }
+
+    inline void mark_structure(Structure *structure)
+    {
+        for (Fixnum i = 0; i < structure->num_slots(); ++i)
+        {
+            mark_value(structure->slot_value(i));
+        }
+    }
+
+    void mark_value(Value value)
+    {
+        auto ref = value_to_ref(value);
+        if (!ref)
+        {
+            return;
+        }
+        
+        if (ref->marking || 
+            (ref->marked && ref->collections_survived <= GENERATIONAL_SURVIVOR_THRESHOLD))
+        {
+            return;
+        }
+        
+        ref->marking = true;
+        
+        #if GC_DIAGNOSTICS
+        printf("Marking: %s: %p\n", repr(value).c_str(), (void*)value.bits());
+        #endif
+        if (value.is_cons())
+        {
+            auto cur = value;
+            while (!cur.is_nil())
+            {
+                // This appears to be horribly recursive, but this marking function doesn't try to mark
+                // values that are already being marked or have been marked already. This makes the
+                // usual list case fairly linear and the only real risk of exceeding the recursion limit
+                // would be from a very heavily left-leaning tree.
+                mark_value(car(cur));
+                auto cur_cons_ref = value_to_ref(cur);
+                cur_cons_ref->marked = true;
+                cur_cons_ref->collections_survived++;
+                //mark_value(cur);
+                cur = cdr(cur);
+                if (!cur.is_cons() && !cur.is_nil())
+                {
+                    mark_value(cur);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            auto obj = value.as_object();
+            switch (obj->type())
+            {
+                case Object_Type::Symbol:
+                    mark_symbol(obj->symbol());
+                    break;
+                case Object_Type::Closure:
+                    mark_closure(obj->closure());
+                    break;
+                case Object_Type::Package:
+                    break;
+                case Object_Type::File_Stream:
+                    break;
+                case Object_Type::Simple_Array:
+                    // @TODO: Optimize scanning array if it's a string?
+                    mark_simple_array(obj->simple_array());
+                    break;
+                case Object_Type::System_Pointer:
+                    break;
+                case Object_Type::Structure:
+                    mark_structure(obj->structure());
+                    break;
+            }
+        }
+        
+        ref->collections_survived++;
+        ref->marked = true;
+        ref->marking = false;
+        m_marked++;
+    }
+    
+    size_t sweep()
+    {
+        #if GC_DIAGNOSTICS
+        fprintf(stderr, "Running sweep... %zu ", m_recent_allocations.size());
+        #endif
+        auto &current_gen = current_generation();
+
+        size_t moved_to_generation = 0;
+        size_t freed = 0;
+        for (size_t i = 0; i < m_recent_allocations.size();)
+        {
+            auto r = m_recent_allocations[i];
+            if (r->marked == false)
+            {
+                switch (r->type)
+                {
+                    case Reference::Type::Cons: 
+                        break;
+                    case Reference::Type::Object: 
+                        r->as<Object>()->~Object();
+                        break;
+                    case Reference::Type::Closure_Reference:
+                        break;
+                }
+                #if DEBUG > 1
+                memset(r->data, 0xCC, r->size);
+                #endif
+                get_bin(r->size).push_back(r);
+                m_recent_allocations[i] = m_recent_allocations.back();
+                m_recent_allocations.pop_back();
+                freed++;
+            }
+            else if (r->collections_survived >= GENERATIONAL_SURVIVOR_THRESHOLD)
+            {
+                r->marked = false;
+                current_gen.push_back(r);
+                m_recent_allocations[i] = m_recent_allocations.back();
+                m_recent_allocations.pop_back();
+                moved_to_generation++;
+            }
+            else
+            {
+                r->marked = false;
+                i++;
+            }
+        }
+        
+        #if GC_DIAGNOSTICS
+        fprintf(stderr, " Moved: %zu, Freed: %zu, Generation (%zu) Size: %zu\n",
+                moved_to_generation, freed, m_generations.size(), current_gen.size());
+        #endif
+        
+        if (current_gen.size() >= NEW_GENERATION_THRESHOLD)
+        {
+            make_new_generation();
+        }
+        return freed;
+    }
+    
+    size_t mark_and_sweep()
+    {
+        #if GC_DIAGNOSTICS
+        fprintf(stderr, "New mark started.\n");
+        #endif
+        m_marked = 0;
+        mark();
+        #if GC_DIAGNOSTICS
+        fprintf(stderr, "Mark phase finished.\n");
+        fprintf(stderr, "Marked %zu\n", m_marked);
+        #endif
+        return sweep();
+    }
+    
+    template<typename... Args>
+    Value list(Args... args)
+    {
+        auto paused = m_is_paused;
+        m_is_paused = true;
+        auto value = _list(args...);
+        m_is_paused = paused;
+        return value;
+    }
+    
+    void pin_value(Value value)
+    {
+        if (value.is_garbage_collected())
+        {
+            m_pinned_values.push_back(value);
+        }
+    }
+    
+    void unpin_value(Value value)
+    {
+        if (value.is_garbage_collected())
+        {
+            for (size_t i = 0; i < m_pinned_values.size(); ++i)
+            {
+                if (m_pinned_values[i] == value)
+                {
+                    m_pinned_values[i] = m_pinned_values.back();
+                    m_pinned_values.pop_back();
+                    break;
+                }
+            }
+        }
+    }
 
   private:
-
-    FORCE_INLINE
-    void push_handler_case(lisp_value env, lisp_value handlers)
+    void diag(Reference *r)
     {
-        m_handler_cases.push_back({ env, param_stack_top, return_stack_top, handlers });
-    }
-
-    FORCE_INLINE
-    void pop_handler_case()
-    {
-        if (m_handler_cases.size() != 0) {
-            m_handler_cases.pop_back();
+        fprintf(stderr, "Diagnostics for: %p\n", r);
+        if (!r)
+        {
+            return;
         }
+        #if GC_NO_OPT
+        fprintf(stderr, "    magic = %x\n", r->magic);
+        #endif
+        fprintf(stderr, "    size = %u\n", r->size);
+        fprintf(stderr, "    survived = %u\n", r->collections_survived);
+        fprintf(stderr, "    marked = %u\n", r->marked);
+        fprintf(stderr, "    type = %u\n", r->type);
+        //fprintf(stderr, "    _pad = %u\n", r->_pad);
+        auto datap = &r->data[0];
+        fprintf(stderr, "    &value = %p\n", datap);
+        Value v;
+        switch (r->type)
+        {
+            case Reference::Type::Cons: 
+                v = Value::wrap_cons(reinterpret_cast<Cons*>(datap));
+                break;
+            case Reference::Type::Object: 
+                v = Value::wrap_object(reinterpret_cast<Object*>(datap));
+                break;
+            case Reference::Type::Closure_Reference:
+                v = r->as<Closure_Reference>()->value();
+                break;
+        }
+        fprintf(stderr, "    value = %s\n", repr(v).c_str());
     }
 
-    bool find_handler(lisp_value tag, bool auto_pop, handler_case &out_case_state, lisp_value &out_handler);
+    Value _list()
+    {
+        return Value::nil();
+    }
+    
+    template<typename TFirst>
+    Value _list(TFirst first)
+    {
+        return cons(first, _list());
+    }
+    
+    template<typename TFirst, typename... TRest>
+    Value _list(TFirst first, TRest... rest)
+    {
+        return cons(first, _list(rest...));
+    }
+    
+    Reference *ptr_to_ref(void *ptr)
+    {
+        if (!ptr)
+        {
+            return nullptr;
+        }
 
-    lisp_value *m_params; // pointer to the original buffer
-    vm_return_state *m_returns; // pointer to the original buffer
-    std::vector<handler_case> m_handler_cases;
-};
-lisp_vm_state *THE_LISP_VM;
+        auto p = reinterpret_cast<uint8_t*>(ptr) - offsetof(Reference, data);
+        
+        auto ref = reinterpret_cast<Reference*>(p);
+        #if GC_NO_OPT
+        if (ref->magic != Reference::MAGIC_CONSTANT)
+        {
+            return nullptr;
+        }
+        #endif
+        return ref;
+    }
+    
+    Reference *value_to_ref(Value val)
+    {
+        if (!val.is_garbage_collected())
+        {
+            return nullptr;
+        }
+        
+        auto ptr = val.unwrap_pointer();
+        return ptr_to_ref(ptr);
+    }
 
-void lisp::pretty_print(lisp_value obj, int depth)
+    template<bool is_managed, typename T, typename... Args>
+    T *allocate(Args... args)
+    {
+        if constexpr (is_managed)
+        {
+            if (!m_is_paused && m_is_warmed_up)
+            {
+                // If a sweep doesn't free enough then to minimize successive garbage collections
+                // we'll revert to a no longer warmed-up state which will only switch back when
+                // there are enough recent allocations.
+                m_is_warmed_up = mark_and_sweep() > GC_COOLDOWN_THRESHOLD;
+            }
+        }
+        
+        Reference *ref = nullptr;
+        if constexpr (is_managed)
+        {
+            auto &bin = get_bin(sizeof(T));
+            for (size_t i = 0; i < bin.size(); ++i)
+            {
+                if (bin[i]->size >= sizeof(T))
+                {
+                    ref = bin[i];
+                    bin[i] = bin.back();
+                    bin.pop_back();
+                    break;
+                }
+            }
+        }
+        
+        if (!ref)
+        {
+            ref = static_cast<Reference*>(::operator new(offsetof(Reference, data) + sizeof(T)));
+            ref->size = sizeof(T);
+        }
+
+        #if GC_NO_OPT
+        ref->magic = Reference::MAGIC_CONSTANT;
+        #endif
+        ref->collections_survived = 0;
+        if constexpr (std::is_same<T, Cons>::value)
+        {
+            ref->type = Reference::Type::Cons;
+        }
+        else if constexpr (std::is_same<T, Object>::value)
+        {
+            ref->type = Reference::Type::Object;
+        }
+        else if constexpr (std::is_same<T, Closure_Reference>::value)
+        {
+            ref->type = Reference::Type::Closure_Reference;
+        }
+        ref->marking = false;
+        ref->marked = false;
+        
+        if constexpr (is_managed)
+        {
+            m_recent_allocations.push_back(ref);
+            m_is_warmed_up |= m_recent_allocations.size() >= GC_WARMUP_THRESHOLD;
+        }
+
+        auto value = ref->as<T>();
+        new (value) T{args...};
+        return value;
+    }
+    
+    using Generation = std::vector<Reference*>;
+    
+    Generation &current_generation()
+    {
+        if (m_generations.size() == 0)
+        {
+            make_new_generation();
+        }
+        return *m_generations.back();
+    }
+    
+    void make_new_generation()
+    {
+        m_generations.push_back(new Generation);
+    }
+    
+    std::vector<Reference*> &get_bin(size_t size)
+    {
+        if (size > SMALL_BINS_SIZE)
+        {
+            return m_free_large_bin;
+        }
+        return m_free_small_bins[size];
+    }
+    
+    static constexpr auto GC_WARMUP_THRESHOLD = 1000000;
+    // attempt to keep GC from running many times in succession
+    static constexpr auto GC_COOLDOWN_THRESHOLD = GC_WARMUP_THRESHOLD * 0.06;
+    static constexpr auto NEW_GENERATION_THRESHOLD = GC_WARMUP_THRESHOLD * 1.5;
+    // how many GC runs does a Reference need to survive before being moved to the current generation?
+    static constexpr auto GENERATIONAL_SURVIVOR_THRESHOLD = 2;
+    static constexpr auto SMALL_BINS_SIZE = 256;
+
+    std::vector<Generation*> m_generations;
+    std::vector<Reference*> m_recent_allocations;
+    //std::vector<Reference*> m_free_references;
+    std::vector<std::vector<Reference*>> m_free_small_bins;
+    std::vector<Reference*> m_free_large_bin;
+    std::vector<Value> m_pinned_values;
+    std::vector<Mark_Function> m_mark_functions;
+    size_t m_marked;
+    bool m_is_paused;
+    bool m_is_warmed_up;
+} gc;
+
+#define GC_GUARD()                              \
+    auto __gc_guard__paused = lisp::gc.pause()  \
+
+#define GC_UNGUARD() lisp::gc.set_paused(__gc_guard__paused)
+
+static FORCE_INLINE
+Value to_list(const Value *vals, uint32_t nvals)
 {
-    if (depth >= 5) {
-        return;
+    switch (nvals) 
+    {
+        case 0: return Value::nil();
+        case 1: return gc.list(vals[0]);
+        case 2: return gc.list(vals[0], vals[1]);
+        case 3: return gc.list(vals[0], vals[1], vals[2]);
+        case 4: return gc.list(vals[0], vals[1], vals[2], vals[3]);
+        case 5: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4]);
+        case 6: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]);
+        case 7: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6]);
+        case 8: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7]);
     }
-    static auto print_object = intern_symbol("PRINT-OBJECT").as_object()->symbol();
-    if (print_object->function.is_nil()) {
-        printf("%s\n", repr(obj).c_str());
+    GC_GUARD();
+    auto head = gc.list(vals[0]);
+    auto current = head;
+    for (uint32_t i = 1; i < nvals; ++i) 
+    {
+        set_cdr(current, gc.cons(vals[i], Value::nil()));
+        current = cdr(current);
     }
-    else {
-        try {
-            lisp_value args[2] = {obj, lisp_obj::standard_output_stream()};
-            THE_LISP_VM->call_lisp_function(print_object->function, args, 2);
-            printf("\n");
-        }
-        catch (lisp_unhandleable_exception e) {
-            printf("%s\n", e.msg);
-            printf("    %s\n", repr(e.what).c_str());
-        }
-        catch (lisp_signal_exception e) {
-            printf("Unhandled signal:\n");
-            printf("    %s\n", repr(e.what).c_str());
-        }
-    }
+    GC_UNGUARD();
+    return head;
 }
 
 static FORCE_INLINE
-lisp_value shadow(lisp_value env, lisp_value symbol, lisp_value value)
+Value to_list(const std::vector<Value> &vals)
 {
-    auto binding = cons(symbol, value);
-    auto shadow_env = cons(binding, env);
-    return shadow_env;
+    return to_list(vals.data(), vals.size());
 }
 
-static
-const uint8_t *apply_arguments(lisp_value &shadowed_env, const lisp_lambda *lambda, lisp_value *args, uint32_t nargs)
+static FORCE_INLINE
+std::vector<Value> to_vector(Value list)
 {
-    auto const &params = lambda->params();
-    if (params.size() == 0) {
-        return lambda->main_entry();
-    }
-    // @TODO: Handle case where nargs < params.size();
-    lisp_value rest_sym = LISP_NIL;
-    auto end = params.size();
-    if (lambda->has_rest()) {
-        end--;
-        rest_sym = params.back();
-    }
-    if (nargs < end) {
-        if (lambda->has_optionals()) {
-            end = nargs;
-        }
-        else {
-            auto params = to_list(lambda->params());
-            throw lisp_unhandleable_exception{ {params}, "Argument count mismatch" };
-            // @TODO: error, no optionals and not enough args passed
-        }
-    }
-    size_t i = 0;
-    for (; i < end; ++i) {
-        shadowed_env = shadow(shadowed_env, params[i], args[i]);
-    }
-    if (rest_sym.is_not_nil() && i == params.size()-1) {
-        shadowed_env = shadow(shadowed_env, rest_sym, to_list(args+i, nargs-i));
-        i++;
-    }
-    else {
-        // still need to ensure we shadow _all_ of the locals else an optional initializer will set a global var
-        for (size_t j = i; j < params.size(); ++j) {
-            shadowed_env = shadow(shadowed_env, params[j], LISP_NIL);
-        }
-    }
-    return lambda->begin(i);
-}
-
-bool lisp_vm_state::find_handler(lisp_value tag, bool auto_pop, handler_case &out_case_state, lisp_value &out_handler)
-{
-    bool found = false;
-    size_t npop = 0;
-    for (auto it = m_handler_cases.rbegin(); !found && (it != m_handler_cases.rend()); ++it) {
-        auto handlers = it->handlers;
-        npop++;
-        while (handlers.is_not_nil()) {
-            auto handler = car(handlers);
-            auto handler_tag = car(handler);
-            if (handler_tag == LISP_T || handler_tag == tag) {
-                out_case_state = *it;
-                out_handler = handler;
-                found = true;
-                break;
-            }
-            handlers = cdr(handlers);
-        }
-    }
-    if (auto_pop) {
-        m_handler_cases.resize(m_handler_cases.size() - npop);
-    }
-    return found;
-}
-
-lisp_value lisp_vm_state::call_lisp_function(lisp_value function, lisp_value *args, uint32_t nargs)
-{
-    if (function.is_lisp_primitive()) {
-        bool raised_signal = false;
-        auto result = function.as_lisp_primitive()(args, nargs, raised_signal);
-        if (raised_signal) {
-            throw lisp_signal_exception(result);
-        }
-        return result;
-    }
-    if (function.is_type(LAMBDA_TYPE)) {
-        auto lambda = function.as_object()->lambda();
-        auto shadowed = lambda->env();
-        auto ip = apply_arguments(shadowed, lambda, args, nargs);
-
-        ip = execute(ip, shadowed);
-        return pop_param();
-    }
-    throw lisp_unhandleable_exception{ {function}, "Cannot call lisp function because not a FUNCTION: " };
-}
-
-template<typename Function, typename ...ExtraArgs>
-static
-lisp_value map(lisp_value list, Function func, ExtraArgs&... args)
-{
-    if (list.is_nil())
-        return list;
-
-    auto head = cons(func(car(list), args...), LISP_NIL);
-    auto current = head;
-    list = cdr(list);
-    while (list.is_not_nil()) {
-        set_cdr(current, cons(func(car(list), args...), LISP_NIL));
-        current = cdr(current);
+    std::vector<Value> v;
+    while (!list.is_nil()) 
+    {
+        v.push_back(car(list));
         list = cdr(list);
     }
-    return head;
+    return v;
 }
 
-static
-lisp_value zip3(lisp_value a, lisp_value b, lisp_value c)
-{
-    if (a.is_nil())
-        return a;
 
-    auto head = list(cons(car(a), cons(car(b), car(c))));
-    auto current = head;
-    a = cdr(a); b = cdr(b); c = cdr(c);
-    while (a.is_not_nil()) {
-        auto next = cons(car(a), cons(car(b), car(c)));
-        set_cdr(current, cons(next, LISP_NIL));
-        current = cdr(current);
-        a = cdr(a); b = cdr(b); c = cdr(c);
-    }
-    return head;
-}
-
-static
-lisp_value macro_expand_impl(lisp_value obj, lisp_vm_state &vm)
+struct Package
 {
-    if (!obj.is_cons()) {
-        return obj;
+    using Name_Symbol_Map = std::unordered_map<std::string, Value>;
+    
+    const std::string &name() const
+    {
+        return m_name;
     }
-    auto car = first(obj);
-    if (car.is_type(SYM_TYPE)) {
-        if (car == LISP_SYM_QUOTE) {
-            return obj;
-        }
-        if (car == LISP_SYM_IF) {
-            auto condition = macro_expand_impl(second(obj), vm);
-            auto consequence = macro_expand_impl(third(obj), vm);
-            auto alternative = macro_expand_impl(fourth(obj), vm);
-            return list(LISP_SYM_IF, condition, consequence, alternative);
-        }
-        if (car == LISP_SYM_DEFMACRO) {
-            auto macro_name = second(obj);
-            auto params_list = third(obj);
-            auto body = map(cdddr(obj), macro_expand_impl, vm);
-            return cons(LISP_SYM_DEFMACRO, cons(macro_name, cons(params_list, body)));
-        }
-        if (car == LISP_SYM_LAMBDA) {
-            auto args = second(obj);
-            auto body = map(cddr(obj), macro_expand_impl, vm);
-            return cons(LISP_SYM_LAMBDA, cons(args, body));
-        }
-        if (car == LISP_SYM_SETQ) {
-            auto variable_name = second(obj);
-            auto value = macro_expand_impl(third(obj), vm);
-            return list(LISP_SYM_SETQ, variable_name, value);
-        }
-        if (car == LISP_SYM_HANDLER_CASE) {
-            auto form = macro_expand_impl(second(obj), vm);
-            auto handlers = cddr(obj);
-            auto handler_tags = map(handlers, first);
-            auto handler_lambda_lists = map(handlers, second);
-            auto handler_bodies = map(handlers, cddr);
-            auto expanded_bodies = map(handler_bodies, macro_expand_impl, vm);
-            auto expanded_handlers = zip3(handler_tags, handler_lambda_lists, expanded_bodies);
-            return cons(LISP_SYM_HANDLER_CASE, cons(form, expanded_handlers));
-        }
-        const auto &sym_name = car.as_object()->symbol()->name;
-        auto it = LISP_MACROS.find(sym_name);
-        if (it != LISP_MACROS.end()) {
-            auto function = it->second;
-            auto args = rest(obj);
-            auto vec = to_vector(args);
-            // A macro may call %MACRO-EXPAND, which effectively should make the VM call stack
-            // look something like:
-            //
-            //   3 LISP CODE
-            //   2 NATIVE CODE (macro_expand_impl)
-            //   1 LISP CODE
-            //   0 NATIVE CODE (macro_expand_impl)
-            //
-            // Which effectively means when (3) LISP CODE returns it'll pop the (1) LISP CODE
-            // frame from the return stack effectively causing the macro to return to a place
-            // it should not. The VM understands that it cannot return to a nullptr address
-            // and will just pop the return frame and cease execution.
-            // We have no way to indicate a "native" return address so this just acts as a
-            // dummy guard when that happens.
-            vm.push_return(LISP_NIL, nullptr);
-            auto expand1 = vm.call_lisp_function(function, vec.data(), vec.size());
-            auto expand_all = macro_expand_impl(expand1, vm);
-            return expand_all;
+
+    const Name_Symbol_Map &symbols() const
+    {
+        return m_symbols;
+    }
+
+    const Name_Symbol_Map &exported_symbols() const
+    {
+        return m_exported_symbols;
+    }
+
+    void inherit(Package *pkg)
+    {
+        if (pkg)
+        {
+            m_inherit_from.push_back(pkg);
         }
     }
-    return map(obj, macro_expand_impl, vm);
-}
 
+    Value intern_symbol(const std::string &name)
+    {
+        Value inherited;
+        if (find_inherited(name, inherited))
+        {
+            return inherited;
+        }
 
-lisp_value lisp::macro_expand(lisp_value obj)
-{
-    return macro_expand_impl(obj, *THE_LISP_VM);
-}
+        auto it = m_symbols.find(name);
+        if (it != m_symbols.end())
+        {
+            return it->second;
+        }
 
+        auto value = gc.alloc_object<Symbol>(name, Value::nil(), this);
+        m_symbols[name] = value;
+        return value;
+    }
+    
+    bool import_symbol(Value symbol_val)
+    {
+        auto symbol = symbol_val.as_object()->symbol();
+        if (symbol->package() == this)
+        {
+            return true;
+        }
 
-enum class bytecode_op : uint8_t {
-#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) op_ ## name = opcode,
-#include "bytecode.def"
+        auto it = m_symbols.find(symbol->name());
+        if (it != m_symbols.end())
+        {
+            return false;
+        }
+        
+        m_symbols[symbol->name()] = symbol_val;
+        return true;
+    }
+    
+    Value export_symbol(const std::string &name)
+    {
+        auto value = intern_symbol(name);
+        m_exported_symbols[name] = value;
+        return value;
+    }
+    
+    bool find_inherited(const std::string &name, Value &out_value)
+    {
+        for (auto it = m_inherit_from.rbegin();
+             it != m_inherit_from.rend();
+             ++it)
+        {
+            if ((*it)->is_exported(name, &out_value))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool is_exported(const std::string &name, Value *opt_out = nullptr) const
+    {
+        auto it = m_exported_symbols.find(name);
+        if (it != m_exported_symbols.end())
+        {
+            if (opt_out != nullptr)
+            {
+                *opt_out = it->second;
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    
+    bool find_symbol(const std::string &name, Value &out_value)
+    {
+        if (find_inherited(name, out_value))
+        {
+            return true;
+        }
+        auto it = m_symbols.find(name);
+        if (it != m_symbols.end())
+        {
+            out_value = it->second;
+            return true;
+        }
+        return false;
+    }
+    
+    Value find_or_intern_symbol(const std::string &name)
+    {
+        Value res;
+        if (find_symbol(name, res))
+        {
+            return res;
+        }
+        return intern_symbol(name);
+    }
+
+    Value as_lisp_value()
+    {
+        return m_this_package;
+    }
+
+    Package(const std::string &name) : m_name(name) {}
+  private:
+    friend struct Package_Registry;
+    
+    void gc_mark(GC &gc)
+    {
+        for (auto &[k, v] : m_symbols)
+        {
+            gc.mark_value(v);
+        }
+    }
+
+    std::string m_name;
+    Name_Symbol_Map m_symbols;
+    Name_Symbol_Map m_exported_symbols;
+    std::vector<Package*> m_inherit_from;
+    Value m_this_package;
 };
 
-constexpr size_t bytecode_op_size(bytecode_op op)
+
+std::string Symbol::qualified_name() const
 {
-    switch (op) {
-#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) \
-        case bytecode_op::op_ ## name: return size;
+    std::string res;
+    if (m_package)
+    {
+        if (is_keyword())
+        {
+            res += ":";
+        }
+        else {
+            res += m_package->name();
+            if (m_package->is_exported(m_name))
+            {
+                res += ":";
+            }
+            else
+            {
+                res += "::";
+            }
+        }
+        res += m_name;
+    }
+    else
+    {
+        res += "#:";
+        res += m_name;
+    }
+    return res;
+}
+
+struct Package_Registry
+{
+    Package_Registry() : m_current_package(nullptr)
+    {
+        gc.register_marking_function([this](GC &gc) {this->gc_mark(gc);});
+    }
+    
+    Package *find(const std::string &name) const
+    {
+        auto it = m_packages.find(name);
+        if (it != m_packages.end())
+        {
+            return it->second;
+        }
+        return nullptr;
+    }
+
+    Package *find_or_create(const std::string &name)
+    {
+        auto package = find(name);
+        if (package)
+        {
+            return package;
+        }
+
+        auto package_val = gc.alloc_object_unmanaged<Package>(name);
+        package = package_val.as_object()->package();
+        m_packages[name] = package;
+        package->m_this_package = package_val;
+        return package;
+    }
+
+    Package *current() const
+    {
+        return m_current_package;
+    }
+
+    void in_package(Package *p)
+    {
+        m_current_package = p;
+    }
+    
+    bool package_exists(const std::string &name) const
+    {
+        return m_packages.find(name) != m_packages.end();
+    }
+    
+    void alias_package(const std::string &alias, Package *to)
+    {
+        auto it = m_packages.find(alias);
+        if (it != m_packages.end() && it->second != to)
+        {
+            fprintf(stderr, "WARNING: Overwriting package %s with alias %s -> %s\n",
+                    it->second->name().c_str(), alias.c_str(), to->name().c_str());
+        }
+        m_packages[alias] = to;
+    }
+    
+  private:
+    void gc_mark(GC &gc)
+    {
+        for (auto &[k, pkg] : m_packages)
+        {
+            pkg->gc_mark(gc);
+        }
+    }
+    std::unordered_map<std::string, Package*> m_packages;
+    Package *m_current_package;
+};
+
+namespace bytecode
+{
+struct Emitter;
+}
+
+struct VM_State
+{
+    struct Call_Frame
+    {
+        const uint8_t *ip;
+        Value current_closure;
+        Value *locals;
+        Value *stack_top;
+    };
+    
+    struct Exception 
+    {
+        Exception(Value what) : what(what) {}
+
+        Value what;
+    };
+
+    struct Unhandleable_Exception : Exception 
+    {
+        const char *msg;
+    };
+
+    struct Signal_Exception : Exception 
+    {
+        Signal_Exception(Value what)
+            : Exception(what)
+            , ip(nullptr)
+            , stack_trace_top(nullptr)
+            , stack_trace_bottom(nullptr)
+        {}
+
+        Signal_Exception(Value what, const uint8_t *ip, Call_Frame *stack_top, Call_Frame *stack_bottom)
+            : Exception(what)
+            , ip(ip)
+            , stack_trace_top(stack_top)
+            , stack_trace_bottom(stack_bottom)
+        {}
+
+        const uint8_t *ip;
+        const Call_Frame *stack_trace_top;
+        const Call_Frame *stack_trace_bottom;
+    };
+
+    
+    VM_State()
+        : m_current_closure(Value::nil())
+        , m_open_closure_references(nullptr)
+    {
+        m_locals = m_stack_top = m_stack_bottom = new Value[0x100000];
+        m_call_frame_top = m_call_frame_bottom = new Call_Frame[0x10000];
+        gc.register_marking_function([this](GC &gc) { gc_mark(gc); });
+    }
+
+    Value &param_top()
+    {
+        return *(m_stack_top - 1);
+    }
+
+    Value &param_top(int32_t n)
+    {
+        return *(m_stack_top - 1 + n);
+    }
+    
+    void push_param(Value v)
+    {
+        *m_stack_top++ = v;
+    }
+    
+    Value pop_param()
+    {
+        return *--m_stack_top;
+    }
+    
+    void pop_params(uint32_t n)
+    {
+        m_stack_top -= n;
+    }
+    
+    void push_frame(const uint8_t *ip, uint32_t nargs)
+    {
+        Call_Frame frame {
+            ip, 
+            m_current_closure,
+            m_locals,
+            m_stack_top - nargs
+        };
+        *m_call_frame_top++ = frame;
+    }
+    
+    Call_Frame pop_frame()
+    {
+        return *--m_call_frame_top;
+    }
+    
+    Call_Frame &frame_top()
+    {
+        return *(m_call_frame_top - 1);
+    }
+    
+    void set_frame(const Call_Frame &frame)
+    {
+        m_current_closure = frame.current_closure;
+        m_locals = frame.locals;
+        m_stack_top = frame.stack_top;
+    }
+    
+    Call_Frame &get_frame(uint32_t idx)
+    {
+        return *(m_call_frame_top - idx);
+    }
+    
+    const Value *stack_top() const
+    {
+        return m_stack_top;
+    }
+    
+    const Value *stack_bottom() const
+    {
+        return m_stack_bottom;
+    }
+    
+    const Call_Frame *call_frame_top() const
+    {
+        return m_call_frame_top;
+    }
+
+    const Call_Frame *call_frame_bottom() const
+    {
+        return m_call_frame_bottom;
+    }
+    
+    const uint8_t *execute(const uint8_t *ip);
+    Value call_lisp_function(Value function_or_symbol, Value *args, uint32_t nargs);
+    
+    void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip, bool full = false) const;
+    int stack_dump(std::ostream &out, size_t max_size = 15) const;
+    
+    struct Signal_Handler
+    {
+        Value tag;
+        Value handler;
+    };
+
+    struct Handler_Case
+    {
+        Value *stack;
+        Call_Frame *frame;
+        std::vector<Signal_Handler> handlers;
+    };
+    
+    struct Save_State
+    {
+        Value current_closure;
+        Value *locals;
+        Value *stack_top, *stack_bottom;
+        Call_Frame *call_frame_top, *call_frame_bottom;
+        Closure_Reference *open_closure_references;
+        std::vector<Handler_Case> handler_cases;
+    };
+
+    Save_State save()
+    {
+        return {
+            m_current_closure,
+            m_locals,
+            m_stack_top, m_stack_bottom,
+            m_call_frame_top, m_call_frame_bottom,
+            m_open_closure_references,
+            m_handler_cases
+        };
+    }
+    
+    void restore(Save_State &state)
+    {
+        m_current_closure = state.current_closure;
+        m_locals = state.locals;
+        m_stack_top = state.stack_top;
+        m_stack_bottom = state.stack_bottom;
+        m_call_frame_top = state.call_frame_top;
+        m_call_frame_bottom = state.call_frame_bottom;
+        m_open_closure_references = state.open_closure_references;
+        m_handler_cases = state.handler_cases;
+    }
+    
+    __attribute__((used))
+    __attribute__((noinline))
+    void ez_debug(const uint8_t *ip)
+    {
+        debug_dump(std::cout, "EZ DEBUG", ip, true);
+    }
+
+  private:
+    
+    void push_handler_case(std::vector<Signal_Handler> &&handlers)
+    {
+        m_handler_cases.push_back({m_stack_top, m_call_frame_top, std::move(handlers)});
+    }
+    
+    void pop_handler_case()
+    {
+        m_handler_cases.pop_back();
+    }
+    
+    bool find_handler(Value tag, bool auto_pop, Handler_Case &out_case_state, Signal_Handler &out_handler);
+
+    void gc_mark(GC &gc)
+    {
+        for (auto p = m_stack_bottom; p != m_stack_top; ++p)
+        {
+            gc.mark_value(*p);
+        }
+        
+        // Ensure our stack of closures don't accidently get GC
+        for (auto p = m_call_frame_bottom; p != m_call_frame_top; ++p)
+        {
+            gc.mark_value(p->current_closure);
+        }
+
+        gc.mark_value(m_current_closure);
+        
+        gc.mark_closure_reference(m_open_closure_references);
+        
+        for (auto &handler_case : m_handler_cases)
+        {
+            for (auto &handler : handler_case.handlers)
+            {
+                gc.mark_value(handler.tag);
+                gc.mark_value(handler.handler);
+            }
+        }
+    }
+    
+    Closure_Reference *capture_closure_reference(Value *local)
+    {
+        Closure_Reference* prev_ref = nullptr;
+        auto curr_ref = m_open_closure_references;
+
+        while (curr_ref != nullptr && std::greater()(curr_ref->location(), local))
+        {
+            prev_ref = curr_ref;
+            curr_ref = curr_ref->next;
+        }
+
+        if (curr_ref != nullptr && curr_ref->location() == local) return curr_ref;
+
+        auto new_ref = gc.make_closure_reference(local);
+        new_ref->next = curr_ref;
+
+        if (prev_ref == nullptr) 
+        {
+            m_open_closure_references = new_ref;
+        } 
+        else 
+        {
+            prev_ref->next = new_ref;
+        }
+
+        return new_ref;
+    }
+    
+    void close_values(Value *end)
+    {
+        while (m_open_closure_references != nullptr
+               && m_open_closure_references->location() >= end)
+        {
+            m_open_closure_references->close();
+            m_open_closure_references = m_open_closure_references->next;
+        }
+    }
+
+    
+    Value m_current_closure;
+    Value *m_locals;
+    Value *m_stack_top, *m_stack_bottom;
+    Call_Frame *m_call_frame_top, *m_call_frame_bottom;
+    Closure_Reference *m_open_closure_references;
+    std::vector<Handler_Case> m_handler_cases;
+    
+    struct Call_Lisp_From_Native_Stub
+    {
+        Call_Lisp_From_Native_Stub()
+            : emitter(nullptr)
+            , nargs_offset(0)
+            , function_offset(0)
+        {}
+        bytecode::Emitter *emitter;
+        uint32_t nargs_offset;
+        uint32_t function_offset;
+    } m_stub;
+    
+};
+static VM_State *THE_LISP_VM;
+static Value macro_expand_impl(Value obj, VM_State &vm);
+
+struct Runtime_Globals
+{
+    Runtime_Globals()
+    {
+        gc.register_marking_function([this](GC &gc) {this->gc_mark(gc);});
+    }
+    
+    void gc_mark(GC &gc)
+    {
+        for (auto it : global_value_slots)
+        {
+            gc.mark_value(it);
+        }
+        
+        for (auto it : literal_object_slots)
+        {
+            gc.mark_value(it);
+        }
+        
+        for (auto &[k, val] : macros)
+        {
+            gc.mark_value(val);
+        }
+    }
+    
+    Package *kernel()
+    {
+        return packages.find_or_create("KERNEL");
+    }
+
+    Package *keyword()
+    {
+        return packages.find_or_create("KEYWORD");
+    }
+    
+    Package *core()
+    {
+        return packages.find_or_create("LISPYBOI");
+    }
+
+    Package *user()
+    {
+        return packages.find_or_create("LISPYBOI-USER");
+    }
+    
+    Value get_symbol(const std::string &symbol_name)
+    {
+        return packages.current()->find_or_intern_symbol(symbol_name);
+    }
+    
+    void resize_globals(size_t newsize)
+    {
+        global_value_slots.resize(newsize);
+    }
+    
+    Value s_T;
+    Value s_IF;
+    Value s_OR;
+    Value s_LAMBDA;
+    Value s_FIXNUM;
+    Value s_CONS;
+    Value s_LIST;
+    Value s_CHARACTER;
+    Value s_SYMBOL;
+    Value s_STRING;
+    Value s_FUNCTION;
+    Value s_BOOLEAN;
+    Value s_STRUCTURE;
+    Value s_PACKAGE;
+    Value s_FILE_STREAM;
+    Value s_SIMPLE_ARRAY;
+    Value s_SYSTEM_POINTER;
+    Value s_QUOTE;
+    Value s_QUASIQUOTE;
+    Value s_UNQUOTE;
+    Value s_UNQUOTE_SPLICING;
+    Value s_TYPE_ERROR;
+    Value s_SIMPLE_ERROR;
+    Value s_aOPTIONAL;
+    Value s_aREST;
+    Value s_aBODY;
+    
+    Value s_NULL;
+    Value s_DIVIDE_BY_ZERO_ERROR;
+    Value s_INDEX_OUT_OF_BOUNDS_ERROR;
+    Value s_END_OF_FILE;
+    Value s_BIT;
+    Value s_OVERWRITE;
+    Value s_APPEND;
+    Value s_READ;
+    Value s_MARSHAL_ERROR;
+
+    Value s_pCAR;
+    Value s_pCDR;
+    Value s_pCONS;
+    Value s_pEQ;
+    Value s_pRPLACA;
+    Value s_pRPLACD;
+    Value s_pSETQ;
+    Value s_pAREF;
+    Value s_pASET;
+    Value s_pDEBUGGER;
+    Value s_pAPPLY;
+    Value s_pFUNCALL;
+    Value s_pTAGBODY;
+    Value s_pGO;
+    Value s_pSIGNAL;
+    Value s_pHANDLER_CASE;
+    Value s_pDEFINE_FUNCTION;
+    Value s_pDEFINE_MACRO;
+    
+    Package_Registry packages;
+    std::vector<Value> global_value_slots;
+    std::vector<Value> literal_object_slots;
+    std::unordered_map<Symbol*, Value> macros;
+    
+    struct Debugger
+    {
+        enum Command
+        {
+            Continue,
+            Step_Into,
+            Step_Over,
+        };
+
+        Debugger()
+            : addr(nullptr)
+            , command(Command::Continue)
+            , breaking(false)
+        {}
+
+        const uint8_t *addr;
+        Command command;
+        bool breaking;
+    } debugger;
+} g;
+
+static
+std::string repr(Value value)
+{
+    if (value.is_fixnum())
+    {
+        return std::to_string(value.as_fixnum());
+    }
+
+    if (value.is_nil())
+    {
+        return "NIL";
+    }
+
+    if (value.is_cons())
+    {
+        std::string res = "(";
+        res += repr(car(value));
+        value = cdr(value);
+        while (value.is_cons() && !value.is_nil())
+        {
+            res += " ";
+            res += repr(car(value));
+            value = cdr(value);
+        }
+        if (!value.is_cons() && !value.is_nil())
+        {
+            res += " . ";
+            res += repr(value);
+        }
+        res += ")";
+        return res;
+    }
+        
+    if (value.is_character())
+    {
+        auto codepoint = value.as_character();
+        switch (codepoint)
+        {
+            default:   return std::string("#\\") + reinterpret_cast<const char*>(&codepoint);
+            case ' ':  return "#\\Space";
+            case '\t': return "#\\Tab";
+            case '\n': return "#\\Newline";
+            case '\r': return "#\\Return";
+        }
+    }
+
+    if (value.is_object())
+    {
+        auto obj = value.as_object();
+        switch (obj->type())
+        {
+            case Object_Type::Symbol: 
+            {
+                auto symbol = obj->symbol();
+                return symbol->qualified_name();
+                //std::string str;
+                //if (symbol->is_keyword())
+                //{
+                //    str += ":";
+                //}
+                //else if (symbol->package() == nullptr)
+                //{
+                //    str += "#:";
+                //}
+                //return str + obj->symbol()->name();
+            }
+            case Object_Type::Closure: 
+            {
+                std::stringstream ss;
+                auto clos = obj->closure();
+                ss << "#<LAMBDA " << std::hex << reinterpret_cast<uintptr_t>(clos) 
+                   << " -> {" << reinterpret_cast<uintptr_t>(clos->function()->begin()) << "}>";
+                return ss.str();
+            }
+            case Object_Type::Package:
+            {
+                std::string res;
+                res += "#<PACKAGE ";
+                res += obj->package()->name();
+                res += ">";
+                return res;
+            }
+            case Object_Type::File_Stream: return "#<FILE-STREAM>";
+            case Object_Type::Simple_Array:
+            {
+                auto array = obj->simple_array();
+                if (array->element_type() == g.s_CHARACTER)
+                {
+                    auto str = lisp_string_to_native_string(value);
+                    std::string res;
+                    res += "\"";
+                    for (auto c : str)
+                    {
+                        switch (c)
+                        {
+                            default:
+                                res += c;
+                                break;
+                            case '"':
+                                res += "\\\"";
+                                break;
+                            case '\r':
+                                res += "\\r";
+                                break;
+                            case '\t':
+                                res += "\\t";
+                                break;
+                            case '\n':
+                                res += "\\n";
+                                break;
+                        }
+                    }
+                    res += "\"";
+                    return res;
+                }
+                else
+                {
+                    std::string res;
+                    res += "#(";
+                    if (array->size() > 0)
+                    {
+                        res += repr(array->at(0));
+                    }
+                    for (Fixnum i = 1; i < array->size(); ++i)
+                    {
+                        res += " ";
+                        res += repr(array->at(i));
+                    }
+                    res += ")";
+                    return res;
+                }
+            } 
+            case Object_Type::System_Pointer: 
+            {
+                std::stringstream ss;
+                ss << "#<SYSTEM-POINTER 0x" 
+                   << std::hex << reinterpret_cast<uintptr_t>(obj->system_pointer()) 
+                   << ">";
+                return ss.str();
+            }
+            case Object_Type::Structure: return "#<STRUCTURE>";
+        }
+    }
+
+    if (value.is_lisp_primitive())
+    {
+        return "#<PRIMITIVE>";
+    }
+    return "#<!REPR WTF!>";
+}
+
+bool Symbol::is_keyword() const
+{
+    return m_package == g.keyword();
+}
+
+FORCE_INLINE
+bool stringp(Value v)
+{
+    return v.is_type(Object_Type::Simple_Array) && 
+        v.as_object()->simple_array()->element_type() == g.s_CHARACTER;
+}
+
+
+Value GC::alloc_string(const char *str, Fixnum len)
+{
+    std::vector<uint32_t> codepoints;
+    // valid utf-8 codepoint enumeration
+    for(Fixnum i = 0; i < len;) 
+    {
+        int cp_len = 1;
+        if ((str[i] & 0xf8) == 0xf0) 
+        {
+            cp_len = 4;
+        }
+        else if ((str[i] & 0xf0) == 0xe0) 
+        {
+            cp_len = 3;
+        }
+        else if ((str[i] & 0xe0) == 0xc0) 
+        {
+            cp_len = 2;
+        }
+        if ((i + cp_len) > len) 
+        {
+            cp_len = 1;
+        }
+
+        int32_t codepoint = 0;
+        switch (cp_len) 
+        {
+            // neat use of a fallthrough.
+            case 4: codepoint |= (str[i+3] & 0xff) << 24;
+            case 3: codepoint |= (str[i+2] & 0xff) << 16;
+            case 2: codepoint |= (str[i+1] & 0xff) <<  8;
+            case 1: codepoint |= (str[i+0] & 0xff) <<  0;
+        }
+        codepoints.push_back(codepoint);
+        i += cp_len;
+    }
+    auto obj = alloc_object<Simple_Array>(g.s_CHARACTER, static_cast<Fixnum>(codepoints.size()));
+    auto array = obj.as_object()->simple_array();
+    for (size_t i = 0; i < codepoints.size(); ++i)
+    {
+        array->at(i) = Value::wrap_character(codepoints[i]);
+    }
+    return obj;
+}
+
+Value GC::alloc_string(const std::string &str)
+{
+    return alloc_string(str.data(), str.size());
+}
+
+namespace compiler
+{
+
+struct Scope;
+
+struct Variable
+{
+    const Symbol *symbol() const
+    {
+        return m_symbol;
+    }
+    
+    bool is_captured() const
+    {
+        return m_is_captured;
+    }
+    
+    bool is_global() const;
+    
+    Scope *scope()
+    {
+        return m_scope;
+    }
+
+  private:
+    friend struct Scope;
+    Variable(const Symbol *symbol, Scope *scope)
+        : m_symbol(symbol)
+        , m_scope(scope)
+    {}
+    const Symbol *m_symbol;
+    Scope *m_scope;
+    bool m_is_captured;
+};
+
+struct Scope
+{
+    struct Capture_Info
+    {
+        Symbol *symbol;
+        uint32_t index;
+        bool is_local;
+    };
+
+    Scope()
+        : m_parent(nullptr)
+        , m_is_just_extending(false)
+        , m_locals_offset(0)
+    {}
+
+    Scope(Scope *parent, bool is_just_extending, uint32_t locals_offset = 0)
+        : m_parent(parent)
+        , m_is_just_extending(is_just_extending)
+        , m_locals_offset(locals_offset)
+    {}
+    
+    bool is_root() const
+    {
+        return m_parent == nullptr;
+    }
+    
+    Scope *get_root()
+    {
+        auto p = this;
+        while (p->m_parent)
+        {
+            p = p->m_parent;
+        }
+        return p;
+    }
+    
+    uint32_t locals_offset() const
+    {
+        return m_locals_offset;
+    }
+    
+    Scope *parent()
+    {
+        return m_parent;
+    }
+    
+    Scope *push_scope(bool is_just_extending, uint32_t locals_offset = 0)
+    {
+        return new Scope(this, is_just_extending, locals_offset);
+    }
+    
+    const std::vector<Capture_Info> &capture_info() const
+    {
+        return m_captures;
+    }
+    
+    const std::vector<Variable*> &locals() const
+    {
+        return m_locals;
+    }
+    
+    Variable *create_variable(const Symbol *symbol, uint32_t *opt_out_idx = nullptr)
+    {
+        auto var = new Variable(symbol, this);
+        if (opt_out_idx != nullptr)
+        {
+            *opt_out_idx = m_locals.size();
+        }
+        m_locals.push_back(var);
+        return var;
+    }
+    
+    bool resolve_local(Symbol *symbol, uint32_t &out_idx)
+    {
+        if (m_locals.size() != 0)
+        {
+            for (uint32_t i = m_locals.size(); i > 0; --i)
+            {
+                auto local = m_locals[i - 1];
+                if (local->symbol() == symbol)
+                {
+                    out_idx = i - 1 + m_locals_offset;
+                    return true;
+                }
+            }
+        }
+        if (m_is_just_extending)
+        {
+            return m_parent->resolve_local(symbol, out_idx);
+        }
+        return false;
+    }
+    
+    bool resolve_capture(Symbol *symbol, uint32_t &out_idx)
+    {
+        if (m_parent == nullptr || m_parent->is_root())
+        {
+            return false;
+        }
+        
+        uint32_t idx;
+        if (m_parent->resolve_local(symbol, idx))
+        {
+            return capture(symbol, idx, true, out_idx);
+        }
+        
+        if (m_parent->resolve_capture(symbol, idx))
+        {
+            return capture(symbol, idx, false, out_idx);
+        }
+
+        return false;
+    }
+
+
+  private:
+    friend struct Variable;
+
+    bool capture(Symbol *symbol, uint32_t index, bool is_local, uint32_t &out_idx)
+    {
+        if (is_root())
+        {
+            return false;
+        }
+
+        for (uint32_t i = 0; i < m_captures.size(); ++i)
+        {
+            if (m_captures[i].symbol == symbol)
+            {
+                out_idx = i;
+                return true;
+            }
+        }
+        out_idx = m_captures.size();
+        m_captures.push_back({symbol, index, is_local});
+        return true;
+    }
+    
+    Scope *m_parent;
+    std::vector<Variable*> m_locals;
+    std::vector<Capture_Info> m_captures;
+    bool m_is_just_extending;
+    uint32_t m_locals_offset;
+};
+
+Scope *THE_ROOT_SCOPE;
+
+bool Variable::is_global() const
+{
+    return m_scope->is_root();
+}
+
+}
+
+namespace bytecode
+{
+enum class Opcode : uint8_t
+{
+#define BYTECODE_DEF(name, noperands, nargs, size, docstring) op_ ## name,
 #include "bytecode.def"
+#undef BYTECODE_DEF
+};
+
+static
+std::string opcode_name(Opcode opcode)
+{
+    switch (opcode)
+    {
+#define BYTECODE_DEF(name, noperands, nargs, size, docstring) case Opcode::op_ ## name: return #name;
+#include "bytecode.def"
+#undef BYTECODE_DEF
+    }
+    return "???";
+}
+
+static
+size_t opcode_size(Opcode opcode)
+{
+    switch (opcode)
+    {
+#define BYTECODE_DEF(name, noperands, nargs, size, docstring) case Opcode::op_ ## name: return size;
+#include "bytecode.def"
+#undef BYTECODE_DEF
     }
     return 1;
 }
 
-static
-std::string bytecode_op_name(bytecode_op op)
+struct Debug_Info
 {
-    switch (op) {
-#define BYTECODE_DEF(name, opcode, noperands, nargs, size, docstring) \
-        case bytecode_op::op_ ## name: return #name;
-#include "bytecode.def"
-    }
-    return "??";
-}
-
-void bytecode_emitter::set_raw_8(size_t offset, uint8_t v)
-{
-    set_raw<decltype(v)>(offset, v);
-}
-
-void bytecode_emitter::set_raw_16(size_t offset, uint16_t v)
-{
-    set_raw<decltype(v)>(offset, v);
-}
-
-void bytecode_emitter::set_raw_32(size_t offset, uint32_t v)
-{
-    set_raw<decltype(v)>(offset, v);
-}
-
-void bytecode_emitter::set_raw_s32(size_t offset, int32_t v)
-{
-    set_raw<decltype(v)>(offset, v);
-}
-
-void bytecode_emitter::set_raw_lisp_value(size_t offset, lisp_value v)
-{
-    set_raw<decltype(v)>(offset, v);
-}
-
-int32_t bytecode_emitter::position() const
-{
-    return static_cast<int32_t>(m_bytecode.size());
-}
-
-struct debug_info {
-    struct region {
-
-        region() = default;
-
-        region(const void *start, size_t size)
+    struct Region
+    {
+        Region() = default;
+        Region(const void *start, size_t size)
             : m_start(start)
             , m_size(size)
         {}
-
+        
         bool contains(const void *ptr) const
         {
             auto begin = reinterpret_cast<uintptr_t>(m_start);
             auto end = begin + m_size;
             auto p = reinterpret_cast<uintptr_t>(ptr);
-
+            
             return begin <= p && p < end;
         }
-
+        
         const void *begin() const
         {
             return m_start;
         }
-
+        
         const void *end() const
         {
             return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_start) + m_size);
         }
-
+        
         size_t size() const
         {
             return m_size;
         }
+        
       private:
         const void *m_start;
         size_t m_size;
     };
-
-    static bool find(const void *address, lisp_value &out_expr)
+        
+    static bool find(const void *address, Value &out_expr)
     {
         size_t size = ~0ull;
         bool found = false;
         for (auto it = m_bytecode_address_expr_map.rbegin();
              it != m_bytecode_address_expr_map.rend();
-             ++it) {
-            if (it->first.contains(address)) {
+             ++it) 
+        {
+            if (it->first.contains(address)) 
+            {
                 found = true;
-                if (it->first.size() < size) {
+                if (it->first.size() < size) 
+                {
                     size = it->first.size();
                     out_expr = it->second;
                 }
@@ -1343,246 +2885,559 @@ struct debug_info {
         return found;
     }
 
-    static bool find_function(const void *address, const lisp_lambda **out_lambda)
+    static bool find_function(const void *address, const Function **out_function)
     {
-        for (auto it : m_functions) {
-            region r(it->earliest_entry(), it->end() - it->earliest_entry());
-            if (r.contains(address)) {
-                *out_lambda = it;
+        for (auto it : m_functions) 
+        {
+            Region r(it->begin(), it->end() - it->begin());
+            if (r.contains(address)) 
+            {
+                *out_function = it;
                 return true;
             }
         }
         return false;
     }
 
-    static void push(const void *start, size_t size, lisp_value expr)
+    static void push(const void *start, size_t size, Value expr)
     {
-        region r(start, size);
+        Region r(start, size);
         m_bytecode_address_expr_map.push_back({r, expr});
     }
 
-    static void track_function(const lisp_lambda *lambda)
+    static void track_function(const Function *function)
     {
-        if (lambda) {
-            m_functions.push_back(lambda);
+        if (function) 
+        {
+            m_functions.push_back(function);
         }
     }
 
   private:
-    static std::vector<std::pair<region, lisp_value>> m_bytecode_address_expr_map;
-    static std::vector<const lisp_lambda*> m_functions;
+    static std::vector<std::pair<Region, Value>> m_bytecode_address_expr_map;
+    static std::vector<const Function*> m_functions;
 };
-std::vector<std::pair<debug_info::region, lisp_value>> debug_info::m_bytecode_address_expr_map;
-std::vector<const lisp_lambda*> debug_info::m_functions;
+std::vector<std::pair<Debug_Info::Region, Value>> Debug_Info::m_bytecode_address_expr_map;
+std::vector<const Function*> Debug_Info::m_functions;
 
-void bytecode_emitter::lock()
+struct Emitter
 {
-    m_locked = true;
-    for (const auto &it : m_debug_map) {
-        auto size = it.end - it.begin;
-        auto addr = m_bytecode.data() + it.begin;
-        debug_info::push(addr, size, it.value);
+    Emitter(compiler::Scope *scope)
+        : m_scope(scope)
+        , m_locked(false)
+    {}
+    
+    void emit_push_literal(Value value);
+    void emit_push_nil();
+    void emit_push_fixnum_0();
+    void emit_push_fixnum_1();
+    
+    void emit_funcall(uint32_t argc);
+    void emit_gotocall(uint32_t argc);
+    void emit_apply(uint32_t argc);
+
+    void emit_return();
+    
+    int32_t emit_jump();
+    int32_t emit_pop_jump_if_nil();
+    
+    void emit_get_value(Value value);
+    void emit_set_value(Value value);
+    
+    void emit_function_value(Value func_val);
+    
+    void emit_instantiate_closure(const Function *function);
+    void emit_close_values(uint32_t num_values);
+
+    void emit_stack_alloc(uint32_t num_values);
+    void emit_stack_free(uint32_t num_values);
+
+    void emit_pop();
+
+    void emit_halt();
+    
+    int32_t emit_push_handler_case(uint32_t num_handlers);
+    void emit_pop_handler_case();
+    
+    void emit_raise_signal(uint32_t argc);
+    
+    void emit_cons();
+    void emit_car();
+    void emit_cdr();
+    void emit_eq();
+    void emit_rplaca();
+    void emit_rplacd();
+    void emit_aref();
+    void emit_aset();
+    
+    void emit_debug_trap();
+
+    template<typename T>
+    void set_raw(size_t offset, T value)
+    {
+        assert(offset + sizeof(value) <= m_bytecode.size());
+        T *slot = reinterpret_cast<T*>(m_bytecode.data() + offset);
+        *slot = value;
+    }
+    
+    void lock();
+    void map_range_to(size_t begin, size_t end, Value expr);
+    int32_t position() const;
+    const std::vector<uint8_t> &bytecode() const;
+    std::vector<uint8_t> &&move_bytecode();
+    
+    void push_labels();
+    void pop_labels();
+    bool get_label(Value tag, int32_t &out_offset);
+    int32_t make_label(Value tag);
+    void backfill_label(int32_t offset, Value tag);
+    
+    compiler::Scope *scope() const;
+
+    void push_scope()
+    {
+        m_scope = m_scope->push_scope(true, m_scope->locals().size() + m_scope->locals_offset());
+    }
+
+    void pop_scope()
+    {
+        auto scope = m_scope->parent();
+        delete m_scope;
+        m_scope = scope;
+    }
+
+  private:
+    void emit_get_value(Symbol *symbol);
+    void emit_set_value(Symbol *symbol);
+    struct Backfill_Info
+    {
+        Value tag;
+        int32_t offset;
+    };
+
+    using Label_Map = std::unordered_map<Value, int32_t>;
+    
+    template<typename T>
+    void append(T value)
+    {
+        if (m_locked)
+        {
+            fprintf(stderr, "cannot write to locked bytecode emitter!\n");
+            bt::trace_and_abort();
+        }
+        m_bytecode.resize(m_bytecode.size() + sizeof(T), 0xCC);
+        auto end = m_bytecode.data() + m_bytecode.size();
+        T *slot = reinterpret_cast<T*>(end - sizeof(T));
+        *slot = value;
+    }
+
+    struct Range_Value_Pair 
+    {
+        size_t begin;
+        size_t end;
+        Value value;
+    };
+
+    std::vector<Range_Value_Pair> m_debug_map;
+    
+    std::vector<uint8_t> m_bytecode;
+    std::vector<Label_Map> m_label_stack;
+    std::list<Backfill_Info> m_backfills;
+    compiler::Scope *m_scope;
+    
+    bool m_locked;
+};
+
+void Emitter::emit_push_literal(Value value)
+{
+    if (value.is_garbage_collected())
+    {
+        g.literal_object_slots.push_back(value);
+    }
+
+    if (value.is_nil())
+    {
+        emit_push_nil();
+    }
+    else if (value == Value::wrap_fixnum(0))
+    {
+        emit_push_fixnum_0();
+    }
+    else if (value == Value::wrap_fixnum(1))
+    {
+        emit_push_fixnum_1();
+    }
+    else
+    {
+        append(Opcode::op_push_value);
+        append(value);
     }
 }
 
-const std::vector<uint8_t> &bytecode_emitter::bytecode() const
+void Emitter::emit_push_nil()
 {
-    if (!m_locked) {
-        fprintf(stderr, "you must lock the bytecode emitter before trying to use its bytecode!");
+    append(Opcode::op_push_nil);
+}
+
+void Emitter::emit_push_fixnum_0()
+{
+    append(Opcode::op_push_fixnum_0);
+}
+
+void Emitter::emit_push_fixnum_1()
+{
+    append(Opcode::op_push_fixnum_1);
+}
+    
+void Emitter::emit_funcall(uint32_t argc)
+{
+    append(Opcode::op_funcall);
+    append(argc);
+}
+
+void Emitter::emit_gotocall(uint32_t argc)
+{
+    append(Opcode::op_gotocall);
+    append(argc);
+}
+
+void Emitter::emit_apply(uint32_t argc)
+{
+    append(Opcode::op_apply);
+    append(argc);
+}
+
+void Emitter::emit_return()
+{
+    append(Opcode::op_return);
+}
+
+int32_t Emitter::emit_jump()
+{
+    append(Opcode::op_jump);
+    auto offset = position();
+    append<uint32_t>(0xDEADBEEF);
+    return offset;
+}
+int32_t Emitter::emit_pop_jump_if_nil()
+{
+    append(Opcode::op_pop_jump_if_nil);
+    auto offset = position();
+    append<uint32_t>(0xDEADBEEF);
+    return offset;
+}
+    
+void Emitter::emit_get_value(Symbol *symbol)
+{
+    uint32_t idx = ~0u;
+    Opcode opcode;
+
+    if (m_scope->resolve_local(symbol, idx))
+    {
+        if (m_scope->is_root())
+        {
+            opcode = Opcode::op_get_global;
+        }
+        else
+        {
+            opcode = Opcode::op_get_local;
+        }
+    }
+    else if (m_scope->resolve_capture(symbol, idx))
+    {
+        opcode = Opcode::op_get_capture;
+    }
+    else if (m_scope->get_root()->resolve_local(symbol, idx))
+    {
+        opcode = Opcode::op_get_global;
+    }
+    else
+    {
+        fprintf(stderr, "No scope has symbol variable: %s\n", symbol->qualified_name().c_str());
         bt::trace_and_abort();
     }
+    
+    assert(idx != ~0u);
+    
+    append(opcode);
+    append(idx);
+}
+
+void Emitter::emit_get_value(Value value)
+{
+    if (!symbolp(value))
+    {
+        fprintf(stderr, "Cannot get_value non-symbol value: %s\n", repr(value).c_str());
+        bt::trace_and_abort();
+    }
+    else if (value == g.s_T || value.as_object()->symbol()->is_keyword())
+    {
+        emit_push_literal(value);
+    }
+    else
+    {
+        emit_get_value(value.as_object()->symbol());
+    }
+}
+
+void Emitter::emit_set_value(Symbol *symbol)
+{
+    uint32_t idx = ~0u;
+    Opcode opcode;
+
+    if (m_scope->resolve_local(symbol, idx))
+    {
+        opcode = Opcode::op_set_local;
+    }
+    else if (m_scope->resolve_capture(symbol, idx))
+    {
+        opcode = Opcode::op_set_capture;
+    }
+    else
+    {
+        opcode = Opcode::op_set_global;
+        auto root = m_scope->get_root();
+        if (!root->resolve_local(symbol, idx))
+        {
+            root->create_variable(symbol, &idx);
+        }
+    }
+    
+    assert(idx != ~0u);
+    
+    append(opcode);
+    append(idx);
+}
+
+void Emitter::emit_set_value(Value value)
+{
+    if (!symbolp(value))
+    {
+        fprintf(stderr, "Cannot set_value non-symbol value: %s\n", repr(value).c_str());
+        bt::trace_and_abort();
+    }
+    else
+    {
+        emit_set_value(value.as_object()->symbol());
+    }
+}
+
+void Emitter::emit_function_value(Value func_val)
+{
+    append(Opcode::op_function_value);
+    append(func_val);
+}
+
+void Emitter::emit_instantiate_closure(const Function *function)
+{
+    append(Opcode::op_instantiate_closure);
+    append(function);
+}
+
+void Emitter::emit_close_values(uint32_t num_values)
+{
+    append(Opcode::op_close_values);
+    append(num_values);
+}
+
+void Emitter::emit_stack_alloc(uint32_t num_values)
+{
+    append(Opcode::op_stack_alloc);
+    append(num_values);
+}
+
+void Emitter::emit_stack_free(uint32_t num_values)
+{
+    append(Opcode::op_stack_free);
+    append(num_values);
+}
+    
+void Emitter::emit_pop()
+{
+    append(Opcode::op_pop);
+}
+
+void Emitter::emit_halt()
+{
+    append(Opcode::op_halt);
+}
+    
+int32_t Emitter::emit_push_handler_case(uint32_t num_handlers)
+{
+    append(Opcode::op_push_handler_case);
+    append(num_handlers);
+    auto offset = position();
+    append<uint32_t>(0xDEADBEEF);
+    return offset;
+}
+
+void Emitter::emit_pop_handler_case()
+{
+    append(Opcode::op_pop_handler_case);
+}
+    
+void Emitter::emit_raise_signal(uint32_t argc)
+{
+    append(Opcode::op_raise_signal);
+    append(argc);
+}
+    
+void Emitter::emit_cons()
+{
+    append(Opcode::op_cons);
+}
+
+void Emitter::emit_car()
+{
+    append(Opcode::op_car);
+}
+
+void Emitter::emit_cdr()
+{
+    append(Opcode::op_cdr);
+}
+
+void Emitter::emit_eq()
+{
+    append(Opcode::op_eq);
+}
+
+void Emitter::emit_rplaca()
+{
+    append(Opcode::op_rplaca);
+}
+
+void Emitter::emit_rplacd()
+{
+    append(Opcode::op_rplacd);
+}
+
+void Emitter::emit_aref()
+{
+    append(Opcode::op_aref);
+}
+
+void Emitter::emit_aset()
+{
+    append(Opcode::op_aset);
+}
+    
+void Emitter::emit_debug_trap()
+{
+    append(Opcode::op_debug_trap);
+}
+
+int32_t Emitter::position() const
+{
+    return m_bytecode.size();
+}
+
+void Emitter::lock()
+{
+    if (m_locked)
+    {
+        return;
+    }
+
+    for (const auto &it : m_debug_map) 
+    {
+        auto size = it.end - it.begin;
+        auto addr = m_bytecode.data() + it.begin;
+        Debug_Info::push(addr, size, it.value);
+    }
+    
+    m_locked = true;
+}
+
+void Emitter::map_range_to(size_t begin, size_t end, Value expr)
+{
+    m_debug_map.push_back({begin, end, expr});
+}
+    
+const std::vector<uint8_t> &Emitter::bytecode() const
+{
     return m_bytecode;
 }
 
-void bytecode_emitter::emit_push_value(lisp_value val)
+std::vector<uint8_t> &&Emitter::move_bytecode()
 {
-    if (val.is_nil()) {
-        emit_push_nil();
+    return std::move(m_bytecode);
+}
+    
+void Emitter::push_labels()
+{
+    m_label_stack.push_back(Label_Map());
+}
+
+void Emitter::pop_labels()
+{
+    assert(m_label_stack.size() != 0);
+
+    {
+        auto it = m_backfills.begin();
+        while (it != m_backfills.end())
+        {
+            int32_t label_offs;
+            if (get_label(it->tag, label_offs))
+            {
+                auto set_offs = it->offset;
+                set_raw<uint32_t>(set_offs, label_offs - (set_offs - 1));
+                it = m_backfills.erase(it);
+            }
+            else
+            {
+                it++;
+            }
+        }
     }
-    else if (val == lisp_value::wrap_fixnum(0)) {
-        emit_push_fixnum_0();
+    
+    m_label_stack.pop_back();
+    if (m_label_stack.size() == 0 && !m_backfills.empty())
+    {
+        for (auto const &it : m_backfills)
+        {
+            fprintf(stderr, "No label tag found for: %s\n", repr(it.tag).c_str()); // TODO: need print it.tag name.
+        }
+        bt::trace_and_abort();
     }
-    else if (val == lisp_value::wrap_fixnum(1)) {
-        emit_push_fixnum_1();
+}
+
+bool Emitter::get_label(Value tag, int32_t &out_offset)
+{
+    for (auto it = m_label_stack.rbegin(); it != m_label_stack.rend(); ++it)
+    {
+        auto found = it->find(tag);
+        if (found != it->end())
+        {
+            out_offset = found->second;
+            return true;
+        }
     }
-    else {
-        append(bytecode_op::op_push_value);
-        append(val);
+    return false;
+}
+
+int32_t Emitter::make_label(Value tag)
+{
+    assert(m_label_stack.size() != 0);
+    if (m_label_stack.back().find(tag) != m_label_stack.back().end())
+    {
+        fprintf(stderr, "Label tag named %s already exists.\n", repr(tag).c_str());
+        bt::trace_and_abort();
     }
-}
-
-void bytecode_emitter::emit_push_nil()
-{
-    append(bytecode_op::op_push_nil);
-}
-
-void bytecode_emitter::emit_push_fixnum_0()
-{
-    append(bytecode_op::op_push_fixnum_0);
-}
-
-void bytecode_emitter::emit_push_fixnum_1()
-{
-    append(bytecode_op::op_push_fixnum_1);
-}
-
-
-void bytecode_emitter::emit_funcall(uint32_t how_many)
-{
-    append(bytecode_op::op_funcall);
-    append(how_many);
-}
-
-void bytecode_emitter::emit_gotocall(uint32_t how_many)
-{
-    append(bytecode_op::op_gotocall);
-    append(how_many);
-}
-
-void bytecode_emitter::emit_apply(uint32_t how_many)
-{
-    append(bytecode_op::op_apply);
-    append(how_many);
-}
-
-void bytecode_emitter::emit_return()
-{
-    append(bytecode_op::op_return);
-}
-
-int32_t bytecode_emitter::emit_jump(int32_t where)
-{
-    append(bytecode_op::op_jump);
-    auto here = position();
-    append(where);
-    return here;
-}
-int32_t bytecode_emitter::emit_jump()
-{
-    return emit_jump(0xdeadbeef);
-}
-int32_t bytecode_emitter::emit_pop_jump_if_nil(int32_t where)
-{
-    append(bytecode_op::op_pop_jump_if_nil);
-    auto here = position();
-    append(where);
-    return here;
-}
-int32_t bytecode_emitter::emit_pop_jump_if_nil()
-{
-    return emit_pop_jump_if_nil(0xdeadbeef);
-}
-
-void bytecode_emitter::emit_get_value(lisp_value symbol)
-{
-    append(bytecode_op::op_get_value);
-    append(symbol);
-}
-void bytecode_emitter::emit_set_value()
-{
-    append(bytecode_op::op_set_value);
-}
-void bytecode_emitter::emit_set_value(lisp_value symbol, lisp_value val)
-{
-    emit_push_value(val);
-    emit_push_value(symbol);
-    emit_set_value();
-}
-
-void bytecode_emitter::emit_function_value(lisp_value symbol)
-{
-    append(bytecode_op::op_function_value);
-    append(symbol);
-}
-void bytecode_emitter::emit_define_function()
-{
-    append(bytecode_op::op_define_function);
-}
-void bytecode_emitter::emit_define_function(lisp_value symbol, lisp_value val)
-{
-    emit_push_value(val);
-    emit_push_value(symbol);
-    emit_define_function();
-}
-
-void bytecode_emitter::emit_pop()
-{
-    append(bytecode_op::op_pop);
-}
-
-void bytecode_emitter::emit_instantiate_lambda()
-{
-    append(bytecode_op::op_instantiate_lambda);
-}
-
-void bytecode_emitter::emit_instantiate_lambda(lisp_value lambda)
-{
-    emit_push_value(lambda);
-    emit_instantiate_lambda();
-}
-
-
-void bytecode_emitter::emit_cons()
-{
-    append(bytecode_op::op_cons);
-}
-void bytecode_emitter::emit_car()
-{
-    append(bytecode_op::op_car);
-}
-void bytecode_emitter::emit_cdr()
-{
-    append(bytecode_op::op_cdr);
-}
-
-void bytecode_emitter::emit_halt()
-{
-    append(bytecode_op::op_halt);
-}
-
-
-int32_t bytecode_emitter::emit_push_handler_case(uint32_t how_many)
-{
-    append(bytecode_op::op_push_handler_case);
-    append(how_many);
     auto pos = position();
-    append<int32_t>(0xdeadbeef);
+    m_label_stack.back()[tag] = pos;
     return pos;
 }
-void bytecode_emitter::emit_pop_handler_case()
+
+void Emitter::backfill_label(int32_t offset, Value tag)
 {
-    append(bytecode_op::op_pop_handler_case);
+    assert(m_label_stack.size() != 0);
+    m_backfills.push_back({tag, offset});
 }
 
-void bytecode_emitter::emit_raise_signal(uint32_t how_many)
+compiler::Scope *Emitter::scope() const
 {
-    append(bytecode_op::op_raise_signal);
-    append(how_many);
-}
-
-void bytecode_emitter::emit_eq()
-{
-    append(bytecode_op::op_eq);
-}
-void bytecode_emitter::emit_rplaca()
-{
-    append(bytecode_op::op_rplaca);
-}
-void bytecode_emitter::emit_rplacd()
-{
-    append(bytecode_op::op_rplacd);
-}
-void bytecode_emitter::emit_aref()
-{
-    append(bytecode_op::op_aref);
-}
-void bytecode_emitter::emit_aset()
-{
-    append(bytecode_op::op_aset);
-}
-void bytecode_emitter::emit_debug_trap()
-{
-    append(bytecode_op::op_debug_trap);
+    return m_scope;
 }
 
 static
@@ -1602,7 +3457,7 @@ void put_bytes(std::ostream &out, const uint8_t *bytes, size_t nbytes, size_t mi
 static
 const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
 {
-    const auto opcode = static_cast<bytecode_op>(*ip);
+    const auto opcode = static_cast<Opcode>(*ip);
     if (here) {
         out << ">> ";
     }
@@ -1610,19 +3465,35 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         out << "   ";
     }
     out << std::setfill('0') << std::setw(8) << std::hex << reinterpret_cast<uintptr_t>(ip) << std::setfill(' ') << "  ";
-    auto size = bytecode_op_size(opcode);
-    auto name = bytecode_op_name(opcode);
+    auto size = opcode_size(opcode);
+    auto name = opcode_name(opcode);
     switch (opcode) {
-        default: {
+        default:
+        {
             put_bytes(out, ip, size);
             out << name;
             ip += size;
         } break;
 
-        case bytecode_op::op_apply:
-        case bytecode_op::op_raise_signal:
-        case bytecode_op::op_funcall:
-        case bytecode_op::op_gotocall: {
+        case Opcode::op_get_global:
+        case Opcode::op_set_global:
+
+        case Opcode::op_get_local:
+        case Opcode::op_set_local:
+
+        case Opcode::op_get_capture:
+        case Opcode::op_set_capture:
+
+        case Opcode::op_close_values:
+        case Opcode::op_stack_alloc:
+        case Opcode::op_stack_free:
+
+        case Opcode::op_raise_signal:
+
+        case Opcode::op_apply:
+        case Opcode::op_funcall:
+        case Opcode::op_gotocall:
+        {
             auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
             put_bytes(out, ip, size);
             out << name << " " << nargs;
@@ -1630,18 +3501,19 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         } break;
 
 
-        case bytecode_op::op_jump:
-        case bytecode_op::op_pop_jump_if_nil: {
+        case Opcode::op_jump:
+        case Opcode::op_pop_jump_if_nil:
+        {
             auto offs = *reinterpret_cast<const int32_t*>(ip+1);
             put_bytes(out, ip, size);
             out << name << " " << offs << " -> " << reinterpret_cast<uintptr_t>(ip+offs);
             ip += size;
         } break;
 
-        case bytecode_op::op_function_value:
-        case bytecode_op::op_get_value:
-        case bytecode_op::op_push_value: {
-            auto obj = *reinterpret_cast<const lisp_value*>(ip+1);
+        case Opcode::op_function_value:
+        case Opcode::op_push_value:
+        {
+            auto obj = *reinterpret_cast<const Value*>(ip+1);
             put_bytes(out, ip, size);
             out << name << " " << obj.bits();
             auto obj_repr = repr(obj);
@@ -1655,34 +3527,42 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
             ip += size;
         } break;
 
-        case bytecode_op::op_push_handler_case: {
+        case Opcode::op_push_handler_case:
+        {
             put_bytes(out, ip, size);
             auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
             auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
-            out << "PUSH_HANDLER_CASE " << how_many << ", " << branch
+            out << name << " " << how_many << ", " << branch
                 << " -> " << reinterpret_cast<uintptr_t>(ip+branch);
             ip += size;
         } break;
 
-        case bytecode_op::op_return:
-        case bytecode_op::op_set_value:
-        case bytecode_op::op_define_function:
-        case bytecode_op::op_pop:
-        case bytecode_op::op_push_nil:
-        case bytecode_op::op_push_fixnum_0:
-        case bytecode_op::op_push_fixnum_1:
-        case bytecode_op::op_instantiate_lambda:
-        case bytecode_op::op_cons:
-        case bytecode_op::op_car:
-        case bytecode_op::op_cdr:
-        case bytecode_op::op_halt:
-        case bytecode_op::op_pop_handler_case:
-        case bytecode_op::op_eq:
-        case bytecode_op::op_rplaca:
-        case bytecode_op::op_rplacd:
-        case bytecode_op::op_aref:
-        case bytecode_op::op_aset:
-        case bytecode_op::op_debug_trap: {
+        case Opcode::op_instantiate_closure:
+        {
+            auto function = *reinterpret_cast<const Function* const*>(ip+1);
+            put_bytes(out, ip, size);
+            out << name << " " << reinterpret_cast<uintptr_t>(function) 
+                << " -> {" << reinterpret_cast<uintptr_t>(function->begin()) << "}";
+            ip += size;
+        } break;
+
+        case Opcode::op_return:
+        case Opcode::op_pop:
+        case Opcode::op_push_nil:
+        case Opcode::op_push_fixnum_0:
+        case Opcode::op_push_fixnum_1:
+        case Opcode::op_cons:
+        case Opcode::op_car:
+        case Opcode::op_cdr:
+        case Opcode::op_halt:
+        case Opcode::op_pop_handler_case:
+        case Opcode::op_eq:
+        case Opcode::op_rplaca:
+        case Opcode::op_rplacd:
+        case Opcode::op_aref:
+        case Opcode::op_aset:
+        case Opcode::op_debug_trap:
+        {
             put_bytes(out, ip, size);
             out << name;
             ip += size;
@@ -1692,632 +3572,102 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
     return ip;
 }
 
-static
-void disassemble(std::ostream &out, const std::string &tag, const uint8_t *ip, bool here = false)
+static int put_disassembly_tag(std::ostream &out, const std::string &tag)
 {
     out << "Disassembly for \"" << tag << "\"\n";
-    disassemble1(out, ip, here);
+    return 1;
 }
 
 static
-void disassemble(std::ostream &out, const std::string &tag, const uint8_t *start, const uint8_t *end, const uint8_t *ip = nullptr)
+int disassemble(std::ostream &out, const std::string &tag, const uint8_t *ip, bool here = false)
 {
-    out << "Disassembly for \"" << tag << "\"\n";
+    put_disassembly_tag(out, tag);
+    disassemble1(out, ip, here);
+    return 2;
+}
+
+static
+int disassemble(std::ostream &out, const std::string &tag, const uint8_t *start, const uint8_t *end, const uint8_t *ip = nullptr)
+{
+    int lines_printed = put_disassembly_tag(out, tag);
     for (; start != end;) {
         start = disassemble1(out, start, start == ip);
+        lines_printed++;
     }
+    return lines_printed;
 }
 
 static
-void disassemble(std::ostream &out, const std::string &tag, const bytecode_emitter &e)
+int disassemble(std::ostream &out, const std::string &tag, const Emitter &e)
 {
     auto start = e.bytecode().data();
     auto end = start + e.bytecode().size();
-    disassemble(out, tag, start, end, nullptr);
+    return disassemble(out, tag, start, end, nullptr);
 }
 
-/* Marked used so compiler doesn't discard this and we can call it inside GDB */
-static __attribute__((used))
-void disassemble(const char *tag, const uint8_t *start, const uint8_t *end, const uint8_t *ip = nullptr)
+static
+int disassemble(std::ostream &out, const std::string &tag, const Function *function, const uint8_t *ip)
 {
-    std::cout << "Disassembly for \"" << tag << "\"\n";
-    for (; start != end;) {
-        start = disassemble1(std::cout, start, start == ip);
+    int lines_printed = put_disassembly_tag(out, tag);
+    for (auto p = function->begin(); p != function->end();)
+    {
+        p = disassemble1(out, p, p == ip);
+        lines_printed++;
     }
+    return lines_printed;
 }
 
-
-void lisp_vm_state::stack_dumps(std::ostream &out, size_t max_size) const
+static
+int disassemble_maybe_function(std::ostream &out, const std::string &tag, const uint8_t *ip, bool here = false)
 {
-    auto rt = return_stack_top;
-    auto rb = return_stack_bottom;
-
-    auto pt = param_stack_top;
-    auto pb = param_stack_bottom;
-
-    auto r_stack_delta = rt - rb;
-    out << std::setfill(' ') << std::dec;
-    out << "|R-stack " << std::setw(9) << r_stack_delta << " |         P-stack\n";
-    out << "|==================|================\n";
-    out << std::setfill('0');
-    for (;max_size != 0; max_size--) {
-        rt--;
-        pt--;
-        if (rt == rb) {
-            out << "bot->";
-        }
-        else {
-            out << "     ";
-        }
-        if (reinterpret_cast<uintptr_t>(rt) < reinterpret_cast<uintptr_t>(rb)) {
-            out << "| **************** |";
-        }
-        else {
-            out << "| " << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(rt->address) << " |";
-        }
-
-        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) {
-            out << " ***";
-        }
-        else {
-            auto obj_repr = repr(*pt);
-            const int n = 70;
-            if (obj_repr.size() < n) {
-                out << " " << obj_repr;
-            }
-            else {
-                out << " " << obj_repr.substr(0, n-3) << "...";
-            }
-        }
-        out << "\n";
+    const Function *func;
+    if (Debug_Info::find_function(ip, &func))
+    {
+        return disassemble(out, tag, func, ip);
     }
+
+    put_disassembly_tag(out, tag);
+    disassemble1(out, ip, here);
+    return 2;
 }
 
-void lisp_vm_state::debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip) const
-{
-    //disassemble_up_to(out, tag, e.bytecode(), ip, -15, 15);
-    out << tag << "\n";
-    const lisp_lambda *lambda;
-    if (debug_info::find_function(ip, &lambda)) {
-        disassemble(out, "DISASSEMBLY", lambda->earliest_entry(), lambda->end(), ip);
-    }
-    else {
-        disassemble(out, "DISASSEMBLY", ip, true);
-    }
-    stack_dumps(out, 15);
 }
 
-const uint8_t *lisp_vm_state::execute(const uint8_t *ip, lisp_value env)
+namespace compiler
 {
 
-#define TYPE_CHECK(what, typecheck, expected)                           \
-    do {                                                                \
-        if (!(what).typecheck) {                                        \
-            signal_args = list(LISP_SYM_TYPE_ERROR, (expected), (what)); \
-            goto raise_signal;                                          \
-        }                                                               \
+static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position = false);
+
+#define NYI(msg)                                                \
+    do {                                                        \
+        fprintf(stderr, "Not yet implemented... %s\n", msg);    \
+        bt::trace_and_abort(10);                                \
     } while (0)
 
-#define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), LISP_SYM_FIXNUM)
-#define CHECK_CONS(what) TYPE_CHECK(what, is_cons(), LISP_SYM_CONS)
-#define CHECK_LIST(what) TYPE_CHECK(what, is_list(), LISP_SYM_LIST)
-#define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), LISP_SYM_CHARACTER)
-#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(SYM_TYPE), LISP_SYM_SYMBOL)
-#define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(FILE_STREAM_TYPE), LISP_SYM_FILE_STREAM)
-
-
-    static_assert(sizeof(*ip) == 1, "pointer arithmetic will not work as expected.");
-    lisp_value signal_args;
-    lisp_value func;
-    lisp_value *args;
-    uint32_t nargs;
-    while (1) {
-        if (LISP_SINGLE_STEP_DEBUGGER) {
-            debug_dump(std::cout, "VM EXEC", ip);
-            if ('c' == getchar()) LISP_SINGLE_STEP_DEBUGGER = false;
-        }
-        const auto opcode = static_cast<bytecode_op>(*ip);
-        switch (opcode) {
-            case bytecode_op::op_apply: {
-                func = pop_param();
-                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-                if (nargs == 0) {
-                    signal_args = list(LISP_SYM_SIMPLE_ERROR, lisp_obj::create_string("Apply expects at least 2 arguments."));
-                    goto raise_signal;
-                }
-                auto last_arg = pop_param();
-                CHECK_LIST(last_arg);
-                nargs--;
-                param_stack_top -= nargs;
-                args = param_stack_top;
-                while (last_arg.is_not_nil()) {
-                    args[nargs++] = car(last_arg);
-                    last_arg = cdr(last_arg);
-                }
-                push_return(env, ip + 1 + sizeof(uint32_t));
-                goto do_call;
-            } break;
-            case bytecode_op::op_funcall:
-                push_return(env, ip + 1 + sizeof(uint32_t));
-                // fallthrough
-            case bytecode_op::op_gotocall: {
-                func = pop_param();
-                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-                param_stack_top -= nargs;
-                args = param_stack_top;
-            do_call:
-                auto ofunc = func;
-                if (func.is_type(SYM_TYPE)) {
-                    func = func.as_object()->symbol()->function;
-                }
-                if (func.is_lisp_primitive()) {
-                    if (opcode != bytecode_op::op_gotocall) {
-                        pop_return();
-                    }
-                    bool raised_signal = false;
-                    auto result = func.as_lisp_primitive()(args, nargs, raised_signal);
-                    if (raised_signal) {
-                        signal_args = result;
-                        goto raise_signal;
-                    }
-                    else {
-                        push_param(result);
-                        ip += 1 + sizeof(nargs);
-                    }
-                    break;
-                }
-                if (func.is_type(LAMBDA_TYPE)) {
-                    auto lambda = func.as_object()->lambda();
-                    auto shadowed = lambda->env();
-                    ip = apply_arguments(shadowed, lambda, args, nargs);
-                    env = shadowed;
-                    break;
-                }
-                signal_args = list(intern_symbol("OBJECT-NOT-CALLABLE"), ofunc);
-                goto raise_signal;
-            } break;
-
-            case bytecode_op::op_return: {
-                if (return_stack_top == return_stack_bottom) {
-                    goto done;
-                }
-                auto ret = pop_return();
-                if (ret.address == nullptr) {
-                    goto done;
-                }
-                env = ret.env;
-                ip = ret.address;
-            } break;
-
-            case bytecode_op::op_jump: {
-                auto addr = *reinterpret_cast<const int32_t*>(ip+1);
-                ip += addr;
-            } break;
-
-            case bytecode_op::op_pop_jump_if_nil: {
-                if (pop_param().is_nil()) {
-                    auto addr = *reinterpret_cast<const int32_t*>(ip+1);
-                    ip += addr;
-                }
-                else {
-                    ip += 5;
-                }
-            } break;
-
-            case bytecode_op::op_get_value: {
-                auto sym = *reinterpret_cast<const lisp_value*>(ip+1);
-                if (sym == LISP_T) push_param(sym);
-                else if (sym.as_object()->symbol()->is_keyword()) {
-                    push_param(sym);
-                }
-                else {
-                    auto val = symbol_lookup(env, sym);
-                    if (val.is_nil()) {
-                        signal_args = list(intern_symbol("UNBOUND-VARIABLE"), sym);
-                        goto raise_signal;
-                    }
-                    push_param(cdr(val));
-                }
-                ip += 1 + sizeof(sym);
-            } break;
-
-            case bytecode_op::op_set_value: {
-                auto sym = pop_param();
-                auto val = param_top();
-                auto place = symbol_lookup(env, sym);
-                if (place.is_nil()) {
-                    push(cons(sym, val), LISP_BASE_ENVIRONMENT);
-                }
-                else {
-                    set_cdr(place, val);
-                }
-                ip += 1;
-            } break;
-
-            case bytecode_op::op_function_value: {
-                auto obj = *reinterpret_cast<const lisp_value*>(ip+1);
-                if (obj.is_type(SYM_TYPE)) {
-                    push_param(obj.as_object()->symbol()->function);
-                }
-                else {
-                    push_param(obj);
-                }
-                ip += 1 + sizeof(obj);
-            } break;
-
-            case bytecode_op::op_define_function: {
-                auto sym = *reinterpret_cast<const lisp_value*>(ip+1);
-                printf("op_define_function NYI\n");
-                goto error_and_abort;
-                ip += 1 + sizeof(sym);
-            } break;
-
-            case bytecode_op::op_pop: {
-                pop_param();
-                ip += 1;
-            } break;
-
-            case bytecode_op::op_push_value: {
-                auto val = *reinterpret_cast<const lisp_value*>(ip+1);
-                push_param(val);
-                ip += 1 + sizeof(val);
-            } break;
-
-            case bytecode_op::op_push_nil: {
-                push_param(LISP_NIL);
-                ip += 1;
-            } break;
-
-            case bytecode_op::op_push_fixnum_0: {
-                push_param(lisp_value::wrap_fixnum(0));
-                ip += 1;
-            } break;
-
-            case bytecode_op::op_push_fixnum_1: {
-                push_param(lisp_value::wrap_fixnum(1));
-                ip += 1;
-            } break;
-            case bytecode_op::op_instantiate_lambda: {
-                auto obj = pop_param();
-                auto lambda_copy = obj.as_object()->lambda()->instantiate(env);
-                push_param(lisp_obj::create_lambda(lambda_copy));
-                ip += 1;
-            } break;
-            case bytecode_op::op_cons: {
-                auto b = pop_param();
-                auto a = pop_param();
-                push_param(cons(a, b));
-                ip += 1;
-            } break;
-            case bytecode_op::op_car: {
-                auto o = pop_param();
-                if (o.is_nil()) {
-                    push_param(o);
-                }
-                else {
-                    CHECK_CONS(o);
-                    push_param(car(o));
-                }
-                ip += 1;
-            } break;
-            case bytecode_op::op_cdr: {
-                auto o = pop_param();
-                if (o.is_nil()) {
-                    push_param(o);
-                }
-                else {
-                    CHECK_CONS(o);
-                    push_param(cdr(o));
-                }
-                ip += 1;
-            } break;
-            case bytecode_op::op_halt: {
-                goto done;
-            } break;
-            case bytecode_op::op_push_handler_case: {
-                auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
-                auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
-                auto handlers = LISP_NIL;
-                for (uint32_t i = 0; i < how_many; ++i) {
-                    auto tag = pop_param();
-                    auto handler = pop_param();
-                    handlers = cons(cons(tag, handler), handlers);
-                }
-                push_return(env, ip+branch);
-                push_handler_case(env, handlers);
-                ip += 1 + sizeof(how_many) + sizeof(branch);
-            } break;
-            case bytecode_op::op_pop_handler_case: {
-                pop_handler_case();
-                if (return_stack_top == return_stack_bottom) {
-                    goto done;
-                }
-                auto ret = pop_return();
-                if (ret.address == nullptr) {
-                    goto done;
-                }
-                env = ret.env;
-                ip = ret.address;
-            } break;
-
-            case bytecode_op::op_raise_signal: {
-                {
-                    auto tag = pop_param();
-                    signal_args = LISP_NIL;
-                    auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
-                    for (size_t i = 0; i < nargs; ++i) {
-                        auto arg = pop_param();
-                        signal_args = cons(arg, signal_args);
-                    }
-                    signal_args = cons(tag, signal_args);
-                }
-            raise_signal:
-                handler_case restore;
-                lisp_value handler;
-                if (find_handler(first(signal_args), true, restore, handler)) {
-                    param_stack_top = restore.param_stack_top;
-                    return_stack_top = restore.return_stack_top;
-                    auto handler_tag = car(handler);
-                    auto handler_func = cdr(handler);
-                    auto lambda = handler_func.as_object()->lambda();
-                    auto shadowed = restore.env;
-                    if (handler_tag == LISP_T) {
-                        auto vec = to_vector(signal_args);
-                        ip = apply_arguments(shadowed, lambda, vec.data(), vec.size());
-                    }
-                    else {
-                        auto vec = to_vector(rest(signal_args));
-                        ip = apply_arguments(shadowed, lambda, vec.data(), vec.size());
-                    }
-                    env = shadowed;
-                }
-                else {
-                    auto top = return_stack_top;
-                    auto bottom = return_stack_bottom;
-                    // Cannot forget to clean these up...
-                    return_stack_top = return_stack_bottom;
-                    param_stack_top = param_stack_bottom;
-                    throw lisp_signal_exception(signal_args, ip, top, bottom);
-                }
-            } break;
-
-            case bytecode_op::op_eq: {
-                auto b = pop_param();
-                auto a = pop_param();
-                if (a == b) {
-                    push_param(LISP_T);
-                }
-                // @Audit: is this necessary, does it make sense to identity compare objects?
-                else if (a.is_object() && b.is_object() &&
-                         (a.as_object()->ptr() == b.as_object()->ptr())) {
-                    push_param(LISP_T);
-                }
-                else {
-                    push_param(LISP_NIL);
-                }
-                ip += 1;
-            } break;
-            case bytecode_op::op_rplaca: {
-                auto b = pop_param();
-                auto a = param_top();
-                CHECK_CONS(a);
-                set_car(a, b);
-                ip += 1;
-            } break;
-            case bytecode_op::op_rplacd: {
-                auto b = pop_param();
-                auto a = param_top();
-                CHECK_CONS(a);
-                set_cdr(a, b);
-                ip += 1;
-            } break;
-            case bytecode_op::op_aref: {
-                auto subscript = pop_param();
-                CHECK_FIXNUM(subscript);
-                auto array_val = pop_param(); // @TODO: typecheck array_val in AREF primitive
-                auto array = array_val.as_object()->simple_array();
-                auto index = subscript.as_fixnum();
-                if (index < 0 || index >= array->length()) {
-                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
-                    goto raise_signal;
-                }
-                push_param(array->get(index));
-                ip += 1;
-            } break;
-            case bytecode_op::op_aset: {
-                auto value = pop_param();
-                auto subscript = pop_param();
-                CHECK_FIXNUM(subscript);
-                auto array_val = pop_param(); // @TODO: typecheck array_val in SET-AREF primitive
-                auto array = array_val.as_object()->simple_array();
-                auto index = subscript.as_fixnum();
-                if (index < 0 || index >= array->length()) {
-                    signal_args = list(LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
-                    goto raise_signal;
-                }
-                auto type = array->type();
-                if (type != LISP_T) {
-                    if (type == LISP_SYM_FIXNUM && !value.is_fixnum()) {
-                        CHECK_FIXNUM(value);
-                    }
-                    if (type == LISP_SYM_CHARACTER && !value.is_character()) {
-                        CHECK_CHARACTER(value);
-                    }
-                }
-                array->set(index, value);
-                push_param(value);
-                ip += 1;
-            } break;
-            case bytecode_op::op_debug_trap: {
-                auto value = param_top();
-                LISP_SINGLE_STEP_DEBUGGER = value.is_not_nil();
-                ip += 1;
-            } break;
-        }
-    }
-    done:
-
-    return ip;
-    error_and_abort:
-    std::cout << "IP @ " << std::hex << ip << '\n';
-    debug_dump(std::cout, "ERROR", ip);
-    abort();
-}
-
-lisp_value lisp_prim_disassemble(lisp_value *args, uint32_t nargs, bool &)
-{
-    if (nargs != 1) {
-        return LISP_NIL;
-    }
-    auto expr = args[0];
-    if (expr.is_cons()) {
-        auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
-        bytecode_emitter e;
-        compile(e, expanded, true);
-        e.lock();
-        disassemble(std::cout, "DISASSEMBLY", e);
-    }
-    else if (expr.is_fixnum()) {
-        auto ptr = expr.as_fixnum();
-        auto val = lisp_value(static_cast<lisp_value::underlying_type>(ptr));
-        if (val.is_type(LAMBDA_TYPE)) {
-            auto lambda = val.as_object()->lambda();
-            disassemble(std::cout, "DISASSEMBLY", lambda->earliest_entry(), lambda->end(), lambda->begin(-1));
-        }
-        else {
-            disassemble(std::cout, "DISASSEMBLY", reinterpret_cast<uint8_t*>(ptr));
-        }
-    }
-    else if (expr.is_type(LAMBDA_TYPE)) {
-        auto lambda = expr.as_object()->lambda();
-        disassemble(std::cout, "DISASSEMBLY", lambda->earliest_entry(), lambda->end(), lambda->begin(-1));
-    }
-    return LISP_NIL;
-}
-
-lisp_value lisp_prim_get_num_handlers(lisp_value*, uint32_t, bool &)
-{
-    return lisp_value::wrap_fixnum(THE_LISP_VM->num_handlers());
-}
-
 static
-void initialize_globals(char **script_args)
+bool effect_free(Value expr)
 {
-    LISP_T = intern_symbol("T");
-
-#define INTERN_GLOBAL(name) LISP_SYM_##name = intern_symbol(#name)
-    INTERN_GLOBAL(QUOTE);
-    INTERN_GLOBAL(IF);
-    INTERN_GLOBAL(LAMBDA);
-    INTERN_GLOBAL(SETQ);
-    INTERN_GLOBAL(FIXNUM);
-    INTERN_GLOBAL(CONS);
-    INTERN_GLOBAL(LIST);
-    INTERN_GLOBAL(CHARACTER);
-    INTERN_GLOBAL(FUNCTION);
-    INTERN_GLOBAL(FUNCALL);
-    INTERN_GLOBAL(SYMBOL);
-    INTERN_GLOBAL(STRING);
-    INTERN_GLOBAL(NULL);
-    INTERN_GLOBAL(BOOLEAN);
-    INTERN_GLOBAL(QUASIQUOTE);
-    INTERN_GLOBAL(UNQUOTE);
-    INTERN_GLOBAL(ARRAY);
-
-    LISP_SYM_DEFMACRO = intern_symbol("%DEFINE-MACRO");
-
-    LISP_SYM_AMP_REST = intern_symbol("&REST");
-    LISP_SYM_AMP_BODY = intern_symbol("&BODY");
-    LISP_SYM_AMP_OPTIONAL = intern_symbol("&OPTIONAL");
-
-    LISP_SYM_UNQUOTESPLICING = intern_symbol("UNQUOTE-SPLICING");
-    LISP_SYM_SIMPLE_ARRAY = intern_symbol("SIMPLE-ARRAY");
-
-    LISP_SYM_HANDLER_CASE = intern_symbol("HANDLER-CASE");
-    LISP_SYM_FILE_STREAM = intern_symbol("FILE-STREAM");
-
-    LISP_SYM_TYPE_ERROR = intern_symbol("TYPE-ERROR");
-    LISP_SYM_SIMPLE_ERROR = intern_symbol("SIMPLE-ERROR");
-    LISP_SYM_INDEX_OUT_OF_BOUNDS_ERROR = intern_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
-
-    LISP_SYM_SYSTEM_POINTER = intern_symbol("SYSTEM-POINTER");
-
-    LISP_BASE_ENVIRONMENT = LISP_NIL;
-    primitives::bind_primitives(LISP_BASE_ENVIRONMENT, script_args);
-
+    if (!expr.is_cons())
     {
-        intern_symbol("%%-INTERNAL-GET-NUM-CASE-HANDLERS")
-            .as_object()
-            ->symbol()
-            ->function = lisp_value::wrap_primitive(lisp_prim_get_num_handlers);
-
-        intern_symbol("DISASSEMBLE")
-            .as_object()
-            ->symbol()
-            ->function = lisp_value::wrap_primitive(lisp_prim_disassemble);
-    }
-}
-
-bool lisp::read_stdin(const char *prompt_top_level, const char *prompt_continued, lisp_value &out_value, std::string *out_input)
-{
-    static lisp_string_stream stream("stdin");
-    if (stream.eof()) {
-        char *input = readline(prompt_top_level);
-        if (!input) return false;
-        stream.clear();
-        stream.append(input);
-        stream.append('\n');
-        add_history(input);
-        free(input);
-    }
-    auto idx = stream.index();
-    lisp_value obj = parse(stream);
-    while (obj.is_invalid()) {
-        char *continued = readline(prompt_continued);
-        if (!continued) break;
-        stream.append(continued);
-        stream.append('\n');
-        add_history(continued);
-        free(continued);
-        stream.index(idx);
-        obj = parse(stream);
-    }
-    if (obj.is_invalid()) {
-        stream.clear();
-        return false;
-    }
-    if (out_input) {
-        *out_input = stream.substr(idx, stream.index());
-    }
-    /* readline doesn't return a string with a line terminator so we end up
-       appending one ourselves, this makes it so (+\n1\n2\n) isn't parsed as
-       (+12). This means upon a successful parse there should be some form of
-       trailing whitespace and we need to discard that whitespace to future
-       calls to this function will display prompt_top_level correctly.
-    */
-    consume_whitespace(stream);
-    out_value = obj;
-    return true;
-}
-
-
-static
-bool effect_free(lisp_value expr)
-{
-    if (!expr.is_cons()) {
         return true;
     }
-    if (car(expr) == LISP_SYM_QUOTE) {
+    auto f = car(expr);
+    if (f == g.s_QUOTE || 
+        f == g.s_FUNCTION ||
+        f == g.s_LAMBDA)
+    {
         return true;
     }
     return false;
 }
 
 static
-void compile_body(bytecode_emitter &e, lisp_value body, bool tail_position)
+void compile_body(bytecode::Emitter &e, Value body, bool tail_position)
 {
-    while (cdr(body).is_not_nil()) {
-        if (!effect_free(car(body))) {
+    while (!cdr(body).is_nil())
+    {
+        if (!effect_free(car(body)))
+        {
             compile(e, car(body), false, false);
             e.emit_pop();
         }
@@ -2327,14 +3677,13 @@ void compile_body(bytecode_emitter &e, lisp_value body, bool tail_position)
 }
 
 static
-void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool toplevel)
+void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool toplevel)
 {
     auto name = second(expr);
     auto lambda_list = macro ? third(expr) : second(expr);
     auto body = macro ? cdddr(expr) : cddr(expr);
-    auto obody = body;
 
-    bytecode_emitter function;
+    bytecode::Emitter function_emitter(e.scope()->push_scope(false));
     // Optionals are a little tricky because we allow for any expression to be the default value
     // to an optional, this even means that a default value may refer to an earlier parameter eg:
     //     (defun substring (string start &optional (end (length string))) ...)
@@ -2345,197 +3694,300 @@ void compile_function(bytecode_emitter &e, lisp_value expr, bool macro, bool top
     // storing the address of each one, then at runtime we'll figure out which one of these
     // to jump to.
     auto cur = lambda_list;
-    std::vector<lisp_value> params;
+    std::vector<const Symbol*> params;
     bool has_optionals = false;
     bool has_rest = false;
     size_t optionals_start_at = 0;
-    while (cur.is_not_nil()) {
+    while (!cur.is_nil())
+    {
         auto sym = car(cur);
-        if (sym == LISP_SYM_AMP_OPTIONAL) {
+        if (sym == g.s_aOPTIONAL)
+        {
             cur = cdr(cur);
             has_optionals = true;
             break;
         }
-        if (sym == LISP_SYM_AMP_REST || sym == LISP_SYM_AMP_BODY) {
-            sym = second(cur);
-            cur = LISP_NIL;
+        if (sym == g.s_aREST || sym == g.s_aBODY)
+        {
             has_rest = true;
+            break;
         }
         optionals_start_at++;
-        params.push_back(sym);
+        if (!symbolp(sym))
+        {
+            fprintf(stderr, "Non-symbol parameter in lambda-list: %s\n", repr(sym).c_str());
+            fprintf(stderr, "Expr was: %s\n", repr(expr).c_str());
+            bt::trace_and_abort();
+        }
+        params.push_back(sym.as_object()->symbol());
         cur = cdr(cur);
     }
-    std::vector<size_t> optional_offsets;
-    if (has_optionals) {
-        // at this point cur is now pointing to optionals
-        while (cur.is_not_nil()) {
 
+    for (auto const symbol : params)
+    {
+        function_emitter.scope()->create_variable(symbol);
+    }
+    
+
+    std::vector<uint32_t> optional_offsets;
+    for (size_t i = 0; i < optionals_start_at; ++i)
+    {
+        optional_offsets.push_back(0);
+    }
+
+    if (has_optionals || has_rest)
+    {
+        // at this point cur is now pointing to optionals
+        while (!cur.is_nil())
+        {
             auto param = first(cur);
-            if (param == LISP_SYM_AMP_REST || param == LISP_SYM_AMP_BODY) {
+            if (param == g.s_aREST || param == g.s_aBODY)
+            {
                 param = second(cur);
-                cur = LISP_NIL;
+                cur = Value::nil();
                 has_rest = true;
             }
 
-            optional_offsets.push_back(function.position());
+            optional_offsets.push_back(function_emitter.position());
 
-            if (param.is_cons()) {
-                compile(function, second(param), false);
-                function.emit_push_value(first(param));
-                function.emit_set_value();
-                function.emit_pop();
-
-                params.push_back(first(param));
+            if (param.is_cons()) 
+            {
+                auto symbol = first(param).as_object()->symbol();
+                function_emitter.scope()->create_variable(symbol);
+                params.push_back(symbol);
+                
+                compile(function_emitter, second(param), false);
+                function_emitter.emit_set_value(first(param));
+                function_emitter.emit_pop();
             }
-            // There's no need to generate code for "default to nil" optionals because the
-            // argument binder will default them to nil.
-            else {
-                params.push_back(param);
+            else
+            {
+                auto symbol = param.as_object()->symbol();
+                function_emitter.scope()->create_variable(symbol);
+                params.push_back(symbol);
+                
+                function_emitter.emit_push_nil();
+                function_emitter.emit_set_value(param);
+                function_emitter.emit_pop();
             }
             cur = cdr(cur);
         }
     }
-    else {
+    else 
+    {
         assert(optionals_start_at == params.size());
     }
+    
+    auto main_entry_offset = function_emitter.position();
+    compile_body(function_emitter, body, true);
+    function_emitter.emit_return();
+    function_emitter.lock(); // the function MUST be locked before we can resolve captures or move bytecode.
+    std::vector<Function::Capture_Offset> capture_offsets;
+    for (auto const &cap : function_emitter.scope()->capture_info())
+    {
+        capture_offsets.push_back({
+                cap.index,
+                cap.is_local,
+                cap.symbol->qualified_name()
+            });
+    }
+    
+    //disassemble(std::cout, "LAMBDA", function_emitter); // @DELETE-ME
+    
+    //{
+    //    auto locs = function_emitter.scope()->locals();
+    //    printf("Num locals: %zu\n", locs.size());
+    //    for (size_t i = 0; i < locs.size(); ++i)
+    //    {
+    //        printf(" [%zu]: %s\n", i, locs[i]->symbol()->qualified_name().c_str());
+    //    }
+    //}
 
-    auto lambda_offs = function.position();
-    compile_body(function, body, true);
-    function.emit_return();
-    function.lock();
+    auto const *function = new Function(std::move(function_emitter.move_bytecode()), 
+                                        std::move(optional_offsets),
+                                        std::move(params),
+                                        std::move(capture_offsets),
+                                        main_entry_offset, 
+                                        optionals_start_at,
+                                        // using the number of locals instead of the function's arity because
+                                        // we may inline immediate lambda calls which expand the number of
+                                        // local variables but not change the arity of the outer function.
+                                        function_emitter.scope()->locals().size(),
+                                        has_rest,
+                                        has_optionals);
 
-    auto size = function.bytecode().size();
-    // Moving the bytecode into a new'd vector is a dumb hack so when function.lock() binds
-    // debug info it won't point to a stale addresses.
-    // This is also intentionally leaked.
-    // Something to be aware about is the possibility that new'ing a vector with a move reference
-    // might not move the underlying buffer. I'm not sure how this may occur but it might happen.
-    // It might be better to implement a byte_vector with a guaranteed move.
-    auto leaked = new std::vector<uint8_t>(function.move_bytecode());
-    auto p = leaked->data();
-    auto main_entry = p + lambda_offs;
-    auto endpoint = p + size;
-    std::vector<const uint8_t*> optional_initializers;
-    for (size_t i = 0; i < optionals_start_at; ++i) {
-        optional_initializers.push_back(main_entry);
+    if (macro) 
+    {
+        auto obj = gc.alloc_object_unmanaged<Closure>(function);
+        g.macros[name.as_object()->symbol()] = obj;
     }
-    for (auto offs : optional_offsets) {
-        optional_initializers.push_back(p + offs);
+    else 
+    {
+        e.emit_instantiate_closure(function);
     }
-
-    const lisp_lambda *llambda = nullptr;
-    if (macro) {
-        auto macro = lisp_obj::create_lambda(LISP_BASE_ENVIRONMENT,
-                                             std::move(params), has_rest, optionals_start_at, obody,
-                                             main_entry, endpoint,
-                                             std::move(optional_initializers));
-        llambda = macro.as_object()->lambda();
-        LISP_MACROS[name.as_object()->symbol()->name] = macro;
-    }
-    else if (toplevel) {
-        auto lambda = lisp_obj::create_lambda(LISP_BASE_ENVIRONMENT,
-                                              std::move(params), has_rest, optionals_start_at, obody,
-                                              main_entry, endpoint,
-                                              std::move(optional_initializers));
-        llambda = lambda.as_object()->lambda();
-        e.emit_push_value(lambda);
-    }
-    else {
-        auto lambda_template = lisp_obj::create_lambda(LISP_NIL,
-                                                       std::move(params), has_rest, optionals_start_at, obody,
-                                                       main_entry, endpoint,
-                                                       std::move(optional_initializers));
-        llambda = lambda_template.as_object()->lambda();
-        e.emit_instantiate_lambda(lambda_template);
-    }
-    debug_info::track_function(llambda);
+    bytecode::Debug_Info::track_function(function);
+    // We created it in this function, so needs to be deleted here.
+    delete function_emitter.scope();
 }
 
+
 static
-void compile_function_call(bytecode_emitter &e, lisp_value func, lisp_value args, bool toplevel, bool tail_position, bool funcall)
+void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool toplevel, bool tail_position, bool funcall)
 {
-    uint32_t nargs = 0;
-    while (args.is_not_nil()) {
-        compile(e, car(args), toplevel);
-        nargs++;
-        args = cdr(args);
-    }
-    if (func.is_cons() && first(func) == LISP_SYM_LAMBDA) {
-        if (second(func).is_nil()) {
+    if (func.is_cons() && first(func) == g.s_LAMBDA)
+    {
+        if (second(func).is_nil())
+        {
             // calling a lambda that takes no arguments is directly inlinable,
             // no call needed... :)
             compile_body(e, cddr(func), tail_position);
             return;
         }
-        else {
-            compile(e, func, toplevel);
+        else if (!toplevel)
+        {
+            // and in the case of a lambda instead of instantiate + funcall we just inline into the current 
+            // stack frame.
+            // @TODO: although it's unlikely to have &optional and &rest here, we should still support it
+            // but for now we'll just not do the optimization in that case.
+            //bool do_opt = true;
+            //auto params = second(func);
+            //std::vector<Value> symbols;
+            //while (!params.is_nil())
+            //{
+            //    if (symbolp(car(params)))
+            //    {
+            //        symbols.push_back(car(params));
+            //    }
+            //    else
+            //    {
+            //        do_opt = false;
+            //        break;
+            //    }
+            //    params = cdr(params);
+            //}
+
+            //if (do_opt)
+            //{
+            //    e.emit_stack_alloc(symbols.size());
+            //    size_t i = 0;
+            //    while (!args.is_nil())
+            //    {
+            //        i++;
+            //        compile(e, car(args), false);
+            //        args = cdr(args);
+            //    }
+            //    for (; i < symbols.size(); ++i)
+            //    {
+            //        e.emit_push_nil();
+            //    }
+            //    e.push_scope();
+            //    std::vector<Variable*> vars;
+            //    for (auto symbol_value : symbols)
+            //    {
+            //        auto symbol = symbol_value.as_object()->symbol();
+            //        auto var = e.scope()->create_variable(symbol);
+            //        vars.push_back(var);
+            //    }
+            //    for (auto it = symbols.rbegin(); it != symbols.rend(); ++it)
+            //    {
+            //        e.emit_set_value(*it);
+            //        e.emit_pop();
+            //    }
+            //    compile_body(e, cddr(func), tail_position);
+            //    // If we're in the tail position, then the gotocall will handle cleaning up the stack 
+            //    // so there's no need to emit these instructions.
+            //    if (!tail_position)
+            //    {
+            //        if (e.scope()->capture_info().size() != 0)
+            //        {
+            //            e.emit_close_values(symbols.size());
+            //        }
+            //        e.emit_stack_free(symbols.size());
+            //    }
+            //    e.pop_scope();
+            //    return;
+            //}
         }
-    }
-    else if (funcall) {
-        if (func.is_type(SYM_TYPE)) {
-            e.emit_get_value(func);
-        }
-        else {
-            compile(e, func, toplevel);
-        }
-    }
-    else {
-        e.emit_push_value(func);
     }
 
-    if (tail_position) {
+    uint32_t nargs = 0;
+    while (!args.is_nil())
+    {
+        compile(e, car(args), toplevel);
+        nargs++;
+        args = cdr(args);
+    }
+    if (func.is_cons() && first(func) == g.s_LAMBDA)
+    {
+        compile(e, func, toplevel);
+    }
+    else if (funcall)
+    {
+        if (symbolp(func))
+        {
+            e.emit_get_value(func);
+        }
+        else
+        {
+            compile(e, func, toplevel);
+        }
+    }
+    else 
+    {
+        e.emit_push_literal(func);
+    }
+
+    if (tail_position) 
+    {
         e.emit_gotocall(nargs);
     }
-    else {
+    else 
+    {
         e.emit_funcall(nargs);
     }
 }
 
+
 static
-void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_position)
+void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position)
 {
-    static auto perc_SIGNAL = intern_symbol("%SIGNAL");
-    static auto perc_CONS = intern_symbol("%CONS");
-    static auto perc_CAR = intern_symbol("%CAR");
-    static auto perc_CDR = intern_symbol("%CDR");
-    static auto perc_EQ = intern_symbol("%EQ");
-    static auto perc_RPLACA = intern_symbol("%RPLACA");
-    static auto perc_RPLACD = intern_symbol("%RPLACD");
-    static auto perc_AREF = intern_symbol("%AREF");
-    static auto perc_ASET = intern_symbol("%ASET");
-    static auto perc_DEBUGGER = intern_symbol("%DEBUGGER");
-    static auto perc_APPLY = intern_symbol("%APPLY");
-    static auto TAGBODY = intern_symbol("TAGBODY");
-    static auto GO = intern_symbol("GO");
-    if (expr.is_cons()) {
+    if (expr.is_cons())
+    {
         auto thing = first(expr);
         auto begin = e.position();
         auto saved_expr = expr;
-        if (thing == LISP_SYM_QUOTE) {
-            e.emit_push_value(second(expr));
+        if (thing == g.s_QUOTE) 
+        {
+            e.emit_push_literal(second(expr));
         }
-        else if (thing == GO) {
+        else if (thing == g.s_pGO) 
+        {
             auto offs = e.emit_jump();
-            e.backfill(offs, second(expr));
+            e.backfill_label(offs, second(expr));
         }
-        else if (thing == TAGBODY) {
+        else if (thing == g.s_pTAGBODY) 
+        {
             e.push_labels();
             e.emit_push_nil();
             auto body = cdr(expr);
-            while (body.is_not_nil()) {
+            while (!body.is_nil()) 
+            {
                 auto it = car(body);
-                if (it.is_cons()) {
+                if (it.is_cons()) 
+                {
                     compile(e, it, toplevel, false);
                     e.emit_pop();
                 }
-                else {
+                else 
+                {
                     e.make_label(it);
                 }
                 body = cdr(body);
             };
             e.pop_labels();
         }
-        else if (thing == LISP_SYM_IF) {
+        else if (thing == g.s_IF) 
+        {
             auto test = second(expr);
             auto consequence = third(expr);
             auto alternative = fourth(expr);
@@ -2547,32 +3999,45 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, alternative, toplevel, tail_position);
             auto label_out = e.position();
 
-            e.set_raw_s32(out_offs, label_out - (out_offs-1));
-            e.set_raw_s32(alt_offs, label_alt - (alt_offs-1));
+            e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
+            e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
         }
-        else if (thing == LISP_SYM_DEFMACRO) {
+        else if (thing == g.s_pDEFINE_MACRO) 
+        {
             compile_function(e, expr, true, true);
         }
-        else if (thing == LISP_SYM_LAMBDA) {
+        else if (thing == g.s_LAMBDA) 
+        {
             compile_function(e, expr, false, toplevel);
         }
-        else if (thing == LISP_SYM_SETQ) {
+        else if (thing == g.s_pSETQ) 
+        {
             compile(e, third(expr), toplevel);
-            e.emit_push_value(second(expr));
-            e.emit_set_value();
+            if (symbolp(second(expr)))
+            {
+                e.emit_set_value(second(expr));
+            }
+            else
+            {
+                fprintf(stderr, "Cannot %%SETQ a non-symbol: %s\n", repr(second(expr)).c_str());
+            }
         }
-        else if (thing == LISP_SYM_HANDLER_CASE) {
+        else if (thing == g.s_pHANDLER_CASE) 
+        {
             auto form = second(expr);
             auto handlers = cddr(expr);
             uint32_t nhandlers = 0;
-            while (handlers.is_not_nil()) {
+            while (!handlers.is_nil()) 
+            {
                 nhandlers++;
                 auto handler = car(handlers);
                 auto handler_tag = first(handler);
                 compile_function(e, handler, false, toplevel);
-                e.emit_push_value(handler_tag);
-                if (handler_tag == LISP_T) {
-                    if (cdr(handlers).is_not_nil()) {
+                e.emit_push_literal(handler_tag);
+                if (handler_tag == g.s_T) 
+                {
+                    if (!cdr(handlers).is_nil()) 
+                    {
                         fprintf(stderr, "WARNING: Unreachable code in HANDLER-CASE\n");
                     }
                     break;
@@ -2583,43 +4048,54 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             auto offs = e.emit_push_handler_case(nhandlers);
             compile(e, form, toplevel);
             e.emit_pop_handler_case();
-            e.set_raw_32(offs, e.position() - before_form);
+            e.set_raw<uint32_t>(offs, e.position() - before_form);
         }
-        else if (thing == LISP_SYM_FUNCTION) {
+        else if (thing == g.s_FUNCTION) 
+        {
             auto thing = second(expr);
-            if (thing.is_cons()) {
-                if (first(thing) == LISP_SYM_LAMBDA) {
+            if (thing.is_cons()) 
+            {
+                if (first(thing) == g.s_LAMBDA) 
+                {
                     compile(e, thing, toplevel);
                 }
-                else {
+                else 
+                {
                     // ???
                 }
             }
-            else {
+            else 
+            {
                 e.emit_function_value(second(expr));
             }
         }
-        else if (thing == LISP_SYM_FUNCALL) {
+        else if (thing == g.s_pFUNCALL) 
+        {
             compile_function_call(e, second(expr), cddr(expr), toplevel, tail_position, true);
         }
-        else if (thing == perc_CONS) {
+        else if (thing == g.s_pCONS) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_cons();
         }
-        else if (thing == perc_CAR) {
+        else if (thing == g.s_pCAR) 
+        {
             compile(e, second(expr), toplevel);
             e.emit_car();
         }
-        else if (thing == perc_CDR) {
+        else if (thing == g.s_pCDR) 
+        {
             compile(e, second(expr), toplevel);
             e.emit_cdr();
         }
-        else if (thing == perc_SIGNAL) {
+        else if (thing == g.s_pSIGNAL) 
+        {
             uint32_t nargs = 0;
             auto tag = second(expr);
             auto args = cddr(expr);
-            while (args.is_not_nil()) {
+            while (!args.is_nil()) 
+            {
                 compile(e, car(args), toplevel);
                 args = cdr(args);
                 nargs++;
@@ -2627,40 +4103,48 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, tag, toplevel);
             e.emit_raise_signal(nargs);
         }
-        else if (thing == perc_EQ) {
+        else if (thing == g.s_pEQ) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_eq();
         }
-        else if (thing == perc_RPLACA) {
+        else if (thing == g.s_pRPLACA) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_rplaca();
         }
-        else if (thing == perc_RPLACD) {
+        else if (thing == g.s_pRPLACD) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_rplacd();
         }
-        else if (thing == perc_AREF) {
+        else if (thing == g.s_pAREF) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_aref();
         }
-        else if (thing == perc_ASET) {
+        else if (thing == g.s_pASET) 
+        {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             compile(e, fourth(expr), toplevel);
             e.emit_aset();
         }
-        else if (thing == perc_DEBUGGER) {
+        else if (thing == g.s_pDEBUGGER) 
+        {
             compile(e, second(expr), toplevel);
             e.emit_debug_trap();
         }
-        else if (thing == perc_APPLY) {
+        else if (thing == g.s_pAPPLY) 
+        {
             uint32_t nargs = 0;
             auto args = cddr(expr);
-            while (args.is_not_nil()) {
+            while (!args.is_nil()) 
+            {
                 compile(e, car(args), toplevel);
                 nargs++;
                 args = cdr(args);
@@ -2668,313 +4152,3592 @@ void compile(bytecode_emitter &e, lisp_value expr, bool toplevel, bool tail_posi
             compile(e, second(expr), toplevel);
             e.emit_apply(nargs);
         }
-        else {
+        else 
+        {
             compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
         }
-        if (thing != LISP_SYM_QUOTE && thing != LISP_SYM_FUNCTION) {
+        if (thing != g.s_QUOTE && thing != g.s_FUNCTION) 
+        {
             auto end = e.position();
-            e.map_range_to(begin, end, saved_expr);
+            e.map_range_to(begin, end, saved_expr); // @TODO: Debug_Info
         }
     }
-    else if (expr.is_type(SYM_TYPE)) {
+    else if (symbolp(expr))
+    {
         e.emit_get_value(expr);
     }
-    else if (expr.is_invalid()) {
-        //fprintf(stderr, "WARNING: invalid object in compile stream.\n");
+    else 
+    {
+        e.emit_push_literal(expr);
     }
-    else {
-        e.emit_push_value(expr);
+}
+}
+
+int VM_State::stack_dump(std::ostream &out, size_t max_size) const
+{
+    if (max_size == ~0u)
+    {
+        auto a = (m_call_frame_top - m_call_frame_bottom);
+        auto b = (m_stack_top - m_stack_bottom);
+        max_size = std::max(a, b);
+    }
+    auto rt = m_call_frame_top;
+    auto rb = m_call_frame_bottom;
+
+    auto pt = m_stack_top;
+    auto pb = m_stack_bottom;
+
+    auto r_stack_delta = rt - rb;
+    out << std::setfill(' ') << std::dec;
+    out << "|R-stack " << std::setw(9) << r_stack_delta << " |         P-stack\n";
+    out << "|==================|================\n";
+    out << std::setfill('0');
+    for (;max_size != 0; max_size--)
+    {
+        rt--;
+        pt--;
+        if (reinterpret_cast<uintptr_t>(rt) < reinterpret_cast<uintptr_t>(rb)) 
+        {
+            out << "| **************** |";
+        }
+        else 
+        {
+            out << "| " << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(rt->ip) << " |";
+        }
+
+        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) 
+        {
+            out << "                ";
+        }
+        else
+        {
+            out << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(pt);
+        }
+        if (pt == m_locals)
+        {
+            out << " -> ";
+        }
+        else
+        {
+            out << "    ";
+        }
+        
+        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) 
+        {
+            out << " ***";
+        }
+        else 
+        {
+            auto obj_repr = repr(*pt);
+            const int n = 70;
+            if (obj_repr.size() < n) 
+            {
+                out << " " << obj_repr;
+            }
+            else 
+            {
+                out << " " << obj_repr.substr(0, n-3) << "...";
+            }
+        }
+        out << "\n";
+    }
+    int lines_printed = max_size;
+    if (!m_current_closure.is_nil())
+    {
+        auto cc = m_current_closure.as_object()->closure();
+        auto func_caps = cc->function()->capture_offsets();
+        out << "Captures for current closure:\n";
+        lines_printed++;
+        auto &caps = cc->captures();
+        for (size_t i = 0; i < caps.size(); ++i)
+        {
+            auto &offs = func_caps[i];
+            out << "[local?: " << offs.is_local << ", index: " << offs.index << ", " << offs.name << "]  "
+                << std::hex << reinterpret_cast<uintptr_t>(caps[i]->location()) << " "
+                << (caps[i] ? repr(caps[i]->value()) : "(null)") << "\n";
+            lines_printed++;
+        }
+    }
+    return lines_printed;
+}
+
+void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip, bool full) const
+{
+    //plat::clear_console();
+    const Function *function;
+    int lines_printed = 0;
+    if (bytecode::Debug_Info::find_function(ip, &function)) 
+    {
+        std::vector<const uint8_t*> instructions;
+        int ip_at = -1;
+        for (auto it = function->begin(); it != function->end();)
+        {
+            if (it == ip)
+            {
+                ip_at = instructions.size();
+            }
+            instructions.push_back(it);
+            it += bytecode::opcode_size(static_cast<bytecode::Opcode>(*it));
+        }
+        instructions.push_back(function->end());
+        
+        if (ip_at != -1 && instructions.size() >= 32)
+        {
+            out << "Disassemble for \"" << tag << "\"\n";
+            lines_printed++;
+            
+            auto first = std::max(ip_at - 15, 0);
+            auto instr = instructions[first];
+            bool disassembling = true;
+            for (; lines_printed < 32; ++lines_printed)
+            {
+                if (instr == function->end())
+                {
+                    disassembling = false;
+                }
+
+                if (disassembling)
+                {
+                    instr = bytecode::disassemble1(out, instr, instr == ip);
+                }
+                else
+                {
+                    out << "\n";
+                }
+            }
+        }
+        else
+        {
+            lines_printed = bytecode::disassemble(out, tag, function, ip);
+        }
+    }
+    else 
+    {
+        lines_printed = bytecode::disassemble(out, tag, ip, true);
+    }
+    
+    for (; lines_printed <= 32; lines_printed++)
+    {
+        out << "\n";
+    }
+
+    if (full)
+    {
+        stack_dump(out, ~0u);
+    }
+    else
+    {
+        stack_dump(out);
     }
 }
 
-
-lisp_value lisp::evaluate(lisp_value expr, bool &raised_signal)
+const uint8_t *VM_State::execute(const uint8_t *ip)
 {
-    bytecode_emitter e;
-    auto &vm = *THE_LISP_VM;
-    auto save = vm.save();
-    try {
-        auto expanded = macro_expand_impl(expr, vm);
-        compile(e, expanded, true);
-        e.emit_halt();
-        e.lock();
+#define TYPE_CHECK(what, typecheck, expected)                           \
+    do {                                                                \
+        if (!(what).typecheck) {                                        \
+            signal_args = gc.list(g.s_TYPE_ERROR, (expected), (what));  \
+            goto raise_signal;                                          \
+        }                                                               \
+    } while (0)
 
-        vm.execute(e.bytecode().data(), LISP_BASE_ENVIRONMENT);
+#define CHECK_FIXNUM(what) TYPE_CHECK(what, is_fixnum(), g.s_FIXNUM)
+#define CHECK_CONS(what) TYPE_CHECK(what, is_cons(), g.s_CONS)
+#define CHECK_LIST(what) TYPE_CHECK(what, is_list(), g.s_LIST)
+#define CHECK_CHARACTER(what) TYPE_CHECK(what, is_character(), g.s_CHARACTER)
+#define CHECK_SYMBOL(what) TYPE_CHECK(what, is_type(Object_Type::Symbol), g.s_SYMBOL)
+#define CHECK_FILE_STREAM(what) TYPE_CHECK(what, is_type(Object_Type::File_Stream), g.s_FILE_STREAM)
+#define CHECK_SIMPLE_ARRAY(what) TYPE_CHECK(what, is_type(Object_Type::Simple_Array), g.s_SIMPLE_ARRAY)
+#define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(Object_Type::System_Pointer), g.s_SYSTEM_POINTER)
+#define CHECK_STRUCT(what) TYPE_CHECK(what, is_type(Object_Type::Structure), g.s_STRUCTURE)
+        
+
+    static_assert(sizeof(*ip) == 1, "pointer arithmetic will not work as expected.");
+    Value signal_args;
+    Value func;
+    uint32_t nargs;
+    while (1) 
+    {
+        const auto opcode = static_cast<bytecode::Opcode>(*ip);
+        if (g.debugger.breaking) 
+        {
+            // @TODO: Fix debugger step over:
+            // currently it just goes to the next instruction address which is ok in the case of
+            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
+            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over && g.debugger.addr == ip)
+                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
+            {
+                debug_dump(std::cout, "VM EXEC", ip);
+                auto &in = std::cin;
+                bool eat_newline = true;
+                switch (in.peek())
+                {
+                    case 'c': 
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
+                        in.get();
+                        break;
+                    case 's':
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
+                        in.get();
+                        break;
+                    case 'n':
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
+                        in.get();
+                        break;
+                    case '\n':
+                        in.get();
+                        eat_newline = false;
+                        break;
+                }
+                
+                if (eat_newline && in.peek() == '\n')
+                {
+                    in.get();
+                }
+
+                switch (g.debugger.command)
+                {
+                    case Runtime_Globals::Debugger::Command::Continue:
+                        g.debugger.breaking = false;
+                        break;
+                    case Runtime_Globals::Debugger::Command::Step_Into:
+                        break;
+                    case Runtime_Globals::Debugger::Command::Step_Over:
+                        g.debugger.addr = ip + bytecode::opcode_size(opcode);
+                        break;
+                }
+            }
+        }
+        switch (opcode) 
+        {
+            case bytecode::Opcode::op_apply: 
+            {
+                func = pop_param();
+                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                if (nargs == 0)
+                {
+                    GC_GUARD();
+                    signal_args = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Too few arguments!"));
+                    GC_UNGUARD();
+                    goto raise_signal;
+                }
+                
+                auto last_arg = pop_param();
+                CHECK_LIST(last_arg);
+                nargs--;
+                while (!last_arg.is_nil())
+                {
+                    push_param(car(last_arg));
+                    last_arg = cdr(last_arg);
+                    nargs++;
+                }
+                goto do_funcall;
+            } break;
+
+            case bytecode::Opcode::op_funcall:
+            {
+                func = pop_param();
+                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+
+                do_funcall:
+                auto ofunc = func;
+                if (symbolp(func))
+                {
+                    func = func.as_object()->symbol()->function();
+                }
+                
+                if (func.is_lisp_primitive())
+                {
+                    bool raised_signal = false;
+                    auto primitive = func.as_lisp_primitive();
+                    auto result = primitive(m_stack_top - nargs, nargs, raised_signal);
+                    m_stack_top -= nargs;
+                    if (raised_signal)
+                    {
+                        signal_args = result;
+                        goto raise_signal;
+                    }
+                    else
+                    {
+                        push_param(result);
+                        ip += 1 + sizeof(nargs);
+                    }
+                    break;
+                }
+
+                if (func.is_type(Object_Type::Closure))
+                {
+                    if (opcode == bytecode::Opcode::op_funcall ||
+                        opcode == bytecode::Opcode::op_apply)
+                    {
+                        push_frame(ip+5, nargs);
+                    }
+
+                    m_current_closure = func;
+                    auto closure = func.as_object()->closure();
+                    auto function = closure->function();
+
+                    // locals always start at first argument
+                    m_locals = m_stack_top - nargs;
+                    
+                    if (function->is_too_many_args(nargs))
+                    {
+                        GC_GUARD();
+                        signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                              gc.alloc_string("Too many arguments!"),
+                                              func,
+                                              Value::wrap_fixnum(function->arity()),
+                                              Value::wrap_fixnum(nargs));
+                        GC_UNGUARD();
+                        goto raise_signal;
+                    }
+
+                    if (function->is_too_few_args(nargs))
+                    {
+                        GC_GUARD();
+                        signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                              gc.alloc_string("Too few arguments!"),
+                                              func,
+                                              Value::wrap_fixnum(function->arity()),
+                                              Value::wrap_fixnum(nargs));
+                        GC_UNGUARD();
+                        goto raise_signal;
+                    }
+
+                    if (function->has_rest() && nargs > function->rest_index())
+                    {
+                        auto rest = to_list(m_locals+function->rest_index(), 
+                                            nargs - function->rest_index());
+                        m_locals[function->rest_index()] = rest;
+                    }
+
+                    m_stack_top = m_locals + function->num_locals();
+                    #if DEBUG > 1
+                    {
+                        assert(function->arity() <= function->num_locals());
+                        auto start = m_locals + function->arity();
+                        auto end = m_locals + function->num_locals();
+                        for (; start != end; ++start)
+                        {
+                            *start = Value::nil();
+                        }
+                    }
+                    #endif
+
+                    ip = function->entrypoint(nargs);
+                    break;
+                }
+
+                // error
+                GC_GUARD();
+                signal_args = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Not a callable object"), ofunc, func);
+                GC_UNGUARD();
+                goto raise_signal;
+                break;
+            }
+            case bytecode::Opcode::op_gotocall: 
+            {
+                
+                close_values(m_locals);
+
+                func = pop_param();
+                nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                auto begin = m_stack_top - nargs;
+                auto end = m_stack_top;
+                m_stack_top = m_locals;
+                std::copy(begin, end, m_stack_top);
+                m_stack_top += nargs;
+                
+
+                goto do_funcall;
+            } break;
+
+            case bytecode::Opcode::op_pop_handler_case: 
+                pop_handler_case();
+                // fallthrough
+            case bytecode::Opcode::op_return: 
+            {
+                if (m_call_frame_top == m_call_frame_bottom) 
+                {
+                    goto done;
+                }
+                
+                close_values(m_locals);
+                
+                auto val = param_top();
+                auto frame = pop_frame();
+                set_frame(frame);
+                push_param(val);
+                if (frame.ip == nullptr) 
+                {
+                    goto done;
+                }
+                ip = frame.ip;
+            } break;
+
+            case bytecode::Opcode::op_jump: 
+            {
+                auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                ip += offset;
+            } break;
+
+            case bytecode::Opcode::op_pop_jump_if_nil: 
+            {
+                if (pop_param().is_nil()) 
+                {
+                    auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                    ip += offset;
+                }
+                else 
+                {
+                    ip += 5;
+                }
+            } break;
+            
+            case bytecode::Opcode::op_get_global:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                push_param(g.global_value_slots[index]);
+                ip += 5;
+            } break;
+
+            case bytecode::Opcode::op_set_global:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                g.global_value_slots[index] = param_top();
+                ip += 5;
+            } break;
+            
+            case bytecode::Opcode::op_get_local:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                push_param(m_locals[index]);
+                ip += 5;
+            } break;
+
+            case bytecode::Opcode::op_set_local:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                m_locals[index] = param_top();
+                ip += 5;
+            } break;
+            
+            case bytecode::Opcode::op_get_capture:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                push_param(m_current_closure.as_object()->closure()->get_capture(index));
+                ip += 5;
+            } break;
+
+            case bytecode::Opcode::op_set_capture:
+            {
+                auto index = *reinterpret_cast<const uint32_t*>(ip+1);
+                m_current_closure.as_object()->closure()->set_capture(index, param_top());
+                ip += 5;
+            } break;
+
+            case bytecode::Opcode::op_function_value: 
+            {
+                auto obj = *reinterpret_cast<const Value*>(ip+1);
+                if (symbolp(obj))
+                {
+                    push_param(obj.as_object()->symbol()->function());
+                }
+                else 
+                {
+                    push_param(obj);
+                }
+                ip += 1 + sizeof(obj);
+            } break;
+
+            case bytecode::Opcode::op_pop: 
+            {
+                pop_param();
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_push_value: 
+            {
+                auto val = *reinterpret_cast<const Value*>(ip+1);
+                push_param(val);
+                ip += 1 + sizeof(val);
+            } break;
+
+            case bytecode::Opcode::op_push_nil: 
+            {
+                push_param(Value::nil());
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_push_fixnum_0: 
+            {
+                push_param(Value::wrap_fixnum(0));
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_push_fixnum_1: 
+            {
+                push_param(Value::wrap_fixnum(1));
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_instantiate_closure: 
+            {
+                auto function = *reinterpret_cast<const Function* const*>(ip+1);
+                auto instance = gc.alloc_object<Closure>(function);
+                push_param(instance); // push this first so GC won't free it from under us
+                auto closure = instance.as_object()->closure();
+                if (function->has_captures())
+                {
+
+                    auto const &cap_offsets = function->capture_offsets();
+                    for (size_t i = 0; i < cap_offsets.size(); ++i)
+                    {
+                        auto const &offs = cap_offsets[i];
+                        Closure_Reference *ref;
+                        if (offs.is_local)
+                        {
+                            ref = capture_closure_reference(m_locals + offs.index);
+                        }
+                        else
+                        {   
+                            ref = m_current_closure.as_object()->closure()->get_reference(offs.index);
+                        }
+                        //printf("[is_local: %d, index: %u, %s] %p %s\n", 
+                        //       offs.is_local,
+                        //       offs.name.c_str(),
+                        //       ref->location(),
+                        //       repr(ref->value()).c_str());
+                        closure->capture_reference(i, ref);
+                    }
+                }
+                ip += 1 + sizeof(function);
+            } break;
+
+            case bytecode::Opcode::op_close_values: 
+            {
+                auto n = *reinterpret_cast<const uint32_t*>(ip+1);
+
+                close_values(m_stack_top-n);
+
+                ip += 1 + sizeof(n);
+            } break;
+
+            case bytecode::Opcode::op_stack_alloc:
+            {
+                auto n = *reinterpret_cast<const uint32_t*>(ip+1);
+                
+                m_stack_top += n;
+                
+                #if DEBUG > 1
+                for (auto p = m_stack_top - n; p != m_stack_top; ++p)
+                {
+                    *p = Value::nil();
+                }
+                #endif
+                
+                ip += 1 + sizeof(n);
+            } break;
+
+            case bytecode::Opcode::op_stack_free:
+            {
+                auto n = *reinterpret_cast<const uint32_t*>(ip+1);
+                
+                auto val = pop_param();
+                
+                m_stack_top -= n;
+                
+                push_param(val);
+
+                ip += 1 + sizeof(n);
+            } break;
+
+            case bytecode::Opcode::op_cons: 
+            {
+                // Instead of popping twice, we use param_top(n) like this to serve as
+                // a GC guard because before the GC may trigger a run before the cons
+                // is allocated which may cause these values to be collected.
+                auto val = gc.cons(param_top(-1), param_top(0));
+                // THEN we pop the values after the cons is allocated.
+                pop_params(2);
+                push_param(val);
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_car: 
+            {
+                auto o = pop_param();
+                if (o.is_nil()) 
+                {
+                    push_param(o);
+                }
+                else 
+                {
+                    CHECK_CONS(o);
+                    push_param(car(o));
+                }
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_cdr: 
+            {
+                auto o = pop_param();
+                if (o.is_nil()) 
+                {
+                    push_param(o);
+                }
+                else 
+                {
+                    CHECK_CONS(o);
+                    push_param(cdr(o));
+                }
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_halt: 
+            {
+                goto done;
+            } break;
+
+            case bytecode::Opcode::op_push_handler_case: 
+            {
+                auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
+                auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
+                std::vector<Signal_Handler> handlers;
+                for (uint32_t i = 0; i < how_many; ++i)
+                {
+                    auto tag = pop_param();
+                    auto handler = pop_param();
+                    if (handler.is_type(Object_Type::Closure))
+                    {
+                        // These closures likely hold references on the stack somewhere and if a signal
+                        // occures we cannot guarantee those references are valid so instead we capture
+                        // their value immediately.
+                        auto clos = handler.as_object()->closure();
+                        for (auto ref : clos->captures())
+                        {
+                            ref->close();
+                        }
+                    }
+                    handlers.push_back({tag, handler});
+                }
+                push_frame(ip + branch, 0);
+                push_handler_case(std::move(handlers));
+                ip += 1 + sizeof(how_many) + sizeof(branch);
+            } break;
+
+            case bytecode::Opcode::op_raise_signal: 
+            {
+                {
+                    GC_GUARD();
+                    // @Design, should we move the tag to be the first thing pushed since this just gets
+                    // turned into a FUNCALL? The only reason to have the tag here is for easy access.
+                    auto tag = pop_param();
+                    auto nargs = *reinterpret_cast<const uint32_t*>(ip+1);
+                    signal_args = to_list(m_stack_top - nargs, nargs);
+                    signal_args = gc.cons(tag, signal_args);
+                    GC_UNGUARD();
+                }
+                raise_signal:
+                //bytecode::disassemble_maybe_function(std::cout, "SIGNAL", ip);
+                Handler_Case restore;
+                Signal_Handler handler;
+                if (find_handler(first(signal_args), true, restore, handler))
+                {
+                    m_stack_top = restore.stack;
+                    m_call_frame_top = restore.frame;
+                    // By default signal_args includes the handler tag and a specific handler knows its
+                    // own tag because it is labeled as such. In the case of a handler with the T tag it
+                    // is unknown so we leave it, otherwise it is removed.
+                    if (handler.tag != g.s_T)
+                    {
+                        signal_args = cdr(signal_args);
+                    }
+                    func = handler.handler;
+                    nargs = 0;
+                    while (!signal_args.is_nil())
+                    {
+                        ++nargs;
+                        push_param(car(signal_args));
+                        signal_args = cdr(signal_args);
+                    }
+                    goto do_funcall;
+                }
+                else
+                {
+                    auto top = m_call_frame_top;
+                    auto bottom = m_call_frame_bottom;
+                    m_call_frame_top = m_call_frame_bottom;
+                    m_stack_top = m_stack_bottom;
+                    throw Signal_Exception(signal_args, ip, top, bottom);
+                }
+            } break;
+
+            case bytecode::Opcode::op_eq: 
+            {
+                auto b = pop_param();
+                auto a = pop_param();
+                if (a == b) 
+                {
+                    push_param(g.s_T);
+                }
+                // @Audit: is this necessary, does it make sense to identity compare objects?
+                else if (a.is_object() && b.is_object() && 
+                         (a.as_object()->system_pointer() == b.as_object()->system_pointer())) 
+                {
+                    push_param(g.s_T);
+                }
+                else 
+                {
+                    push_param(Value::nil());
+                }
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_rplaca: 
+            {
+                auto b = pop_param();
+                auto a = param_top();
+                CHECK_CONS(a);
+                set_car(a, b);
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_rplacd: 
+            {
+                auto b = pop_param();
+                auto a = param_top();
+                CHECK_CONS(a);
+                set_cdr(a, b);
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_aref: 
+            {
+                auto subscript = pop_param();
+                CHECK_FIXNUM(subscript);
+                auto array_val = pop_param();
+                CHECK_SIMPLE_ARRAY(array_val);
+                auto array = array_val.as_object()->simple_array();
+                auto index = subscript.as_fixnum();
+                if (index < 0 || index >= array->size()) 
+                {
+                    signal_args = gc.list(g.s_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
+                    goto raise_signal;
+                }
+                push_param(array->at(index));
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_aset: 
+            {
+                auto value = pop_param();
+                auto subscript = pop_param();
+                CHECK_FIXNUM(subscript);
+                auto array_val = pop_param();
+                CHECK_SIMPLE_ARRAY(array_val);
+                auto array = array_val.as_object()->simple_array();
+                auto index = subscript.as_fixnum();
+                if (index < 0 || index >= array->size()) 
+                {
+                    signal_args = gc.list(g.s_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
+                    goto raise_signal;
+                }
+                auto type = array->element_type();
+                if (type != g.s_T)
+                {
+                    if (type == g.s_FIXNUM && !value.is_fixnum()) 
+                    {
+                        CHECK_FIXNUM(value);
+                    }
+                    else if (type == g.s_CHARACTER && !value.is_character()) 
+                    {
+                        CHECK_CHARACTER(value);
+                    }
+                }
+                array->at(index) = value;
+                push_param(value);
+                ip += 1;
+            } break;
+
+            case bytecode::Opcode::op_debug_trap: 
+            {
+                g.debugger.breaking = !param_top().is_nil();
+                if (g.debugger.breaking)
+                {
+                    g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
+                }
+                else
+                {
+                    g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
+                }
+                ip += 1;
+            } break;
+        }
     }
-    catch (lisp_signal_exception e) {
+    done:
+
+    return ip;
+}
+
+#undef TYPE_CHECK
+#define TYPE_CHECK(what, typecheck, expected)                   \
+    do {                                                        \
+        if (!(what).typecheck) {                                \
+            raised_signal = true;                               \
+            return gc.list(g.s_TYPE_ERROR, (expected), (what)); \
+        }                                                       \
+    } while (0)
+
+#define CHECK_STRING(what)                                      \
+    do {                                                        \
+        if (!stringp(what)) {                                   \
+            raised_signal = true;                               \
+            return gc.list(g.s_TYPE_ERROR, g.s_STRING, (what)); \
+        }                                                       \
+    } while (0)
+
+#define CHECK_AT_LEAST_N(what, n)                                       \
+    do {                                                                \
+        if ((what) < (n)) {                                             \
+            raised_signal = true;                                       \
+            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(what)); \
+        }                                                               \
+    } while (0)
+
+#define CHECK_EXACTLY_N(what, n)                                        \
+    do {                                                                \
+        if ((what) != (n)) {                                            \
+            raised_signal = true;                                       \
+            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(what)); \
+        }                                                               \
+    } while (0)
+
+
+static bool get_global(compiler::Scope *scope, Value symbol_value, Value &out_value);
+static void set_global(compiler::Scope *scope, Value symbol_value, Value value);
+
+namespace primitives
+{
+
+Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    auto expr = args[0];
+    if (expr.is_cons()) 
+    {
+        auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
+        bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
+        compiler::compile(e, expanded, true);
+        e.lock();
+        bytecode::disassemble(std::cout, "DISASSEMBLY", e);
+    }
+    else if (expr.is_fixnum()) 
+    {
+        auto ptr = expr.as_fixnum();
+        auto val = Value(static_cast<Value::Bits_Type>(ptr));
+        if (val.is_type(Object_Type::Closure)) 
+        {
+            auto closure = expr.as_object()->closure();
+            bytecode::disassemble(std::cout, "DISASSEMBLY", closure->function(), closure->function()->main_entry());
+        }
+        else 
+        {
+            bytecode::disassemble(std::cout, "DISASSEMBLY", reinterpret_cast<uint8_t*>(ptr));
+        }
+    }
+    else if (expr.is_type(Object_Type::Closure)) 
+    {
+        auto closure = expr.as_object()->closure();
+        bytecode::disassemble(std::cout, "DISASSEMBLY", closure->function(), closure->function()->main_entry());
+    }
+    return Value::nil();
+}
+
+Value func_define_function(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 2);
+    auto sym = args[0];
+    CHECK_SYMBOL(sym);
+    auto func = args[1];
+    if (!func.is_lisp_primitive() && !func.is_type(Object_Type::Closure))
+    {
         raised_signal = true;
-        vm.restore(save);
-        return e.what;
+        return gc.list(g.s_TYPE_ERROR, g.s_FUNCTION, func);
     }
-    auto result = vm.param_top();
-    vm.restore(save);
+    sym.as_object()->symbol()->function(func);
+    return sym;
+}
+
+bool check_string_like(Value &arg, Value &out_signal_args, std::string &out_string)
+{
+    // Helper to check if arg is a string-like, storing the string representation in out_string.
+    // Returns true if a signal should be raised and stores the signal arguments in out_signal_args.
+    if (symbolp(arg))
+    {
+        out_string = arg.as_object()->symbol()->name();
+    }
+    else if (stringp(arg))
+    {
+        out_string = lisp_string_to_native_string(arg);
+    }
+    else
+    {
+        GC_GUARD();
+        out_signal_args = gc.list(g.s_TYPE_ERROR, 
+                           gc.list(g.get_symbol("OR"), 
+                                   g.get_symbol("STRING"), 
+                                   g.get_symbol("SYMBOL"),
+                                   g.get_symbol("KEYWORD")),
+                           arg);
+        GC_UNGUARD();
+        return true;
+    }
+    return false;
+}
+
+static
+bool check_package(Value &arg, Package **out_pkg, Value &out_signal_args)
+{
+    // Helper to check type of arg as a package or package designator: i.e.
+    // symbol, string, keyword, or package.
+    // returns true to raise signal and false if arg is a package designator.
+    // stores the found package in out_pkg.
+    if (symbolp(arg))
+    {
+        *out_pkg = g.packages.find(arg.as_object()->symbol()->name());
+    }
+    else if (stringp(arg))
+    {
+        *out_pkg = g.packages.find(lisp_string_to_native_string(arg));
+    }
+    else if (arg.is_type(Object_Type::Package))
+    {
+        *out_pkg = arg.as_object()->package();
+    }
+    else
+    {
+        GC_GUARD();
+        out_signal_args = gc.list(g.s_TYPE_ERROR, 
+                           gc.list(g.get_symbol("OR"), 
+                                   g.get_symbol("STRING"), 
+                                   g.get_symbol("SYMBOL"),
+                                   g.get_symbol("KEYWORD"),
+                                   g.get_symbol("PACKAGE")),
+                           arg);
+        GC_UNGUARD();
+        return true;
+    }
+    return false;
+}
+
+Value func_package_name(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    Package *package = nullptr;
+    {
+        Value res;
+        raised_signal = check_package(args[0], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[0]);
+        GC_UNGUARD();
+        return res;
+    }
+
+    return gc.alloc_string(args[0].as_object()->package()->name());
+}
+
+Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    std::string package_name;
+    {
+        Value signal_args;
+        raised_signal = check_string_like(args[0], signal_args, package_name);
+        if (raised_signal)
+        {
+            return signal_args;
+        }
+    }
+    
+    if (g.packages.find(package_name))
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR,
+                           gc.alloc_string("A package with the same name already exists."),
+                           args[0]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    auto package = g.packages.find_or_create(package_name);
+    return package->as_lisp_value();
+}
+
+Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_AT_LEAST_N(nargs, 1);
+
+    std::string package_name;
+    {
+        Value signal_args;
+        raised_signal = check_string_like(args[0], signal_args, package_name);
+        if (raised_signal)
+        {
+            return signal_args;
+        }
+    }
+    Package *package_to_use = g.packages.find(package_name);
+    
+    if (package_to_use == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR,
+                           gc.alloc_string("Package does not exist"),
+                           args[0]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    auto in_package = g.packages.current();
+    if (nargs > 1)
+    {
+        Value signal_args;
+        raised_signal = check_package(args[1], &in_package, signal_args);
+        if (raised_signal)
+        {
+            return signal_args;
+        }
+    }
+
+    if (in_package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    in_package->inherit(package_to_use);
+    return g.s_T;
+}
+
+Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    
+    
+    Package *package_to_use;
+    if (args[0].is_type(Object_Type::Package))
+    {
+        package_to_use = args[0].as_object()->package();
+    }
+    else
+    {
+        std::string package_name;
+        {
+            Value signal_args;
+            raised_signal = check_string_like(args[0], signal_args, package_name);
+            if (raised_signal)
+            {
+                return signal_args;
+            }
+        }
+        package_to_use = g.packages.find(package_name);
+    }
+    
+    if (package_to_use == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR,
+                           gc.alloc_string("Package does not exist"),
+                           args[0]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    g.packages.in_package(package_to_use);
+
+    set_global(compiler::THE_ROOT_SCOPE,
+               g.get_symbol("*PACKAGE*"),
+               package_to_use->as_lisp_value());
+    return package_to_use->as_lisp_value();
+}
+
+Value func_print(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    for (uint32_t i = 0; i < nargs; ++i)
+    {
+        printf("%s ", repr(args[i]).c_str());
+    }
+    printf("\n");
+    return Value::nil();
+}
+
+Value func_plus(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (+ &rest fixnums)
+    */
+    auto result = Value::wrap_fixnum(0);
+    for (uint32_t i = 0; i < nargs; ++i) 
+    {
+        auto tmp = args[i];
+        CHECK_FIXNUM(tmp);
+        result += tmp;
+    }
     return result;
 }
 
-static
-void eval_fstream(lisp_vm_state &vm, const std::filesystem::path filepath, lisp_stream &stm, bool show_disassembly)
+Value func_minus(Value *args, uint32_t nargs, bool &raised_signal)
 {
-    static auto load_sym = intern_symbol("LOAD").as_object()->symbol();
-
-    if (load_sym->function.is_not_nil()) {
-        auto args = lisp_obj::create_string(filepath);
-        vm.call_lisp_function(load_sym->function, &args, 1);
+    /***
+        (- &rest fixnums)
+    */
+    auto result = Value::wrap_fixnum(0);
+    if (nargs == 0)
+    {
+        ;
     }
-    else {
+    else if (nargs == 1) 
+    {
+        CHECK_FIXNUM(args[0]);
+        result -= args[0];
+    }
+    else 
+    {
+        CHECK_FIXNUM(args[0]);
+        result = args[0];
+        for (uint32_t i = 1; i < nargs; ++i) 
+        {
+            CHECK_FIXNUM(args[i]);
+            result -= args[i];
+        }
+    }
+    return result;
+}
+
+Value func_multiply(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (* &rest fixnums)
+    */
+    int64_t result = 1;
+    for (uint32_t i = 0; i < nargs; ++i) 
+    {
+        auto tmp = args[i];
+        CHECK_FIXNUM(tmp);
+        result *= tmp.as_fixnum();
+    }
+    return Value::wrap_fixnum(result);
+}
+
+Value func_divide(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (/ x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    if (y == 0) 
+    {
+        raised_signal = true;
+        return gc.list(g.s_DIVIDE_BY_ZERO_ERROR, args[0], args[1]);
+    }
+    return Value::wrap_fixnum(x / y);
+}
+
+Value func_bit_not(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-not x)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto x = args[0].as_fixnum();
+    return Value::wrap_fixnum(~x);
+}
+
+Value func_bit_and(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-and x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return Value::wrap_fixnum(x & y);
+}
+
+Value func_bit_or(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-or x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return Value::wrap_fixnum(x | y);
+}
+
+Value func_bit_xor(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-xor x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return Value::wrap_fixnum(x ^ y);
+}
+
+Value func_bit_shift(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bit-shift integer count)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto integer = args[0].as_fixnum();
+    auto count = args[1].as_fixnum();
+    if (count > 0) 
+    {
+        return Value::wrap_fixnum(integer << count);
+    }
+    return Value::wrap_fixnum(integer >> -count);
+}
+
+Value func_num_less(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (< a b &rest more-fixnums)
+    */
+    CHECK_AT_LEAST_N(nargs, 2);
+    auto a = args[0];
+    CHECK_FIXNUM(a);
+    auto b = args[1];
+    CHECK_FIXNUM(b);
+    bool result = a.as_fixnum() < b.as_fixnum();
+    if (result) 
+    {
+        a = b;
+        for (uint32_t i = 2; i < nargs; ++i) 
+        {
+            b = args[i];
+            CHECK_FIXNUM(b);
+            result = a.as_fixnum() < b.as_fixnum();
+            if (result == false) 
+            {
+                break;
+            }
+            a = b;
+        }
+    }
+    return result ? g.s_T : Value::nil();
+}
+
+Value func_num_equal(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (= n &rest more-fixnums)
+    */
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto n = args[0];
+    CHECK_FIXNUM(n);
+    for (uint32_t i = 1; i < nargs; ++i) 
+    {
+        CHECK_FIXNUM(args[i]);
+        if (args[i] != n)
+        {
+            return Value::nil();
+        }
+    }
+    return g.s_T;
+}
+
+Value func_num_greater(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (> a b &rest more-fixnums)
+    */
+    CHECK_AT_LEAST_N(nargs, 2);
+    auto a = args[0];
+    CHECK_FIXNUM(a);
+    auto b = args[1];
+    CHECK_FIXNUM(b);
+    bool result = a.as_fixnum() > b.as_fixnum();
+    if (result) 
+    {
+        a = b;
+        for (uint32_t i = 2; i < nargs; ++i) 
+        {
+            b = args[i];
+            CHECK_FIXNUM(b);
+            result = a.as_fixnum() > b.as_fixnum();
+            if (result == false) 
+            {
+                break;
+            }
+            a = b;
+        }
+    }
+    return result ? g.s_T : Value::nil();
+}
+
+
+Value func_file_write(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-write stream object)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FILE_STREAM(args[0]);
+    auto &stm = args[0].as_object()->file_stream()->stream();
+    auto obj = args[1];
+    auto pos = stm.tellg();
+    stm << repr(obj);
+    auto bytes_written = stm.tellg() - pos;
+    stm.flush();
+    return Value::wrap_fixnum(bytes_written);
+}
+
+Value func_file_putchar(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-putchar stream character)
+    */
+
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FILE_STREAM(args[0]);
+    auto stm = args[0].as_object()->file_stream();
+    CHECK_CHARACTER(args[1]);
+    auto codepoint = args[1].as_character();
+    auto bytes_written = stm->write_character(codepoint);
+    if (codepoint == '\n') 
+    {
+        stm->flush();
+    }
+    return Value::wrap_fixnum(bytes_written);
+}
+
+Value func_file_puts(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-puts stream string)
+    */
+
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FILE_STREAM(args[0]);
+    CHECK_STRING(args[1]);
+    auto &stm = args[0].as_object()->file_stream()->stream();
+    auto pos = stm.tellg();
+    stm << lisp_string_to_native_string(args[1]);
+    auto bytes_written = stm.tellg() - pos;
+    stm.flush();
+    return Value::wrap_fixnum(bytes_written);
+}
+
+Value func_type_of(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (type-of object)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    if (it.is_fixnum()) 
+    {
+        return g.s_FIXNUM;
+    }
+    if (it.is_nil()) 
+    {
+        return g.s_NULL;
+    }
+    if (it.is_cons()) 
+    {
+        return g.s_CONS;
+    }
+    if (it.is_character()) 
+    {
+        return g.s_CHARACTER;
+    }
+    if (it.is_object()) 
+    {
+        switch (it.as_object()->type()) 
+        {
+            case Object_Type::Symbol: return g.s_SYMBOL;
+            case Object_Type::Closure: return g.s_FUNCTION;
+            case Object_Type::Simple_Array:
+            {
+                auto array = it.as_object()->simple_array();
+                return gc.list(g.s_SIMPLE_ARRAY,
+                               array->element_type(),
+                               Value::wrap_fixnum(array->size()));
+            };
+            case Object_Type::File_Stream: return g.s_FILE_STREAM;
+            case Object_Type::System_Pointer: return g.s_SYSTEM_POINTER;
+            case Object_Type::Structure: return it.as_object()->structure()->type_name();
+            case Object_Type::Package: return g.s_PACKAGE;
+        }
+        return Value::nil();
+    }
+    if (it.is_lisp_primitive()) 
+    {
+        return g.s_FUNCTION;
+    }
+    if (it == g.s_T) 
+    {
+        return g.s_BOOLEAN;
+    }
+    raised_signal = true;
+    GC_GUARD();
+    auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Cannot determine type of object."), it);
+    GC_UNGUARD();
+    return res;
+}
+
+Value func_read(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (read &optional file-stream eof-error-p eof-value)
+    */
+    
+    bool eof_error_p = true;
+    if (nargs > 1) 
+    {
+        eof_error_p = !args[1].is_nil();
+    }
+    auto eof_value = Value::nil();
+    if (nargs > 2) 
+    {
+        eof_value = args[2];
+    }
+
+    if (nargs == 0) 
+    {
+        Value result;
+        if (!read_gc_paused(std::cin, result))
+        {
+            // @FIXME: This should be checking for errors, not assuming EOF
+            if (eof_error_p) 
+            {
+                raised_signal = true;
+                return gc.list(g.s_END_OF_FILE);
+            }
+            return eof_value;
+        }
+        return result;
+    }
+    else 
+    {
+        CHECK_FILE_STREAM(args[0]);
+        Value result;
+        if (!read_gc_paused(args[0].as_object()->file_stream()->stream(), result))
+        {
+            // @FIXME: This should be checking for errors, not assuming EOF
+            if (eof_error_p) 
+            {
+                raised_signal = true;
+                return gc.list(g.s_END_OF_FILE);
+            }
+            return eof_value;
+        }
+        return result;
+    }
+}
+
+Value func_macro_expand(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (macro-expand expr)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    return macro_expand_impl(args[0], *THE_LISP_VM);
+}
+
+Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (eval expr)
+    */
+    auto vm = THE_LISP_VM;
+    auto save = vm->save();
+
+    CHECK_EXACTLY_N(nargs, 1);
+    auto expr = args[0];
+    gc.pin_value(expr);
+
+    bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
+
+    auto expanded = macro_expand_impl(expr, *vm);
+    gc.unpin_value(expr);
+
+    compiler::compile(e, expanded, false, false);
+    e.emit_halt();
+    e.lock();
+
+    g.resize_globals(compiler::THE_ROOT_SCOPE->locals().size());
+
+    vm->push_frame(nullptr, 0);
+
+    try
+    {
+        vm->execute(e.bytecode().data());
+    }
+    catch (VM_State::Signal_Exception e)
+    {
+        vm->restore(save);
+        raised_signal = true;
+        return e.what;
+    }
+
+    auto result = vm->pop_param();
+    vm->restore(save);
+    return result;
+}
+
+Value func_gensym(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (gensym &optional hint)
+    */
+    static unsigned int counter = 0;
+    std::string sym_name;
+    if (nargs != 0) 
+    {
+        auto hint = args[0];
+        CHECK_STRING(hint);
+        sym_name = lisp_string_to_native_string(hint);
+    }
+    else 
+    {
+        sym_name = "G";
+    }
+
+    sym_name += std::to_string(counter++);
+    return gc.alloc_object<Symbol>(sym_name);
+}
+
+Value func_make_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (make-symbol symbol-name)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    std::string name;
+    CHECK_STRING(args[0]);
+    auto array = args[0].as_object()->simple_array();
+    for (Fixnum i = 0; i < array->size(); ++i) 
+    {
+        auto codepoint = array->at(i).as_character();
+        name += reinterpret_cast<const char*>(&codepoint);
+    }
+    return gc.alloc_object<Symbol>(name);
+}
+
+Value func_symbol_name(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (symbol-name symbol)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYMBOL(args[0]);
+    return gc.alloc_string(args[0].as_object()->symbol()->name());
+}
+
+Value func_symbol_package(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (symbol-name symbol)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYMBOL(args[0]);
+    auto pkg = args[0].as_object()->symbol()->package();
+    return pkg ? pkg->as_lisp_value() : Value::nil();
+}
+
+Value func_export(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 2);
+    auto package = g.packages.current();
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    auto list_of_symbols = args[0];
+    CHECK_LIST(list_of_symbols);
+    while (!list_of_symbols.is_nil())
+    {
+        auto sym = car(list_of_symbols);
+        CHECK_SYMBOL(sym);
+        package->export_symbol(sym.as_object()->symbol()->name());
+        list_of_symbols = cdr(list_of_symbols);
+    }
+    return g.s_T;
+}
+
+Value func_import(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    return Value::nil();
+}
+
+Value func_intern(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (intern symbol-name &optional package)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    std::string name;
+    CHECK_STRING(args[0]);
+    Package *package = nullptr;
+
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+
+    auto array = args[0].as_object()->simple_array();
+    for (Fixnum i = 0; i < array->size(); ++i) 
+    {
+        auto codepoint = array->at(i).as_character();
+        name += reinterpret_cast<const char*>(&codepoint);
+    }
+
+    auto sym = package->intern_symbol(name);
+    return sym;
+}
+
+Value func_exit(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (exit &optional n)
+    */
+    int code = 0;
+    if (nargs != 0) 
+    {
+        CHECK_FIXNUM(args[0]);
+        code = args[0].as_fixnum();
+    }
+    exit(code);
+}
+
+Value func_signal(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (signal tag &rest args)
+    */
+    CHECK_AT_LEAST_N(nargs, 1);
+    raised_signal = true;
+    return to_list(args, nargs);
+}
+
+Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (make-array length &optional type)
+    */
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto length = args[0];
+    CHECK_FIXNUM(length);
+    // @TODO: Array operations still need type checking
+    if (nargs != 1) 
+    {
+        auto type = args[1];
+        if (type == g.s_CHARACTER || type == g.s_FIXNUM)
+        {
+            return gc.alloc_object<Simple_Array>(type, length.as_fixnum());
+        }
+    }
+    return gc.alloc_object<Simple_Array>(g.s_T, length.as_fixnum());
+}
+
+Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (array-length array)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+
+    // @TODO: typecheck array in ARRAY-LENGTH primitive
+    auto array = args[0];
+    if (array.is_type(Object_Type::Simple_Array)) 
+    {
+        return Value::wrap_fixnum(array.as_object()->simple_array()->size());
+    }
+    return Value::nil();
+}
+
+Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (array-type array)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+
+    // @TODO: typecheck array in ARRAY-TYPE primitive
+    auto array = args[0];
+    if (array.is_type(Object_Type::Simple_Array)) 
+    {
+        return array.as_object()->simple_array()->element_type();
+    }
+    return Value::nil();
+}
+
+Value func_bits_of(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (bits-of object)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+
+    auto obj = args[0];
+    auto ret = gc.alloc_object<Simple_Array>(g.s_BIT, 64);
+    auto bits = obj.bits();
+    auto array = ret.as_object()->simple_array();
+    for (int i = 0; i < 64; ++i) 
+    {
+        array->at(i) = Value::wrap_fixnum(bits & 1);
+        bits >>= 1;
+    }
+    return ret;
+}
+
+Value func_code_char(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (code-char integer)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto char_code = args[0].as_fixnum();
+    return Value::wrap_character(char_code);
+}
+
+Value func_char_code(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (char-code character)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_CHARACTER(args[0]);
+    auto character = args[0].as_character();
+    return Value::wrap_fixnum(character);
+}
+
+static
+std::ios_base::openmode get_mode(Value v)
+{
+    if (v == g.s_OVERWRITE)
+    {
+        return std::ios_base::trunc;
+    }
+    else if (v == g.s_READ)
+    {
+        return std::ios_base::in;
+    }
+    else if (v == g.s_APPEND)
+    {
+        return std::ios_base::app;
+    }
+    return static_cast<std::ios_base::openmode>(0);
+}
+
+Value func_open(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (open file-path direction)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+
+    CHECK_STRING(args[0]);
+
+    auto path = lisp_string_to_native_string(args[0]);
+    auto direction = args[1];
+    auto mode = std::ios_base::binary;
+    if (direction.is_cons()) 
+    {
+        auto p = direction;
+        while (!p.is_nil()) 
+        {
+            CHECK_SYMBOL(car(p));
+            mode |= get_mode(car(p));
+            p = cdr(p);
+        }
+    }
+    else
+    {
+        CHECK_SYMBOL(direction);
+        mode = get_mode(direction);
+    }
+    if (mode != std::ios_base::binary)
+    {
+        return gc.alloc_object<File_Stream>(path, mode);
+    }
+    return Value::nil();
+}
+
+Value func_close(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (close file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    it.as_object()->file_stream()->stream().close();
+    return g.s_T;
+}
+
+Value func_file_path(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-path file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    return gc.alloc_string(it.as_object()->file_stream()->path());
+}
+
+Value func_file_ok(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-ok file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    if (it.is_nil()) return it;
+    CHECK_FILE_STREAM(it);
+    return it.as_object()->file_stream()->stream().good() ? g.s_T : Value::nil();
+}
+
+Value func_file_eof(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-eof-p file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    if (it.is_nil()) return it;
+    CHECK_FILE_STREAM(it);
+    return it.as_object()->file_stream()->stream().eof() ? g.s_T : Value::nil(); 
+}
+
+Value func_file_mode(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-mode file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    auto mode = it.as_object()->file_stream()->mode();
+    std::vector<Value> vals;
+    if (mode | std::ios_base::app)
+    {
+        vals.push_back(g.s_APPEND);
+    }
+    if (mode | std::ios_base::trunc)
+    {
+        vals.push_back(g.s_OVERWRITE);
+    }
+    if (mode | std::ios_base::in)
+    {
+        vals.push_back(g.s_READ);
+    }
+    return to_list(vals);
+}
+
+Value func_file_flush(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-flush file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    it.as_object()->file_stream()->stream().flush();
+    return g.s_T;
+}
+
+Value func_file_read_byte(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-read-byte file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    auto &stm = it.as_object()->file_stream()->stream();
+    if (stm.eof())
+    {
+        raised_signal = true;
+        return gc.list(g.s_END_OF_FILE);
+    }
+    return Value::wrap_fixnum(stm.get());
+}
+
+Value func_file_peek_byte(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-peek-byte file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    auto &stm = it.as_object()->file_stream()->stream();
+    if (stm.eof())
+    {
+        raised_signal = true;
+        return gc.list(g.s_END_OF_FILE);
+    }
+    return Value::wrap_fixnum(stm.peek());
+}
+
+Value func_file_peek_character(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-peek-character file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    auto fs = it.as_object()->file_stream();
+    if (fs->stream().eof())
+    {
+        raised_signal = true;
+        return gc.list(g.s_END_OF_FILE);
+    }
+    return Value::wrap_character(fs->peek_character());
+}
+
+Value func_file_read_character(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-read-character file-stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto it = args[0];
+    CHECK_FILE_STREAM(it);
+    auto fs = it.as_object()->file_stream();
+    if (fs->stream().eof())
+    {
+        raised_signal = true;
+        return gc.list(g.s_END_OF_FILE);
+    }
+    return Value::wrap_character(fs->read_character());
+}
+
+Value func_get_working_directory(Value*, uint32_t, bool &raised_signal)
+{
+    /***
+        (get-working-directory)
+    */
+    std::error_code error;
+    auto current_path = plat::get_working_directory(error);
+    return error.value() != 0 ? Value::nil() : gc.alloc_string(current_path);
+}
+
+Value func_change_directory(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (change-directory path)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_STRING(args[0]);
+    auto new_path = lisp_string_to_native_string(args[0]);
+    std::error_code error;
+    plat::change_directory(new_path, error);
+    if (error.value() != 0) 
+    {
+        return Value::nil();
+    }
+
+    error.clear();
+    auto current_path = plat::get_working_directory(error);
+    return error.value() != 0 ? Value::nil() : gc.alloc_string(current_path);
+}
+
+Value func_get_executable_path(Value*, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (get-executable-path)
+    */
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.alloc_string(plat::get_executable_path());
+}
+
+Value func_get_clock_ticks(Value*, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (get-clock-ticks)
+    */
+    CHECK_EXACTLY_N(nargs, 0);
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = now.time_since_epoch();
+    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration);
+    return Value::wrap_fixnum(microseconds.count());
+}
+
+Value func_clocks_per_second(Value*, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (clocks-per-second)
+    */
+    CHECK_EXACTLY_N(nargs, 0);
+    return Value::wrap_fixnum(1000000); // @FIXME use something better than costant number
+}
+
+Value func_function_definition(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (function-definition symbol)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto sym = args[0];
+    CHECK_SYMBOL(sym);
+    return sym.as_object()->symbol()->function();
+}
+
+static
+bool ffi_try_marshal(Value val, void **out_ptr)
+{
+    if (val.is_type(Object_Type::System_Pointer)) 
+    {
+        *out_ptr = val.as_object()->system_pointer();
+        return true;
+    }
+    if (val.is_fixnum()) 
+    {
+        *out_ptr = reinterpret_cast<void*>(val.as_fixnum());
+        return true;
+    }
+    if (val.is_character()) 
+    {
+        *out_ptr = reinterpret_cast<void*>(val.as_character());
+        return true;
+    }
+    if (val.is_object()) 
+    {
+        if (val.is_type(Object_Type::Simple_Array)) 
+        {
+            auto array = val.as_object()->simple_array();
+            if (array->element_type() == g.s_CHARACTER) 
+            {
+                auto str = lisp_string_to_native_string(val);
+                auto buffer = (char*)ffi::alloc_mem(str.size()+1); // @LEAK
+                memcpy(buffer, str.data(), str.size());
+                buffer[str.size()] = 0;
+                *out_ptr = buffer;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+Value func_errno(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (errno)
+     */
+    return Value::wrap_fixnum(errno);
+}
+
+Value func_errno_str(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (errno-str)
+     */
+    if (nargs != 0)
+    {
+        CHECK_FIXNUM(args[0]);
+        return gc.alloc_string(strerror(args[0].as_fixnum()));
+    }
+    return gc.alloc_string(strerror(errno));
+}
+
+Value func_ffi_open(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-open dll-path)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto lib = args[0];
+    CHECK_STRING(lib);
+    auto lib_str = lisp_string_to_native_string(lib);
+    auto handle = ffi::open(lib_str.c_str());
+    return handle ? gc.alloc_object<System_Pointer>(handle) : Value::nil();
+}
+
+Value func_ffi_close(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-close dll-handle)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    ffi::close(args[0].as_object()->system_pointer());
+    return Value::nil();
+}
+
+Value func_ffi_get_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-get-symbol dll-handle symbol-name)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    CHECK_STRING(args[1]);
+
+    auto handle = args[0].as_object()->system_pointer();
+    auto symbol = args[1];
+    auto symbol_str = lisp_string_to_native_string(symbol);
+
+    auto ptr = ffi::getsym(handle, symbol_str.c_str());
+    return ptr ? gc.alloc_object<System_Pointer>(ptr) : Value::nil();
+}
+
+Value func_ffi_call(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-call c-function &rest args)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto func = args[0].as_object()->system_pointer();
+    std::vector<void *> marshalled;
+    for (uint32_t i = 1; i < nargs; ++i) 
+    {
+        // @TODO: marshal ffi_call
+        void *m = nullptr;
+        if (ffi_try_marshal(args[i], &m)) 
+        {
+            marshalled.push_back(m);
+        }
+        else 
+        {
+            raised_signal = true;
+            GC_GUARD();
+            auto res = gc.list(g.s_MARSHAL_ERROR, gc.alloc_string("Cannot marshal object"), args[i]);
+            GC_UNGUARD();
+            return res;
+        }
+    }
+    auto result = ffi::call(func, marshalled.data(), marshalled.size());
+    return gc.alloc_object<System_Pointer>(result);
+}
+
+Value func_ffi_nullptr(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-nullptr)
+     */
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.alloc_object<System_Pointer>(nullptr);
+}
+
+Value func_ffi_alloc(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-alloc size)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto size = args[0].as_fixnum();
+    return gc.alloc_object<System_Pointer>(ffi::alloc_mem(size));
+}
+
+Value func_ffi_zero_alloc(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-zero-alloc size)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto size = args[0].as_fixnum();
+    return gc.alloc_object<System_Pointer>(ffi::calloc_mem(size));
+}
+
+Value func_ffi_free(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-free pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = args[0].as_object()->system_pointer();
+    ffi::free_mem(ptr);
+    args[0].as_object()->system_pointer(nullptr);
+    return g.s_T;
+}
+
+Value func_ffi_ref(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-ref pointer &optional offset)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    if (nargs == 1) 
+    {
+        return gc.alloc_object<System_Pointer>(args[0].as_object()->pointer_ref());
+    }
+    else 
+    {
+        auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
+        CHECK_FIXNUM(args[1]);
+        auto offset = args[1].as_fixnum();
+        
+        return gc.alloc_object<System_Pointer>(ptr + offset);
+    }
+}
+
+Value func_ffi_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-ref-8 pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(*ptr);
+}
+
+Value func_ffi_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-ref-16 pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(*ptr);
+}
+
+Value func_ffi_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-ref-32 pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(*ptr);
+}
+
+Value func_ffi_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-ref-64 pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(*ptr);
+}
+
+Value func_ffi_set_ref(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref pointer offset value value-size)
+     */
+    CHECK_EXACTLY_N(nargs, 4);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
+    CHECK_FIXNUM(args[1]);
+    auto offset = args[1].as_fixnum();
+    CHECK_SYSTEM_POINTER(args[2]);
+    auto value = reinterpret_cast<uint8_t*>(args[2].as_object()->system_pointer());
+    CHECK_FIXNUM(args[3]);
+    auto value_size = args[3].as_fixnum();
+    
+    memcpy(ptr + offset, value, value_size);
+    return args[2];
+}
+
+Value func_ffi_set_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-8 pointer value)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xff;
+    *ptr = value;
+    return Value::wrap_fixnum(value);
+}
+
+Value func_ffi_set_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-16 pointer value)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->system_pointer());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xffff;
+    *ptr = value;
+    return Value::wrap_fixnum(value);
+}
+
+Value func_ffi_set_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-32 pointer value)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->system_pointer());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum() & 0xffffffff;
+    *ptr = value;
+    return Value::wrap_fixnum(value);
+}
+
+Value func_ffi_set_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-set-ref-64 pointer value)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->system_pointer());
+    CHECK_FIXNUM(args[1]);
+    auto value = args[1].as_fixnum();
+    *ptr = value;
+    return Value::wrap_fixnum(value);
+}
+
+Value func_ffi_marshal(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-marshal object)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    void *result = nullptr;
+    if (ffi_try_marshal(args[0], &result)) 
+    {
+        return gc.alloc_object<System_Pointer>(result);
+    }
+    raised_signal = true;
+    GC_GUARD();
+    auto res = gc.list(g.s_MARSHAL_ERROR, gc.alloc_string("Cannot marshal object"), args[0]);
+    GC_UNGUARD();
+    return res;
+}
+Value func_ffi_strlen(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<const char*>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(strlen(ptr));
+}
+
+Value func_ffi_coerce_fixnum(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-fixnum system-pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<Fixnum>(args[0].as_object()->system_pointer());
+    return Value::wrap_fixnum(ptr);
+}
+
+Value func_ffi_coerce_int(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-int system-pointer)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = static_cast<int>(reinterpret_cast<uintptr_t>(args[0].as_object()->system_pointer()));
+    return Value::wrap_fixnum(ptr);
+}
+
+Value func_ffi_coerce_string(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-coerce-string system-pointer &optional length)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_SYSTEM_POINTER(args[0]);
+    auto ptr = reinterpret_cast<const char*>(args[0].as_object()->system_pointer());
+    if (nargs == 1) 
+    {
+        return gc.alloc_string(ptr);
+    }
+    CHECK_FIXNUM(args[1]);
+    auto len = args[1].as_fixnum();
+    return gc.alloc_string(ptr, len);
+}
+
+Value func_structure_definition(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (structure-definition object)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_STRUCT(args[0]);
+    return args[0].as_object()->structure()->type();
+}
+
+Value func_create_instance(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (create-instance type &rest slots)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto instance_val = gc.alloc_object<Structure>(args[0], nargs-1);
+    if (nargs > 1) 
+    {
+        auto inst = instance_val.as_object()->structure();
+        for (uint32_t i = 1; i < nargs; ++i) 
+        {
+            inst->slot_value(i-1) = args[i];
+        }
+    }
+    return instance_val;
+}
+
+Value func_get_slot(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (get-slot object n)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_STRUCT(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    return args[0].as_object()->structure()->slot_value(index);
+}
+
+Value func_set_slot(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (set-slot object n value)
+     */
+    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_STRUCT(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    auto value = args[2];
+    args[0].as_object()->structure()->slot_value(index) = value;
+    return value;
+}
+
+Value func_gc_pause(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.pause() ? g.s_T : Value::nil();
+}
+
+Value func_gc_paused_p(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.paused() ? g.s_T : Value::nil();
+}
+
+Value func_gc_set_paused(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    gc.set_paused(!args[0].is_nil());
+    return args[0];
+}
+
+}
+
+static
+void export_function(Package *package, const std::string &name, Primitive func, Value &symbol)
+{
+    symbol = package->export_symbol(name);
+    symbol.as_object()->symbol()->function(Value::wrap_primitive(func));
+}
+
+static
+void export_function(Package *package, const std::string &name, Primitive func)
+{
+    auto symbol = package->export_symbol(name);
+    symbol.as_object()->symbol()->function(Value::wrap_primitive(func));
+}
+
+static
+void export_macro(Package *package, const std::string &name, Primitive func)
+{
+    auto symbol = package->export_symbol(name).as_object()->symbol();
+    g.macros[symbol] = Value::wrap_primitive(func);
+}
+
+static
+bool get_global(compiler::Scope *scope, Value symbol_value, Value &out_value)
+{
+    if (!symbolp(symbol_value))
+    {
+        fprintf(stderr, "Tried to get global with non-symbol: %s\n", repr(symbol_value).c_str());
+        return false;
+    }
+    auto root = scope->get_root();
+    uint32_t global_idx;
+    if (root->resolve_local(symbol_value.as_object()->symbol(), global_idx))
+    {
+        out_value = g.global_value_slots[global_idx];
+        return true;
+    }
+    return false;
+}
+
+static
+void set_global(compiler::Scope *scope, Value symbol_value, Value value)
+{
+    if (!symbolp(symbol_value))
+    {
+        fprintf(stderr, "Tried to set global with non-symbol: %s\n", repr(symbol_value).c_str());
+        return;
+    }
+    auto symbol = symbol_value.as_object()->symbol();
+    auto root = scope->get_root();
+    uint32_t global_idx;
+    if (!root->resolve_local(symbol, global_idx))
+    {
+        root->create_variable(symbol, &global_idx);
+    }
+    g.resize_globals(root->locals().size());
+    g.global_value_slots[global_idx] = value;
+}
+
+static
+void initialize_globals(compiler::Scope *root_scope)
+{
+    auto kernel = g.kernel();
+    auto core = g.core();
+    auto user = g.user();
+    
+    core->inherit(kernel);
+    kernel->inherit(core);
+    user->inherit(core);
+    
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-OUTPUT*"), 
+               gc.alloc_object<File_Stream>("/dev/stdout", std::ios_base::binary | std::ios_base::app));
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-ERROR*"), 
+               gc.alloc_object<File_Stream>("/dev/stderr", std::ios_base::binary | std::ios_base::app));
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-INPUT*"), 
+               gc.alloc_object<File_Stream>("/dev/stdin", std::ios_base::binary | std::ios_base::in));
+    set_global(root_scope,
+               core->export_symbol("*PACKAGE*"),
+               Value::nil());
+
+    g.s_pCAR             = kernel->export_symbol("%CAR");
+    g.s_pCDR             = kernel->export_symbol("%CDR");
+    g.s_pCONS            = kernel->export_symbol("%CONS");
+    g.s_pEQ              = kernel->export_symbol("%EQ");
+    g.s_pRPLACA          = kernel->export_symbol("%RPLACA");
+    g.s_pRPLACD          = kernel->export_symbol("%RPLACD");
+    g.s_pSETQ            = kernel->export_symbol("%SETQ");
+    g.s_pAREF            = kernel->export_symbol("%AREF");
+    g.s_pASET            = kernel->export_symbol("%ASET");
+    g.s_pDEBUGGER        = kernel->export_symbol("%DEBUGGER");
+    g.s_pAPPLY           = kernel->export_symbol("%APPLY");
+    g.s_pFUNCALL         = kernel->export_symbol("FUNCALL");
+    g.s_pTAGBODY         = kernel->export_symbol("%TAGBODY");
+    g.s_pGO              = kernel->export_symbol("%GO");
+    g.s_pSIGNAL          = kernel->export_symbol("%SIGNAL");
+    g.s_pHANDLER_CASE    = kernel->export_symbol("%HANDLER-CASE");
+    g.s_pDEFINE_MACRO    = kernel->export_symbol("%DEFINE-MACRO");
+    
+    g.s_T                = core->export_symbol("T");
+    g.s_IF               = core->export_symbol("IF");
+    g.s_OR               = core->export_symbol("OR");
+    g.s_LAMBDA           = core->export_symbol("LAMBDA");
+    g.s_FIXNUM           = core->export_symbol("FIXNUM");
+    g.s_CONS             = core->export_symbol("CONS");
+    g.s_NULL             = core->export_symbol("NULL");
+    g.s_LIST             = core->export_symbol("LIST");
+    g.s_CHARACTER        = core->export_symbol("CHARACTER");
+    g.s_SYMBOL           = core->export_symbol("SYMBOL");
+    g.s_STRING           = core->export_symbol("STRING");
+    g.s_FUNCTION         = core->export_symbol("FUNCTION");
+    g.s_BOOLEAN          = core->export_symbol("BOOLEAN");
+    g.s_STRUCTURE        = core->export_symbol("STRUCTURE");
+    g.s_PACKAGE          = core->export_symbol("PACKAGE");
+    g.s_FILE_STREAM      = core->export_symbol("FILE-STREAM");
+    g.s_SYSTEM_POINTER   = core->export_symbol("SYSTEM-POINTER");
+    g.s_SIMPLE_ARRAY     = core->export_symbol("SIMPLE-ARRAY");
+    g.s_QUOTE            = core->export_symbol("QUOTE");
+    g.s_QUASIQUOTE       = core->export_symbol("QUASIQUOTE");
+    g.s_UNQUOTE          = core->export_symbol("UNQUOTE");
+    g.s_UNQUOTE_SPLICING = core->export_symbol("UNQUOTE-SPLICING");
+    g.s_TYPE_ERROR       = core->export_symbol("TYPE-ERROR");
+    g.s_SIMPLE_ERROR     = core->export_symbol("SIMPLE-ERROR");
+    g.s_aOPTIONAL        = core->export_symbol("&OPTIONAL");
+    g.s_aREST            = core->export_symbol("&REST");
+    g.s_aBODY            = core->export_symbol("&BODY");
+    
+    g.s_DIVIDE_BY_ZERO_ERROR = core->export_symbol("DIVIDE-BY-ZERO-ERROR");
+    g.s_INDEX_OUT_OF_BOUNDS_ERROR = core->export_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
+    g.s_END_OF_FILE      = core->export_symbol("END-OF-FILE");
+    g.s_BIT              = core->export_symbol("BIT");
+
+    g.s_OVERWRITE        = core->export_symbol("OVERWRITE");
+    g.s_APPEND           = core->export_symbol("APPEND");
+    g.s_READ             = core->export_symbol("READ");
+
+    g.s_MARSHAL_ERROR    = core->export_symbol("MARSHAL-ERROR");
+
+    export_function(core, "%PRINT", primitives::func_print);
+    
+    export_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function, g.s_pDEFINE_FUNCTION);
+    export_function(kernel, "%PACKAGE-NAME", primitives::func_package_name);
+    export_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
+    export_function(kernel, "%IN-PACKAGE", primitives::func_in_package);
+    export_function(kernel, "%MAKE-PACKAGE", primitives::func_make_package);
+    export_function(kernel, "%DISASSEMBLE", primitives::func_disassemble);
+
+    export_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
+    export_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
+    export_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
+
+    export_function(kernel, "%+", primitives::func_plus);
+    export_function(kernel, "%-", primitives::func_minus);
+    export_function(kernel, "%*", primitives::func_multiply);
+    export_function(kernel, "%/", primitives::func_divide);
+    export_function(kernel, "%<", primitives::func_num_less);
+    export_function(kernel, "%=", primitives::func_num_equal);
+    export_function(kernel, "%>", primitives::func_num_greater);
+    export_function(kernel, "%TYPE-OF", primitives::func_type_of);
+    export_function(kernel, "%READ", primitives::func_read);
+    export_function(kernel, "%MACRO-EXPAND", primitives::func_macro_expand);
+    export_function(kernel, "%EVAL", primitives::func_eval);
+    export_function(kernel, "%GENSYM", primitives::func_gensym);
+    export_function(kernel, "%MAKE-SYMBOL", primitives::func_make_symbol);
+    export_function(kernel, "%SYMBOL-NAME", primitives::func_symbol_name);
+    export_function(kernel, "%SYMBOL-PACKAGE", primitives::func_symbol_package);
+    export_function(kernel, "%EXPORT", primitives::func_export);
+    export_function(kernel, "%IMPORT", primitives::func_import);
+    export_function(kernel, "%INTERN", primitives::func_intern);
+    export_function(kernel, "%EXIT", primitives::func_exit);
+    export_function(kernel, "%SIGNAL", primitives::func_signal);
+
+    export_function(kernel, "%MAKE-ARRAY", primitives::func_make_array);
+    export_function(kernel, "%ARRAY-LENGTH", primitives::func_array_length);
+    export_function(kernel, "%ARRAY-TYPE", primitives::func_array_type);
+
+    export_function(kernel, "%CHAR-CODE", primitives::func_char_code);
+    export_function(kernel, "%CODE-CHAR", primitives::func_code_char);
+
+    export_function(kernel, "%BITS-OF", primitives::func_bits_of);
+
+    export_function(kernel, "%OPEN", primitives::func_open);
+    export_function(kernel, "%CLOSE", primitives::func_close);
+    export_function(kernel, "%FILE-PATH", primitives::func_file_path);
+    export_function(kernel, "%FILE-MODE", primitives::func_file_mode);
+    export_function(kernel, "%FILE-EOF-P", primitives::func_file_eof);
+    export_function(kernel, "%FILE-OK-P", primitives::func_file_ok);
+    export_function(kernel, "%FILE-FLUSH", primitives::func_file_flush);
+    export_function(kernel, "%FILE-WRITE", primitives::func_file_write);
+    export_function(kernel, "%FILE-PUTCHAR", primitives::func_file_putchar);
+    export_function(kernel, "%FILE-PUTS", primitives::func_file_puts);
+    export_function(kernel, "%FILE-READ-BYTE", primitives::func_file_read_byte);
+    export_function(kernel, "%FILE-PEEK-BYTE", primitives::func_file_peek_byte);
+    export_function(kernel, "%FILE-READ-CHARACTER", primitives::func_file_read_character);
+    export_function(kernel, "%FILE-PEEK-CHARACTER", primitives::func_file_peek_character);
+
+    export_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
+    export_function(kernel, "%FUNCTION-DEFINITION", primitives::func_function_definition);
+    export_function(kernel, "%STRUCTURE-DEFINITION", primitives::func_structure_definition);
+    export_function(kernel, "%CREATE-INSTANCE", primitives::func_create_instance);
+    export_function(kernel, "%GET-SLOT", primitives::func_get_slot);
+    export_function(kernel, "%SET-SLOT", primitives::func_set_slot);
+
+    export_function(kernel, "GET-WORKING-DIRECTORY", primitives::func_get_working_directory);
+    export_function(kernel, "CHANGE-DIRECTORY", primitives::func_change_directory);
+    export_function(kernel, "GET-EXECUTABLE-PATH", primitives::func_get_executable_path);
+
+    export_function(kernel, "GET-CLOCK-TICKS", primitives::func_get_clock_ticks);
+    export_function(kernel, "CLOCKS-PER-SECOND", primitives::func_clocks_per_second);
+    
+    export_function(kernel, "ERRNO", primitives::func_errno);
+    export_function(kernel, "ERRNO-STR", primitives::func_errno_str);
+    export_function(kernel, "FFI-OPEN", primitives::func_ffi_open);
+    export_function(kernel, "FFI-CLOSE", primitives::func_ffi_close);
+    export_function(kernel, "FFI-GET-SYMBOL", primitives::func_ffi_get_symbol);
+    export_function(kernel, "FFI-CALL", primitives::func_ffi_call);
+    export_function(kernel, "FFI-NULLPTR", primitives::func_ffi_nullptr);
+    export_function(kernel, "FFI-ALLOC", primitives::func_ffi_alloc);
+    export_function(kernel, "FFI-ZERO-ALLOC", primitives::func_ffi_zero_alloc);
+    export_function(kernel, "FFI-FREE", primitives::func_ffi_free);
+    export_function(kernel, "FFI-MARSHAL", primitives::func_ffi_marshal);
+    export_function(kernel, "FFI-STRLEN", primitives::func_ffi_strlen);
+    export_function(kernel, "FFI-COERCE-FIXNUM", primitives::func_ffi_coerce_fixnum);
+    export_function(kernel, "FFI-COERCE-INT", primitives::func_ffi_coerce_int);
+    export_function(kernel, "FFI-COERCE-STRING", primitives::func_ffi_coerce_string);
+    export_function(kernel, "FFI-REF", primitives::func_ffi_ref);
+    export_function(kernel, "FFI-REF-8", primitives::func_ffi_ref_8);
+    export_function(kernel, "FFI-REF-16", primitives::func_ffi_ref_16);
+    export_function(kernel, "FFI-REF-32", primitives::func_ffi_ref_32);
+    export_function(kernel, "FFI-REF-64", primitives::func_ffi_ref_64);
+    export_function(kernel, "FFI-SET-REF", primitives::func_ffi_set_ref);
+    export_function(kernel, "FFI-SET-REF-8", primitives::func_ffi_set_ref_8);
+    export_function(kernel, "FFI-SET-REF-16", primitives::func_ffi_set_ref_16);
+    export_function(kernel, "FFI-SET-REF-32", primitives::func_ffi_set_ref_32);
+    export_function(kernel, "FFI-SET-REF-64", primitives::func_ffi_set_ref_64);
+
+    export_function(kernel, "BIT-NOT", primitives::func_bit_not);
+    export_function(kernel, "BIT-AND", primitives::func_bit_and);
+    export_function(kernel, "BIT-IOR", primitives::func_bit_or);
+    export_function(kernel, "BIT-XOR", primitives::func_bit_xor);
+    export_function(kernel, "BIT-SHIFT", primitives::func_bit_shift);
+}
+
+bool VM_State::find_handler(Value tag, bool auto_pop, Handler_Case &out_case_state, Signal_Handler &out_handler)
+{
+    bool found = false;
+    size_t npop = 0;
+    for (auto it = m_handler_cases.rbegin(); !found && it != m_handler_cases.rend(); it++)
+    {
+        npop++;
+        auto &handlers = it->handlers;
+        for (auto h = handlers.rbegin(); h != handlers.rend(); ++h)
+        {
+            if (h->tag == g.s_T || h->tag == tag)
+            {
+                out_case_state = *it;
+                out_handler = *h;
+                found = true;
+                break;
+            }
+        }
+    }
+    
+    if (auto_pop)
+    {
+        m_handler_cases.resize(m_handler_cases.size() - npop);
+    }
+    return found;
+}
+
+Value VM_State::call_lisp_function(Value function_or_symbol, Value *args, uint32_t nargs)
+{
+    auto function = symbolp(function_or_symbol)
+        ? function_or_symbol.as_object()->symbol()->function()
+        : function_or_symbol;
+
+    if (function.is_lisp_primitive())
+    {
+        bool raised_signal = false;
+        auto result = function.as_lisp_primitive()(args, nargs, raised_signal);
+        if (raised_signal)
+        {
+            throw Signal_Exception(result);
+        }
+        return result;
+    }
+    
+    if (function.is_type(Object_Type::Closure))
+    {
+        // What better way to reduce code sync bugs than by just letting the VM handle dispatching the call?
+        if (m_stub.emitter == nullptr)
+        {
+            m_stub.emitter = new bytecode::Emitter(nullptr);
+            m_stub.function_offset = m_stub.emitter->position() + 1;
+            m_stub.emitter->emit_push_literal(function);
+            m_stub.nargs_offset = m_stub.emitter->position() + 1;
+            m_stub.emitter->emit_funcall(nargs);
+            m_stub.emitter->emit_halt();
+            m_stub.emitter->lock();
+        }
+        else
+        {
+            m_stub.emitter->set_raw(m_stub.function_offset, function);
+            m_stub.emitter->set_raw(m_stub.nargs_offset, nargs);
+        }
+        for (uint32_t i = 0; i < nargs; ++i)
+        {
+            push_param(args[i]);
+        }
+        execute(m_stub.emitter->bytecode().data());
+        return pop_param();
+    }
+    
+    throw Unhandleable_Exception{ {function}, "Cannot call lisp function because it's not a FUNCTION: "};
+}
+
+template<typename Function, typename ...ExtraArgs>
+static
+Value map(Value list, Function func, ExtraArgs&... args)
+{
+    if (list.is_nil())
+    {
+        return list;
+    }
+
+    GC_GUARD();
+    auto head = gc.list(func(car(list), args...));
+    auto current = head;
+    list = cdr(list);
+    while (!list.is_nil()) 
+    {
+        set_cdr(current, gc.list(func(car(list), args...)));
+        current = cdr(current);
+        list = cdr(list);
+    }
+    GC_UNGUARD();
+    return head;
+}
+
+static
+Value zip3(Value a, Value b, Value c)
+{
+    if (a.is_nil())
+    {
+        return a;
+    }
+
+    GC_GUARD();
+    auto head = gc.list(gc.cons(car(a), gc.cons(car(b), car(c))));
+    auto current = head;
+    a = cdr(a); b = cdr(b); c = cdr(c);
+    while (!a.is_nil()) 
+    {
+        auto next = gc.cons(car(a), gc.cons(car(b), car(c)));
+        set_cdr(current, gc.list(next));
+        current = cdr(current);
+        a = cdr(a); b = cdr(b); c = cdr(c);
+    }
+    GC_UNGUARD();
+    return head;
+}
+
+static
+Value macro_expand_impl(Value obj, VM_State &vm)
+{
+    if (!obj.is_cons()) 
+    {
+        return obj;
+    }
+    auto car = first(obj);
+    if (symbolp(car)) 
+    {
+        if (car == g.s_QUOTE) 
+        {
+            return obj;
+        }
+        if (car == g.s_IF) 
+        {
+            auto condition = macro_expand_impl(second(obj), vm);
+            auto consequence = macro_expand_impl(third(obj), vm);
+            auto alternative = macro_expand_impl(fourth(obj), vm);
+            return gc.list(car, condition, consequence, alternative);
+        }
+        if (car == g.s_pDEFINE_MACRO) 
+        {
+            auto macro_name = second(obj);
+            auto params_list = third(obj);
+            auto body = map(cdddr(obj), macro_expand_impl, vm);
+            GC_GUARD();
+            auto res = gc.cons(car, gc.cons(macro_name, gc.cons(params_list, body)));
+            GC_UNGUARD();
+            return res;
+        }
+        if (car == g.s_LAMBDA) 
+        {
+            auto lambda_list = second(obj); // @TODO: macroexpand &optional default expressions
+            auto body = map(cddr(obj), macro_expand_impl, vm);
+            GC_GUARD();
+            auto res = gc.cons(car, gc.cons(lambda_list, body));
+            GC_UNGUARD();
+            return res;
+        }
+        if (car == g.s_pSETQ) 
+        {
+            auto variable_name = second(obj);
+            auto value = macro_expand_impl(third(obj), vm);
+            return gc.list(car, variable_name, value);
+        }
+        if (car == g.s_pHANDLER_CASE) 
+        {
+            auto form = macro_expand_impl(second(obj), vm);
+            auto handlers = cddr(obj);
+            auto handler_tags = map(handlers, first);
+            auto handler_lambda_lists = map(handlers, second);
+            auto handler_bodies = map(handlers, cddr);
+            auto expanded_bodies = map(handler_bodies, macro_expand_impl, vm);
+            auto expanded_handlers = zip3(handler_tags, handler_lambda_lists, expanded_bodies);
+            GC_GUARD();
+            auto res = gc.cons(car, gc.cons(form, expanded_handlers));
+            GC_UNGUARD();
+            return res;
+        }
+        auto it = g.macros.find(car.as_object()->symbol());
+        if (it != g.macros.end()) 
+        {
+            auto function = it->second;
+            auto args = rest(obj);
+            auto vec = to_vector(args);
+            auto expand1 = vm.call_lisp_function(function, vec.data(), vec.size());
+            auto expand_all = macro_expand_impl(expand1, vm);
+            return expand_all;
+        }
+    }
+    return map(obj, macro_expand_impl, vm);
+}
+
+
+static FORCE_INLINE
+bool is_whitespace(int c)
+{
+    return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
+}
+
+static FORCE_INLINE
+bool is_digit(int c)
+{
+    return ('0' <= c && c <= '9');
+}
+
+static FORCE_INLINE
+bool is_symbol_start_char(int c)
+{
+    if (c == '(' || c == ')'
+        || c == '\'' || c == '"' || c == '`' || c == ','
+        || is_whitespace(c)
+        || is_digit(c))
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+static FORCE_INLINE
+bool is_symbol_char(int c)
+{
+    return is_symbol_start_char(c) || is_digit(c);
+}
+
+static FORCE_INLINE
+std::string str_upper(std::string in)
+{
+    std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c){ return std::toupper(c) ; } );
+    return in;
+}
+
+static FORCE_INLINE
+int peek_consuming(std::istream &stream)
+{
+    while (is_whitespace(stream.peek()))
+    {
+        stream.get();
+    }
+    return stream.peek();
+}
+
+static
+Value make_symbol(const std::string &str)
+{
+    auto package = g.packages.current();
+    bool check_inherited_packages = false;
+    std::string symbol_name;
+    std::string package_name;
+    if (str.size() > 2 && str[0] == ':' && str[1] == ':')
+    {
+        package = g.keyword();
+        symbol_name = str.substr(2);
+        check_inherited_packages = false;
+    }
+    else if (str.size() > 1 && str[0] == ':')
+    {
+        package = g.keyword();
+        symbol_name = str.substr(1);
+        check_inherited_packages = false;
+    }
+    else
+    {
+        auto i = str.find(':');
+        if (i == std::string::npos) // no colons
+        {
+            package = g.packages.current();
+            symbol_name = str;
+            check_inherited_packages = true;
+        }
+        else if (i+1 < str.size() && str[i+1] == ':') // two colons
+        {
+            package_name = str.substr(0, i);
+            package = g.packages.find(package_name);
+            symbol_name = str.substr(i+2);
+            check_inherited_packages = false;
+        }
+        else // one colon
+        {
+            package_name = str.substr(0, i);
+            package = g.packages.find(package_name);
+            symbol_name = str.substr(i+1);
+            check_inherited_packages = false;
+        }
+    }
+    
+    if (package == nullptr)
+    {
+        fprintf(stderr, "A PACKAGE named \"%s\" does not exist.\n", package_name.c_str());
+        bt::trace_and_abort();
+    }
+    
+    if (symbol_name.find(':') != std::string::npos)
+    {
+        fprintf(stderr, "Too many colons in symbol name: %s [package:%s symbol:%s]\n", 
+                str.c_str(), package->name().c_str(), symbol_name.c_str());
+        bt::trace_and_abort();
+    }
+
+    if (symbol_name.size() == 0)
+    {
+        fprintf(stderr, "No symbol with package spec.: %s\n", str.c_str());
+        bt::trace_and_abort();
+    }
+    
+    return package->intern_symbol(symbol_name);
+}
+
+static
+bool read(std::istream &source, Value &out_result)
+{
+    auto c = peek_consuming(source);
+
+    while ((c = peek_consuming(source)) == ';')
+    {
+        while (!source.eof() && source.peek() != '\n')
+        {
+            source.get();
+        }
+    }
+
+    if (source.eof())
+    {
+        return false;
+    }
+
+    if (is_digit(c) || c == '-' || c == '+')
+    {
+        std::string str;
+        str += c;
+        source.get();
+        while (!source.eof() && is_digit(source.peek()))
+        {
+            str += source.get();
+        }
+        bool is_number = source.eof() || !is_symbol_char(source.peek());
+        while (!source.eof() && is_symbol_char(source.peek()))
+        {
+            str += source.get();
+        }
+        if (is_number && str.size() == 1 && (str[0] == '-' || str[0] == '+'))
+        {
+            is_number = false;
+        }
+        if (is_number)
+        {
+            out_result = Value::wrap_fixnum(std::stoll(str));
+            return true;
+        }
+        out_result = make_symbol(str_upper(str));
+        return true;
+    }
+    
+    if (c == '#')
+    {
+        source.get();
+        if (source.peek() == '\'')
+        {
+            source.get();
+            Value func;
+            if (read(source, func))
+            {
+                out_result = gc.list(g.s_FUNCTION, func);
+                return true;
+            }
+            return false;
+        }
+        if (source.peek() == '\\')
+        {
+            source.get();
+            std::string character;
+            while (!source.eof() && is_symbol_char(source.peek()))
+            {
+                character += source.get();
+            }
+            if (character.size() == 0)
+            {
+                if (source.eof())
+                {
+                    return false;
+                }
+                character += source.get();
+            }
+
+            if (character.size() == 1)
+            {
+                out_result = Value::wrap_character(character[0]);
+                return true;
+            }
+
+            character = str_upper(character);
+
+            if (character == "SPACE")
+            {
+                out_result = Value::wrap_character(' ');
+            }
+            else if (character == "RETURN")
+            {
+                out_result = Value::wrap_character('\r');
+            }
+            else if (character == "NEWLINE")
+            {
+                out_result = Value::wrap_character('\n');
+            }
+            else if (character == "TAB")
+            {
+                out_result = Value::wrap_character('\t');
+            }
+            else
+            {
+                auto it = *reinterpret_cast<const int32_t*>(character.c_str());
+                out_result = Value::wrap_character(it);
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    if (c == '"')
+    {
+        source.get();
+        std::string val;
+        while (!source.eof() && source.peek() != '"')
+        {
+            auto c = source.get();
+            if (c == '\\')
+            {
+                c = source.get();
+                switch (c)
+                {
+                    case 'r': c = '\r'; break;
+                    case 't': c = '\t'; break;
+                    case 'n': c = '\n'; break;
+                }
+            }
+            val += c;
+        }
+        source.get();
+        out_result = gc.alloc_string(val);
+        return true;
+    }
+    
+    if (c == '\'')
+    {
+        source.get();
+        Value quoted;
+        if (read(source, quoted))
+        {
+            out_result = gc.list(g.s_QUOTE, quoted);
+            return true;
+        }
+        return false;
+    }
+    
+    if (c == '`')
+    {
+        source.get();
+        Value quoted;
+        if (read(source, quoted))
+        {
+            out_result = gc.list(g.s_QUASIQUOTE, quoted);
+            return true;
+        }
+        return false;
+    }
+    
+    if (c == ',')
+    {
+        source.get();
+        auto symbol = g.s_UNQUOTE;
+        if (source.peek() == '@')
+        {
+            source.get();
+            symbol = g.s_UNQUOTE_SPLICING;
+        }
+        Value value;
+        if (read(source, value))
+        {
+            out_result = gc.list(symbol, value);
+            return true;
+        }
+        return false;
+    }
+    
+    if (is_symbol_start_char(c))
+    {
+        std::string str;
+        while (!source.eof() && is_symbol_char(source.peek()))
+        {
+            str += source.get();
+        }
+        str = str_upper(str);
+        if (str == "NIL")
+        {
+            out_result = Value::nil();
+        }
+        else
+        {
+            out_result = make_symbol(str);
+        }
+        return true;
+    }
+    
+    if (c == '(')
+    {
+        source.get();
+        if (peek_consuming(source) == ')')
+        {
+            source.get();
+            out_result = Value::nil();
+            return true;
+        }
+        
+        Value car_obj;
+        if (!read(source, car_obj))
+        {
+            return false;
+        }
+        auto head = gc.list(car_obj);
+        car_obj = head;
+        
+        while (!source.eof() && peek_consuming(source) != ')')
+        {
+            if (source.peek() == '.')
+            {
+                source.get();
+                Value cdr_obj;
+                if (!read(source, cdr_obj))
+                {
+                    return false;
+                }
+                set_cdr(car_obj, cdr_obj);
+                break;
+            }
+            
+            Value elem;
+            if (!read(source, elem))
+            {
+                return false;
+            }
+            set_cdr(car_obj, gc.list(elem));
+            car_obj = cdr(car_obj);
+        }
+        
+        if (source.eof() || peek_consuming(source) != ')')
+        {
+            return false;
+        }
+        source.get();
+
+        out_result = head;
+        return true;
+    }
+
+    return false;
+}
+
+static bool
+read_gc_paused(std::istream &source, Value &out_result)
+{
+    GC_GUARD();
+    auto result = read(source, out_result);
+    GC_UNGUARD();
+    return result;
+}
+
+
+void trace_signal_exception(VM_State &vm, const VM_State::Signal_Exception &e)
+{
+    if (e.stack_trace_top != e.stack_trace_bottom)
+    {
+        auto p = e.stack_trace_bottom;
+        for (; p != e.stack_trace_top; ++p)
+        {
+            if (p->ip)
+            {
+                bytecode::disassemble_maybe_function(std::cout, "WHOOPS", p->ip);
+            }
+        }
+    }
+    else
+    {
+        vm.debug_dump(std::cout, "WHOOPS", e.ip, true);
+    }
+    printf("ERROR: %s\n", repr(e.what).c_str());
+    //auto signal = car(e.what);
+    //auto signal_args = cdr(e.what);
+}
+
+bool eval_file(VM_State &vm, compiler::Scope &root_scope, const std::filesystem::path &path)
+{
+    static auto load_sym = g.core()->export_symbol("LOAD").as_object()->symbol();
+    if (!load_sym->function().is_nil())
+    {
+        auto path_str = gc.alloc_string(path);
+        try
+        {
+            vm.call_lisp_function(load_sym->function(), &path_str, 1);
+        }
+        catch (VM_State::Signal_Exception e)
+        {
+            trace_signal_exception(vm, e);
+            return false;
+        }
+        return true;
+    }
+    else
+    {
+        std::ifstream stm(path, std::ios::binary);
+        if (!stm.is_open())
+        {
+            fprintf(stderr, "cannot open file: %s\n", path.c_str());
+            return false;
+        }
+
+        set_global(&root_scope,
+                   g.core()->export_symbol("*FILE-PATH*"),
+                   gc.alloc_string(path));
+    
         auto here_path = std::filesystem::current_path();
-        auto there_path = filepath.parent_path();
-        if (there_path != "") {
+        auto there_path = path.parent_path();
+        if (there_path != "")
+        {
             std::filesystem::current_path(there_path);
         }
 
-        auto variable_name = intern_symbol("*FILE-PATH*");
-        auto value = lisp_obj::create_string(filepath);
-        auto place = symbol_lookup(LISP_BASE_ENVIRONMENT, variable_name);
-        if (place.is_nil()) {
-            push(cons(variable_name, value), LISP_BASE_ENVIRONMENT);
-        }
-        else {
-            set_cdr(place, value);
-        }
-        while (!stm.eof()) {
-            auto parsed = parse(stm);
-            if (parsed.is_invalid()) {
-                consume_whitespace(stm);
-                if (stm.eof()) break;
-                abort();
-            }
-            bytecode_emitter e;
-            auto expanded = macro_expand_impl(parsed, vm);
-            compile(e, expanded, true);
-            e.emit_halt();
-            e.lock();
-            auto ip = e.bytecode().data();
-            if (ip != nullptr) {
-                auto stack_before = vm.param_stack_top;
-                vm.execute(ip, LISP_BASE_ENVIRONMENT);
-                if (vm.param_stack_top != stack_before) {
+        while (!stm.eof())
+        {
+            Value out;
+            if (read_gc_paused(stm, out))
+            {
+                gc.pin_value(out);
+                try
+                {
+                    auto expanded = macro_expand_impl(out, vm);
+                    gc.unpin_value(out);
+
+                    bytecode::Emitter e(&root_scope);
+                    compiler::compile(e, expanded, true, true);
+                    e.emit_halt();
+                    e.lock();
+            
+                    g.resize_globals(root_scope.locals().size());
+
+                    vm.push_frame(nullptr, 0);
+                    vm.execute(e.bytecode().data());
+                }
+                catch (VM_State::Signal_Exception e)
+                {
+                    trace_signal_exception(vm, e);
+                    return false;
+                }
+                if (vm.stack_top() != vm.stack_bottom())
+                {
                     vm.pop_param();
                 }
-            }
 
-            consume_whitespace(stm);
+                if (vm.call_frame_top() != vm.call_frame_bottom())
+                {
+                    vm.set_frame(vm.pop_frame());
+                }
+            }
+            else if (stm.eof())
+            {
+                break;
+            }
         }
         std::filesystem::current_path(here_path);
+        return true;
     }
 }
 
-static
-void trace_unhandled_signal(const lisp_signal_exception &e)
+void run_repl(VM_State &vm, compiler::Scope &root_scope)
 {
-    printf("Unhandled signal: IP=%p\n    ", e.ip);
-    pretty_print(e.what);
-    auto short_str = [](const std::string &str) {
-                         if (str.size() > 20) {
-                             return str.substr(0, 17) + "...";
-                         }
-                         return str;
-                     };
-    if (e.ip != nullptr) {
-        lisp_value expr;
-        if (e.stack_trace_top != e.stack_trace_bottom) {
-            auto it = e.stack_trace_top;
-            do {
-                it--; // when this first runs it should be pointing to an empty cell
-                // apply, funcall, and gotocall are all the same size
-                if (debug_info::find(it->address - bytecode_op_size(bytecode_op::op_funcall), expr)) {
-                    if (expr.is_cons()) {
-                        std::string expr_str = "(";
-                        expr_str += repr(car(expr));
-                        expr = cdr(expr);
-                        while (expr.is_not_nil()) {
-                            if (car(expr).is_type(SYM_TYPE)) {
-                                auto sym = car(expr);
-                                if (sym == LISP_T) {
-                                    expr_str += " " + repr(sym);
-                                }
-                                else if (sym.as_object()->symbol()->is_keyword()) {
-                                    expr_str += " " + repr(sym);
-                                }
-                                else {
-                                    auto val = symbol_lookup(it->env, sym);
-                                    if (val.is_nil()) {
-                                        expr_str += " " + repr(sym);
-                                    }
-                                    else {
-                                        expr_str += " " + repr(sym) + "=" + short_str(repr(cdr(val)));
-                                    }
-                                }
-                            }
-                            else {
-                                expr_str += " " + short_str(repr(car(expr)));
-                            }
-                            expr = cdr(expr);
-                        }
-                        expr_str += ")";
-                        printf("%s\n", expr_str.c_str());
-                    }
-                    else {
-                        pretty_print(expr);
-                    }
-                }
-            } while (it != e.stack_trace_bottom);
-        }
-        if (debug_info::find(e.ip, expr)) {
-            printf("Signal happened here --> "); pretty_print(expr);
-        }
-    }
-}
+    set_global(&root_scope,
+               g.core()->export_symbol("*FILE-PATH*"),
+               gc.alloc_string("<stdin>"));
 
-static
-void repl_compile_and_execute(lisp_vm_state &vm, bool show_disassembly)
-{
-    static const char *prompt_lisp = "LISP-NASA> ";
-    static const char *prompt_ws   = ".......... ";
+    
+    g.packages.in_package(g.user());
+    set_global(&root_scope,
+               g.core()->export_symbol("*PACKAGE*"),
+               g.packages.current()->as_lisp_value());
+    
+    auto &stm = std::cin;
+    while (!stm.eof())
+    {
+        printf("%s> ", g.packages.current()->name().c_str());
+        Value out;
+        if (read_gc_paused(stm, out))
+        {
+            gc.pin_value(out);
+            try
+            {
+                auto expanded = macro_expand_impl(out, vm);
+                gc.unpin_value(out);
 
-    while (1) {
-        lisp_value parsed;
-        std::string input;
-        if (!read_stdin(prompt_lisp, prompt_ws, parsed, &input)) {
+                bytecode::Emitter e(&root_scope);
+                compiler::compile(e, expanded, true, true);
+                e.emit_halt();
+                e.lock();
+            
+                g.resize_globals(root_scope.locals().size());
+
+                vm.push_frame(nullptr, 0);
+                vm.execute(e.bytecode().data());
+            }
+            catch (VM_State::Signal_Exception e)
+            {
+                gc.unpin_value(out);
+                trace_signal_exception(vm, e);
+                continue;
+            }
+            if (vm.stack_top() != vm.stack_bottom())
+            {
+                auto result = vm.pop_param();
+                printf("==> %s\n", repr(result).c_str());
+            }
+
+            if (vm.call_frame_top() != vm.call_frame_bottom())
+            {
+                vm.set_frame(vm.pop_frame());
+            }
+        }
+        else if (stm.eof())
+        {
             break;
         }
-        lisp_value expanded = LISP_NIL;
-        try {
-            expanded = macro_expand_impl(parsed, vm);
-        }
-        catch (lisp_signal_exception e) {
-            trace_unhandled_signal(e);
-            continue;
-        }
-        bytecode_emitter e;
-        compile(e, expanded, true);
-        e.emit_halt();
-        e.lock();
-        auto ip = e.bytecode().data();
-        if (show_disassembly) {
-            auto start = e.bytecode().data();
-            auto end = start + e.bytecode().size();
-            disassemble(std::cout, input, start, end, ip);
-        }
-
-        auto stack_before = vm.param_stack_top;
-        try {
-            vm.execute(ip, LISP_BASE_ENVIRONMENT);
-        }
-        catch (lisp_unhandleable_exception e) {
-            printf("%s\n    ", e.msg);
-            pretty_print(e.what);
-        }
-        catch (lisp_signal_exception e) {
-            trace_unhandled_signal(e);
-        }
-
-        if (vm.param_stack_top != stack_before) {
-            auto result = vm.pop_param();
-            printf(" ==>");
-            pretty_print(result);
-
-        }
     }
 }
 
-int main(int argc, char *argv[])
-{
-    bool repl = false;
-    bool use_boot = true;
-    bool show_disassembly = false;
-    std::vector<std::string> file_paths;
+}
 
-    char **script_args = nullptr;
-    for (int i = 1; i < argc; ++i) {
-        const char *arg = argv[i];
-        if (arg[0] == '-') {
-            if (strcmp("-i", arg) == 0) {
-                repl = true;
-            }
-            else if (strcmp("--no-boot", arg) == 0) {
+
+int main(int argc, char **argv)
+{
+    using namespace lisp;
+    bool use_boot = true;
+    bool repl = false;
+    char *file = nullptr;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        if (argv[i][0] == '-')
+        {
+            if (strcmp("--no-boot", argv[i]) == 0)
+            {
                 use_boot = false;
             }
-            else if (strcmp("--boot", arg) == 0) {
+            else if (strcmp("--boot", argv[i]) == 0)
+            {
                 use_boot = true;
             }
-            else if (strcmp("--disassemble", arg) == 0) {
-                show_disassembly = true;
-            }
-            else if (strcmp("--debug", arg) == 0) {
-                LISP_SINGLE_STEP_DEBUGGER = true;
-            }
-            else {
-                fprintf(stderr, "Unrecognized flag: %s\n", arg);
+            else if (strcmp("-i", argv[i]) == 0)
+            {
+                repl = true;
             }
         }
-        else {
-            file_paths.push_back(arg);
-            script_args = argv+i;
+        else
+        {
+            file = argv[i];
             break;
         }
     }
+    
+    repl = repl || !file;
 
-    if (!repl && file_paths.size() == 0)
-        repl = true;
-
-    std::vector<lisp_file_stream*> fstreams;
-    if (use_boot) {
+    GC_GUARD();
+    compiler::THE_ROOT_SCOPE = new compiler::Scope;
+    initialize_globals(compiler::THE_ROOT_SCOPE);
+    
+    g.packages.in_package(g.user());
+    
+    auto vm = THE_LISP_VM = new VM_State;
+    GC_UNGUARD();
+    
+    if (use_boot)
+    {
         auto exe_dir = plat::get_executable_path().parent_path();
         auto boot_path = exe_dir/"lib"/"boot.lisp";
-        auto f = new lisp_file_stream();
-        f->open(boot_path, lisp_file_stream::io_mode::read);
-        if (f->ok()) {
-            fstreams.push_back(f);
-        }
-        else {
-            fprintf(stderr, "boot.lisp inaccessible at %s\n", boot_path.c_str());
-            boot_path = std::filesystem::current_path()/"lib"/"boot.lisp";
-            auto f = new lisp_file_stream();
-            f->open(boot_path, lisp_file_stream::io_mode::read);
-            if (f->ok()) {
-                fstreams.push_back(f);
-            }
-            else {
-                fprintf(stderr, "boot.lisp inaccessible at %s\n", boot_path.c_str());
-                return -1;
-            }
-        }
+        eval_file(*vm, *compiler::THE_ROOT_SCOPE, std::filesystem::absolute(boot_path));
     }
 
-    for (auto &path : file_paths) {
-        auto f = new lisp_file_stream();
-        f->open(std::filesystem::absolute(path), lisp_file_stream::io_mode::read);
-        if (f->ok()) {
-            fstreams.push_back(f);
-        }
-        else {
-            fprintf(stderr, "File not accessible: %s\n", path.c_str());
-            return -1;
-        }
+    if (file)
+    {
+        eval_file(*vm, *compiler::THE_ROOT_SCOPE, file);
+    }
+    
+    if (repl)
+    {
+        run_repl(*vm, *compiler::THE_ROOT_SCOPE);
     }
 
-    THE_LISP_VM = new lisp_vm_state;
-    initialize_globals(script_args);
-
-    try {
-        for (auto fs : fstreams) {
-            eval_fstream(*THE_LISP_VM, fs->path(), *fs, show_disassembly);
-            fs->close();
-            delete fs;
-        }
-    }
-    catch (lisp_unhandleable_exception e) {
-        printf("%s\n    ", e.msg);
-        pretty_print(e.what);
-        return 1;
-    }
-    catch (lisp_signal_exception e) {
-        trace_unhandled_signal(e);
-        return 1;
-    }
-
-    if (repl) {
-        repl_compile_and_execute(*THE_LISP_VM, show_disassembly);
-    }
     return 0;
 }

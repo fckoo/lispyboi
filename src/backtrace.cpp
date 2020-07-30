@@ -77,31 +77,31 @@ uintptr_t get_address(const char *symbol)
 
 void bt::trace(int max_depth)
 {
-    auto traces = new void*[max_depth];
-    auto size = backtrace(traces, max_depth);
-    auto symbols = backtrace_symbols(traces, size);
-    int status;
-    // start i at one to skip this function
-    for (int i = 1; i < size; ++i) {
-        auto it = symbols[i];
-        if (it) {
-            auto name = get_name(it);
-            auto address = get_address(it);
-            auto realname = abi::__cxa_demangle(name.name.c_str(), 0, 0, &status);
-            if (realname) {
-                fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", realname, name.offset, address);
-                free(realname);
-            }
-            else if (name.name.size() != 0) {
-                fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", name.name.c_str(), name.offset, address);
-            }
-            else {
-                fprintf(stderr, "\t[bt]: %s\n", it);
-            }
-        }
-    }
-    free(symbols);
-    delete[] traces;
+    //auto traces = new void*[max_depth];
+    //auto size = backtrace(traces, max_depth+1); // +1 because we skip this function
+    //auto symbols = backtrace_symbols(traces, size);
+    //int status;
+    //// start i at one to skip this function
+    //for (int i = 1; i < size; ++i) {
+    //    auto it = symbols[i];
+    //    if (it) {
+    //        auto name = get_name(it);
+    //        auto address = get_address(it);
+    //        auto realname = abi::__cxa_demangle(name.name.c_str(), 0, 0, &status);
+    //        if (realname) {
+    //            fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", realname, name.offset, address);
+    //            free(realname);
+    //        }
+    //        else if (name.name.size() != 0) {
+    //            fprintf(stderr, "\t[bt]: %s+0x%lx [0x%lx]\n", name.name.c_str(), name.offset, address);
+    //        }
+    //        else {
+    //            fprintf(stderr, "\t[bt]: %s\n", it);
+    //        }
+    //    }
+    //}
+    //free(symbols);
+    //delete[] traces;
 }
 
 void bt::trace_and_abort(int max_depth)
@@ -109,4 +109,3 @@ void bt::trace_and_abort(int max_depth)
     trace(max_depth);
     abort();
 }
-

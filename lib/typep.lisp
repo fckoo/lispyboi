@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "typep")
 
 (defun %typep-complex-compare (want-type actual-type)
@@ -19,3 +20,5 @@
               ((eq 'list type) (listp object))
               ((eq t type) t)
               (t nil)))))
+
+(export '(typep))

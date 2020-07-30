@@ -1,6 +1,23 @@
+(in-package :lispyboi)
 (provide "socket")
 (require "ffi")
 (require "format")
+
+(defpackage lispyboi.socket
+  (:use lispyboi)
+  (:export socket
+           make-socket
+           socketp
+           socket-fd
+           socket-open
+           socket-close
+           socket-send
+           socket-recv
+           socket-recv-string))
+
+(in-package :lispyboi.socket)
+
+
 
 (ffi-with-symbols
  "libc.so.6"
@@ -11,7 +28,7 @@
   (c-close "close")
   (c-send "send")
   (c-recv "recv"))
-
+ 
  (ffi-defstruct addrinfo
                 (ai-flags int)
                 (ai-family int)
@@ -32,9 +49,9 @@
            (result (ffi-nullptr))
            (hints (make-addrinfo)))
 
-       (addrinfo-set-ai-family hints +af-unspec+)
-       (addrinfo-set-ai-socktype hints +sock-stream+)
-       (addrinfo-set-ai-flags hints +ai-passive+)
+       (setf (addrinfo-ai-family hints) +af-unspec+)
+       (setf (addrinfo-ai-socktype hints) +sock-stream+)
+       (setf (addrinfo-ai-flags hints) +ai-passive+)
 
        (unwind-protect
             (let ((rc (ffi-coerce-int
@@ -43,17 +60,17 @@
                 (signal 'socket-error "getaddrinfo failed with code: " rc))
               (unwind-protect
                    (let* ((socket (c-socket
-                                   (addrinfo-get-ai-family result)
-                                   (addrinfo-get-ai-socktype result)
-                                   (addrinfo-get-ai-protocol result)))
+                                   (addrinfo-ai-family result)
+                                   (addrinfo-ai-socktype result)
+                                   (addrinfo-ai-protocol result)))
                           (rc (ffi-coerce-int socket)))
                      (when (< rc 0)
-                       (signal 'socket-error "socket acquisition failed"))
+                       (signal 'socket-error "socket acquisition failed" (errno-str)))
                      (let ((rc (ffi-coerce-int
                                 (c-connect
                                  socket
-                                 (addrinfo-get-ai-addr result)
-                                 (addrinfo-get-ai-addrlen result)))))
+                                 (addrinfo-ai-addr result)
+                                 (addrinfo-ai-addrlen result)))))
                        (when (< rc 0)
                          (signal 'socket-error "connect failed with code: " rc)))
                      socket)
@@ -120,7 +137,7 @@
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
       (signal 'socket-error "SOCKET-RECV: Socket internal FD is NIL"))
-    (%socket-send int-socket message)))
+    (%socket-recv int-socket buffer-size-hint)))
 
 (defun socket-recv-string (socket &optional (buffer-size-hint 1024))
   (let ((int-socket (socket-fd socket)))
@@ -128,14 +145,15 @@
       (signal 'socket-error "SOCKET-RECV-STRING: Socket internal FD is NIL"))
     (%socket-recv-string int-socket buffer-size-hint)))
 
-(defmethod output-stream-write-char ((stream socket) character)
+(defmethod output-stream-write-char ((socket socket) character)
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
       (signal 'socket-error "OUTPUT-STREAM-WRITE-CHAR: Socket internal FD is NIL"))
     (%socket-send int-socket (make-string character))))
 
-(defmethod output-stream-write-string ((stream socket) string)
+(defmethod output-stream-write-string ((socket socket) string)
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
       (signal 'socket-error "OUTPUT-STREAM-WRITE-STRING: Socket internal FD is NIL"))
     (%socket-send int-socket string)))
+

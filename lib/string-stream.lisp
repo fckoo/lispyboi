@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "string-stream")
 
 (defstruct string-stream
@@ -31,7 +32,7 @@
   (= (string-stream-index string-stream)
      (string-stream-length string-stream)))
 
-(defun string-stream-peek-char (string-stream &optional eof-error-p eof-value-p)
+(defun string-stream-peek-char (string-stream &optional eof-error-p eof-value)
   (if (>= (string-stream-index string-stream)
           (string-stream-length string-stream))
       (if eof-error-p
@@ -40,8 +41,8 @@
       (aref (string-stream-buffer string-stream)
             (string-stream-index string-stream))))
 
-(defun string-stream-read-char (string-stream &optional eof-error-p eof-value-p)
-  (let ((c (string-stream-peek-char string-stream eof-error-p eof-value-p)))
+(defun string-stream-read-char (string-stream &optional eof-error-p eof-value)
+  (let ((c (string-stream-peek-char string-stream eof-error-p eof-value)))
     (incf (string-stream-index string-stream))
     c))
 
@@ -88,3 +89,15 @@
 (defmethod input-stream-read-char ((ss string-stream) &optional eof-error-p eof-value)
   (string-stream-read-char ss eof-error-p eof-value))
 
+
+(export '(string-stream
+          string-stream-write-char
+          string-stream-write-string
+          string-stream-eof-p
+          string-stream-peek-char
+          string-stream-read-char
+          string-stream-empty-p
+          string-stream-str
+
+          with-input-from-string
+          with-output-to-string))

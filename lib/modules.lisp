@@ -31,6 +31,8 @@
 ;;;           - the load was unsuccessful -> NIL is returned or an error may signal
 ;;;
 
+(in-package :lispyboi)
+
 (let ((exec-dir (parent-directory (get-executable-path))))
   (defun get-executable-directory ()
     exec-dir))
@@ -83,3 +85,9 @@
 (provide "modules")
 
 
+(export '(*modules*
+          *module-load-directories*
+          provide
+          require
+          find-module
+          load-module))

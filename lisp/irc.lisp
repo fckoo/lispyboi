@@ -1,12 +1,22 @@
 (require "socket")
 (require "ssl")
 
-(setq *irc-server* "IRC HOSTNAME")
+(defpackage :irc-bot
+  (:use lispyboi
+        lispyboi.socket
+        lispyboi.ssl))
+
+(in-package :irc-bot)
+
+
+(setq *irc-server* "irc.blackcatz.org")
 (setq *irc-port* 6697)
 
 (let ((ssl (make-default-ssl-context))
       (socket (socket-open *irc-server* *irc-port*))
-      (code-handlers nil))
+      (code-handlers nil)
+      (email "poo.in@da.loo.com")
+      (password "1234567890"))
   (ssl-wrap-socket ssl socket)
 
   (defun read-line ()
@@ -62,23 +72,33 @@
                             channel
                             (format nil
                                     "beep boop o/ ~a"
-                                    (first (string-split sender #\! 1)))))))))
+                                    (first (string-split sender #\! 1))))))
+
+                ((string= "!register" message)
+                 (send-raw (privmsg "NickServ" (format nil "REGISTER ~a ~a" password email))))
+
+                ((string= "!identify" message)
+                 (send-raw (privmsg "NickServ" (format nil "IDENTIFY ~a" password)))))))
+
+    (def-code-handler "INVITE"
+        (lambda (code sender invited-from channel)
+          (send-raw (join channel))))
 
     (def-code-handler "396"
         (lambda (code &rest args)
           (send-raw (join channel))))
 
     (def-code-handler "366"
-        (lambda (code &rest args)
+        (lambda (code my-name channel &rest args)
           (send-raw (privmsg channel "hihihi"))))
 
-    (dotimes (i 5000)
-      (let* ((line (read-line))
-             (parts (string-split line #\: 2)))
-        (format t "~a~%" line)
-        (when parts
-          (cond ((string= "PING " (first parts))
-                 (send-raw (format nil "PONG :~a~%" (second parts))))
-                ((string= "" (first parts))
-                 (destructuring-bind (sender code . rest) (string-split (second parts))
-                   (dispatch-code code `(,sender ,@rest ,(third parts)))))))))))
+    (while t
+           (let* ((line (read-line))
+                  (parts (string-split line #\: 2)))
+             (format t "~a~%" line)
+             (when parts
+               (cond ((string= "PING " (first parts))
+                      (send-raw (format nil "PONG :~a~%" (second parts))))
+                     ((string= "" (first parts))
+                      (destructuring-bind (sender code . rest) (string-split (second parts))
+                        (dispatch-code code `(,sender ,@rest ,(third parts)))))))))))

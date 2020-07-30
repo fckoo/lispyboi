@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "print-object")
 
 (require "stream")
@@ -48,6 +49,8 @@ OBJECT should be returned")
   c)
 
 (defmethod print-object ((o symbol) stream)
+  (unless (symbol-package o)
+    (output-stream-write-string stream "#:"))
   (output-stream-write-string stream (symbol-name o))
   o)
 
@@ -98,3 +101,9 @@ OBJECT should be returned")
       (incf n (aref bits (- (length bits) i 1))))
     (format stream "#<FUNCTION ~X>" n))
   o)
+
+(defmethod print-object ((o package) stream)
+  (format stream "#<The PACKAGE ~S>" (package-name o))
+  o)
+
+(export '(print-object))

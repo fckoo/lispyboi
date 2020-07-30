@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "hash-table")
 (require "defstruct")
 
@@ -30,3 +31,9 @@
     value))
 
 (defsetf gethash sethash)
+
+(export '(hash-table
+          hash-table-keys
+          hash-table-values
+          gethash
+          sethash))

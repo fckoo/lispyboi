@@ -1,3 +1,8 @@
+(defpackage :test-suite
+  (:use lispyboi))
+
+(in-package :test-suite)
+
 (provide "test-suite")
 (require "asserts")
 (require "time-it")
@@ -10,6 +15,7 @@
          (progn
            (run-test "tests/test_aref.lisp")
            (run-test "tests/test_defgeneric.lisp")
+           (run-test "tests/test_defpackage.lisp")
            (run-test "tests/test_defstruct.lisp")
            (run-test "tests/test_destructuring-bind.lisp")
            (run-test "tests/test_equal.lisp")

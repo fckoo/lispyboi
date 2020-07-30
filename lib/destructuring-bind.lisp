@@ -1,3 +1,4 @@
+(in-package :lispyboi)
 (provide "destructuring-bind")
 
 (defmacro destructuring-bind (destructure-list expression &body body)
@@ -20,3 +21,5 @@
     `(let* ((,var ,expression)
             ,@(reverse let-vars))
        ,@body)))
+
+(export '(destructuring-bind))

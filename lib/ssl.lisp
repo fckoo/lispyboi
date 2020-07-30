@@ -1,6 +1,18 @@
+(in-package :lispyboi)
 (provide "ssl")
-
 (require "ffi")
+
+(defpackage lispyboi.ssl
+  (:use lispyboi
+        lispyboi.socket)
+  (:export ssl-context
+           make-default-ssl-context
+           ssl-wrap-socket
+           ssl-read
+           ssl-read1
+           ssl-read-string))
+
+(in-package :lispyboi.ssl)
 
 ;; just need to link libcrypto for libssl to function properly
 (ffi-with-symbols "libcrypto.so.1.1" ())
@@ -53,7 +65,7 @@
                          (c-ssl-read ssl buffer buffer-size-hint))))
        (when (< bytes-read 0)
          (ffi-free buffer)
-         (signal 'ssl-error "SSL_read failed with" rc))
+         (signal 'ssl-error "SSL_read failed with" bytes-read))
        (list buffer bytes-read))))
 
  (defun %ssl-read1 (ssl)
@@ -81,7 +93,7 @@
                          (c-ssl-peek ssl buffer buffer-size-hint))))
      (when (< bytes-peeked 0)
        (ffi-free buffer)
-       (signal 'ssl-error "SSL_peek failed with" rc))
+       (signal 'ssl-error "SSL_peek failed with" bytes-peeked))
      (list buffer bytes-peeked)))
 
  (defun %ssl-peek1 (ssl)
@@ -89,7 +101,6 @@
           (buffer (first read)))
      (prog1 (aref (ffi-coerce-string buffer 1) 0)
        (ffi-free buffer)))))
-
 
 (defstruct ssl-context (ssl) (ctx))
 
@@ -101,18 +112,21 @@
   (%ssl-wrap-socket (ssl-context-ssl ssl-context) (socket-fd socket)))
 
 (defun ssl-read (ssl-context &optional (buffer-size-hint 1024))
-  (with-ffi-array (array 'byte (%ssl-read (ssl-context-ssl ssl-context) buffer-size-hint))
+  (with-ffi-array (array byte (%ssl-read (ssl-context-ssl ssl-context) buffer-size-hint))
     array))
 
 (defun ssl-read1 (ssl-context)
   (%ssl-read1 (ssl-context-ssl ssl-context)))
 
 (defun ssl-read-string (ssl-context)
-  (with-ffi-array (array 'character (%ssl-read-pending (ssl-context-ssl ssl-context)))
+  (with-ffi-array (array character (%ssl-read-pending (ssl-context-ssl ssl-context)))
     array))
 
 (defmethod output-stream-write-char ((stream ssl-context) character)
-  (%ssl-write (ssl-context-ssl stream) (make-string chracter)))
+  (%ssl-write (ssl-context-ssl stream) (make-string character)))
 
 (defmethod output-stream-write-string ((stream ssl-context) string)
   (%ssl-write (ssl-context-ssl stream) string))
+
+
+

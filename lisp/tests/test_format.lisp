@@ -18,7 +18,7 @@
 (assert-string= (make-string #\newline) (format nil "~%"))
 (assert-string= (make-string #\newline #\newline) (format nil "~%~%"))
 
-(assert-string= "test 123 TEST" (format nil "~a ~a ~a" (make-symbol "test") 123 'test))
+(assert-string= "#:test 123 TEST" (format nil "~a ~a ~a" (make-symbol "test") 123 'test))
 
 (assert-string= "hello" (format nil "h~a~a~ao" #\e #\l #\l))
 
