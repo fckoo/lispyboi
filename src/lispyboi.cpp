@@ -1705,6 +1705,13 @@ std::vector<Value> to_vector(Value list)
 
 struct Package
 {
+    enum class Symbol_Location_Type
+    {
+        Internal,
+        External,
+        Inherited
+    };
+
     using Name_Symbol_Map = std::unordered_map<std::string, Value>;
     
     const std::string &name() const
@@ -1803,16 +1810,26 @@ struct Package
     }
     
     
-    bool find_symbol(const std::string &name, Value &out_value)
+    bool find_symbol(const std::string &name, Value &out_value, Symbol_Location_Type *out_loc = nullptr)
     {
         if (find_inherited(name, out_value))
         {
+            if (out_loc)
+            {
+                *out_loc = Symbol_Location_Type::Inherited;
+            }
             return true;
         }
         auto it = m_symbols.find(name);
         if (it != m_symbols.end())
         {
             out_value = it->second;
+            if (out_loc)
+            {
+                *out_loc = is_exported(name) 
+                    ? Symbol_Location_Type::External
+                    : Symbol_Location_Type::Internal;
+            }
             return true;
         }
         return false;
@@ -2297,6 +2314,11 @@ struct Runtime_Globals
         return packages.find_or_create("LISPYBOI-USER");
     }
     
+    Value get_keyword(const std::string &symbol_name)
+    {
+        return keyword()->intern_symbol(symbol_name);
+    }
+    
     Value get_symbol(const std::string &symbol_name)
     {
         return packages.current()->find_or_intern_symbol(symbol_name);
@@ -2443,17 +2465,17 @@ std::string repr(Value value)
             case Object_Type::Symbol: 
             {
                 auto symbol = obj->symbol();
-                return symbol->qualified_name();
-                //std::string str;
-                //if (symbol->is_keyword())
-                //{
-                //    str += ":";
-                //}
-                //else if (symbol->package() == nullptr)
-                //{
-                //    str += "#:";
-                //}
-                //return str + obj->symbol()->name();
+                //return symbol->qualified_name();
+                std::string str;
+                if (symbol->is_keyword())
+                {
+                    str += ":";
+                }
+                else if (symbol->package() == nullptr)
+                {
+                    str += "#:";
+                }
+                return str + obj->symbol()->name();
             }
             case Object_Type::Closure: 
             {
@@ -5801,9 +5823,78 @@ Value func_export(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
+Value func_find_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 2);
+    Package *package = nullptr;
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    CHECK_STRING(args[0]);
+    auto str = lisp_string_to_native_string(args[0]);
+    Package::Symbol_Location_Type location;
+    Value symbol;
+    if (package->find_symbol(str, symbol, &location))
+    {
+        Value status;
+        switch (location)
+        {
+            case Package::Symbol_Location_Type::Internal: status = g.get_keyword("INTERNAL"); break;
+            case Package::Symbol_Location_Type::External: status = g.get_keyword("EXTERNAL"); break;
+            case Package::Symbol_Location_Type::Inherited: status = g.get_keyword("INHERITED"); break;
+        }
+        return gc.list(symbol, status);
+    }
+    return gc.list(Value::nil(), Value::nil());
+}
+
 Value func_import(Value *args, uint32_t nargs, bool &raised_signal)
 {
-    return Value::nil();
+    CHECK_EXACTLY_N(nargs, 2);
+    Package *package = nullptr;
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+    
+    auto list_of_symbols = args[0];
+    CHECK_LIST(list_of_symbols);
+    while (!list_of_symbols.is_nil())
+    {
+        auto sym = car(list_of_symbols);
+        CHECK_SYMBOL(sym);
+        package->import_symbol(sym);
+        list_of_symbols = cdr(list_of_symbols);
+    }
+    return g.s_T;
 }
 
 Value func_intern(Value *args, uint32_t nargs, bool &raised_signal)
@@ -6858,6 +6949,7 @@ void initialize_globals(compiler::Scope *root_scope)
     export_function(kernel, "%EXPORT", primitives::func_export);
     export_function(kernel, "%IMPORT", primitives::func_import);
     export_function(kernel, "%INTERN", primitives::func_intern);
+    export_function(kernel, "%FIND-SYMBOL", primitives::func_find_symbol);
     export_function(kernel, "%EXIT", primitives::func_exit);
     export_function(kernel, "%SIGNAL", primitives::func_signal);
 

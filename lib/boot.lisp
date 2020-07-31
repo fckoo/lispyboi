@@ -16,7 +16,9 @@
    make-package
    in-package
    use-package
+   import
    export
+   find-symbol
 
    eval
    apply
@@ -180,8 +182,9 @@
 (defmacro in-package (package) (list '%in-package package))
 (defmacro use-package (to-use &optional (in-package *package*)) (list '%use-package to-use in-package))
 
-(defmacro export (symbols &optional (package *package*)) (list '%export symbols package))
-(defun export (symbols &optional (package *package*)) (export symbols package))
+(defun export (symbols &optional (package *package*)) (%export symbols package))
+(defun import (symbols &optional (package *package*)) (%import symbols package))
+(defun find-symbol (string &optional (package *package*)) (%find-symbol string package))
 
 (defmacro type-of (obj) (list '%type-of obj))
 (defun type-of (obj) (type-of obj))
