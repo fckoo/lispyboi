@@ -148,6 +148,7 @@
    ignore-errors
    with-open-file
    concatenate
+   end-of-file
    load)
  :lispyboi)
 
