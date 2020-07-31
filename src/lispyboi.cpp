@@ -4808,17 +4808,6 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 {
                     auto tag = pop_param();
                     auto handler = pop_param();
-                    if (handler.is_type(Object_Type::Closure))
-                    {
-                        // These closures likely hold references on the stack somewhere and if a signal
-                        // occures we cannot guarantee those references are valid so instead we capture
-                        // their value immediately.
-                        auto clos = handler.as_object()->closure();
-                        for (auto ref : clos->captures())
-                        {
-                            ref->close();
-                        }
-                    }
                     handlers.push_back({tag, handler});
                 }
                 push_frame(ip + branch, 0);
