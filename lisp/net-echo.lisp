@@ -12,7 +12,7 @@
          (client (socket-accept server)))
     (while t
            (let ((recv (socket-recv-string client)))
-             (format t ">~a" recv)
+             (format t ">~a~%" recv)
              (socket-send client recv)))))
 
 (defpackage net-echo.client
@@ -22,7 +22,11 @@
 (in-package :net-echo.client)
 
 (defun run-simple-echo-client (port)
-  )
+  (let ((socket (socket-open "localhost" port)))
+    (while t
+           (format t "CLIENT> ")
+           (socket-send socket (file-read-line *standard-input*))
+           (format t "SERVER< ~s~%" (socket-recv-string socket)))))
 
 (defpackage net-echo
   (:use lispyboi)
