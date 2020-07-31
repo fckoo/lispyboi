@@ -88,6 +88,6 @@
     +atan
     +pow
 *** TODO implement threads via ffi
-*** TODO implement echo server
-*** TODO implement echo client
+*** DONE implement echo server
+*** DONE implement echo client
 *** TODO implement httpd
