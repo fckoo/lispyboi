@@ -655,6 +655,11 @@ struct File_Stream
         , m_mode(mode)
     {}
     
+    ~File_Stream()
+    {
+        m_stream.flush();
+    }
+    
     std::fstream &stream()
     {
         return m_stream;
@@ -1109,6 +1114,19 @@ struct GC
         , m_is_warmed_up(false)
     {
         m_free_small_bins.resize(SMALL_BINS_SIZE);
+    }
+    
+    ~GC()
+    {
+        // Not the most elegant way to GC everything at exit but it works.
+        for (auto gen : m_generations)
+        {
+            for (auto ref : *gen)
+            {
+                m_recent_allocations.push_back(ref);
+            }
+        }
+        sweep();
     }
 
     struct Reference

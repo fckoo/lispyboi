@@ -7,7 +7,12 @@
   (:export foo
            bar)
   (:export +ok+
-           +yep+))
+           +yep+)
+  (:import-from :kernel
+                car
+                cdr)
+  (:import-from :lispyboi
+                format))
 
 (defun foo () 'foo)
 (defun bar () 'bar)
@@ -47,3 +52,15 @@
 
 (assert-= 123456 foo:+ok+)
 (assert-= 314159 foo:+yep+)
+
+(defpackage :bar
+  (:use :lispyboi)
+  (:import-from :foo
+                not-exported
+                foo))
+
+(in-package :bar)
+
+(assert-eq 'foo::not-exported (not-exported))
+(assert-eq 'foo::foo (foo))
+

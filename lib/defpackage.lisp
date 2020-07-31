@@ -17,6 +17,12 @@
                                             (symbol `(intern ,(symbol-name s) pkg))))
                               export))
                  pkg)
+         ,@(map (lambda (i)
+                  `(import ',(map (lambda (s)
+                                    (first (find-symbol (symbol-name s) (car i))))
+                                  (cdr i))
+                           pkg))
+                import-from)
          ,@(map (lambda (p) `(use-package ',p pkg)) use)
          pkg))))
 
