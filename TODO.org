@@ -75,8 +75,8 @@
 *** DONE re-open values or something so handler-case handlers can write to their closed values
 *** DONE move tests to their own package
 *** DONE create sub-packages (by naming convention only) for stdlib and export from stdlib package
-*** TODO implement %import
-*** TODO implement :import-from in defpackage macro
+*** DONE implement %import
+*** DONE implement :import-from in defpackage macro
 *** DONE implement ffi marshalling
 *** DONE make lib/socket.lisp work
 *** DONE make lib/socket.ssl work
