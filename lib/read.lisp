@@ -84,6 +84,17 @@
 (defun digit-num (digit)
   (- (char-code digit) (char-code #\0)))
 
+(defun check-char-in-radix-range (char radix)
+  (let* ((zero (char-code #\0))
+         (nine (char-code #\9))
+         (a (char-code #\A))
+         (end (if (> radix 10)
+                  (+ a (- radix 10))
+                  (+ zero radix)))
+         (the-char (char-code (char-upcase char))))
+    (when (>= the-char end)
+      (signal 'parse-error "Character not in radix range" char radix))))
+
 (defun parse-integer (string &optional (radix 10))
   (let ((i (if (or (eql #\- (aref string 0))
                    (eql #\+ (aref string 0)))
@@ -93,6 +104,7 @@
         (num 0))
     (while (< i (length string))
            (setf num (* radix num))
+           (check-char-in-radix-range (aref string i) radix)
            (if (> (char-code (aref string i)) (char-code #\9))
                (incf num (+ 10 (- (char-code (char-upcase (aref string i))) (char-code #\A))))
                (incf num (- (char-code (aref string i)) (char-code #\0))))
@@ -234,7 +246,7 @@
                    ((eql #\: (aref string i))
                     (let ((pkg-name (substring string 0 i)))
                       (when (> (+ 1 i) (length string))
-                        (signal 'symbol-error "Package Specifier without symbol" string))
+                        (signal 'reader-error "Package Specifier without symbol" string))
                       (if (eql #\: (aref string (+ 1 i)))
                           (list pkg-name (substring string (+ 2 i)) t)
                           (list pkg-name (substring string (+ 1 i)) nil))))
@@ -318,5 +330,9 @@
           peek-char
           read-char
           parse-integer
+
+          sharpsign-macro-error
+          reader-error
+          parse-error
 
           read))
