@@ -233,6 +233,8 @@
           ffi-set-ref-32
           ffi-set-ref-64
 
+          bytespec-error
+
           uint8
           uint16
           uint32

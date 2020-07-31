@@ -71,13 +71,13 @@
   (let ((index (slot-index object slot-name)))
     (if index
         (%get-slot object index)
-        (signal 'slot-missing slot-name (type-of object)))))
+        (signal 'slot-missing-error slot-name (type-of object)))))
 
 (defun set-slot-value (object slot-name value)
   (let ((index (slot-index object slot-name)))
     (if index
         (%set-slot object index value)
-        (signal 'slot-missing slot-name (type-of object)))))
+        (signal 'slot-missing-error slot-name (type-of object)))))
 
 (defsetf slot-value set-slot-value)
 
@@ -89,4 +89,6 @@
 
 (export '(defstruct
           slot-value
-          with-slots))
+          with-slots
+          type-error
+          slot-missing-error))
