@@ -6890,7 +6890,7 @@ void set_global(compiler::Scope *scope, Value symbol_value, Value value)
 }
 
 static
-void initialize_globals(compiler::Scope *root_scope)
+void initialize_globals(compiler::Scope *root_scope, char **argv)
 {
     auto kernel = g.kernel();
     auto core = g.core();
@@ -6900,18 +6900,6 @@ void initialize_globals(compiler::Scope *root_scope)
     kernel->inherit(core);
     user->inherit(core);
     
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-OUTPUT*"), 
-               gc.alloc_object<File_Stream>("/dev/stdout", std::ios_base::binary | std::ios_base::app));
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-ERROR*"), 
-               gc.alloc_object<File_Stream>("/dev/stderr", std::ios_base::binary | std::ios_base::app));
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-INPUT*"), 
-               gc.alloc_object<File_Stream>("/dev/stdin", std::ios_base::binary | std::ios_base::in));
-    set_global(root_scope,
-               core->export_symbol("*PACKAGE*"),
-               Value::nil());
 
     g.s_pCAR             = kernel->export_symbol("%CAR");
     g.s_pCDR             = kernel->export_symbol("%CDR");
@@ -7074,6 +7062,30 @@ void initialize_globals(compiler::Scope *root_scope)
     export_function(kernel, "BIT-IOR", primitives::func_bit_or);
     export_function(kernel, "BIT-XOR", primitives::func_bit_xor);
     export_function(kernel, "BIT-SHIFT", primitives::func_bit_shift);
+    
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-OUTPUT*"), 
+               gc.alloc_object<File_Stream>("/dev/stdout", std::ios_base::binary | std::ios_base::app));
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-ERROR*"), 
+               gc.alloc_object<File_Stream>("/dev/stderr", std::ios_base::binary | std::ios_base::app));
+    set_global(root_scope, 
+               core->export_symbol("*STANDARD-INPUT*"), 
+               gc.alloc_object<File_Stream>("/dev/stdin", std::ios_base::binary | std::ios_base::in));
+    set_global(root_scope,
+               core->export_symbol("*PACKAGE*"),
+               Value::nil());
+    
+    std::vector<Value> script_args;
+    for(; *argv; ++argv)
+    {
+        script_args.push_back(gc.alloc_string(*argv));
+    }
+
+    set_global(root_scope,
+               core->export_symbol("*COMMAND-LINE*"),
+               to_list(script_args));
+
 }
 
 bool VM_State::find_handler(Value tag, bool auto_pop, Handler_Case &out_case_state, Signal_Handler &out_handler)
@@ -7820,7 +7832,8 @@ int main(int argc, char **argv)
     bool repl = false;
     char *file = nullptr;
 
-    for (int i = 1; i < argc; ++i)
+    int i = 1;
+    for (; i < argc; ++i)
     {
         if (argv[i][0] == '-')
         {
@@ -7836,6 +7849,11 @@ int main(int argc, char **argv)
             {
                 repl = true;
             }
+            else if (strcmp("-", argv[i]) == 0)
+            {
+                i++;
+                break;
+            }
         }
         else
         {
@@ -7848,7 +7866,7 @@ int main(int argc, char **argv)
 
     GC_GUARD();
     compiler::THE_ROOT_SCOPE = new compiler::Scope;
-    initialize_globals(compiler::THE_ROOT_SCOPE);
+    initialize_globals(compiler::THE_ROOT_SCOPE, argv+i);
     
     g.packages.in_package(g.user());
     
