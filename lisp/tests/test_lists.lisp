@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (assert-true (eq 'foo (car (list 'foo))))
 (assert-true (eq 'bar (cdr (cons 'foo 'bar))))
@@ -24,9 +25,9 @@
 
 
 (let ((test-list (list 10 11 12 13 14 15 16 17 18 19)))
-  (assert-true (= 10 (list-length test-list)))
+  (assert-true (= 10 (length test-list)))
   (assert-true (= 15 (nth 5 test-list)))
-  (assert-true (= 33 (set-nth 3 test-list 33)))
+  (assert-true (= 33 (setf (nth 3 test-list) 33)))
   (assert-true (= 33 (fourth test-list)))
   (assert-equal '(10 11 12 33 14 15 16 17 18 19) test-list)
 

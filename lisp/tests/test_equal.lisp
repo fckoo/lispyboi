@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (assert-false (equal 'a 'b))
 (assert-true (equal 'a 'a))

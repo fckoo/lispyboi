@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (with-input-from-string (is "hello world")
   (assert-eq 'hello (read is))

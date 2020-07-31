@@ -19,7 +19,7 @@
     (when (and (= max-splits 0)
                (< end (length string)))
       (push (substring string end) splits))
-    (reverse splits)))
+    (reverse! splits)))
 
 (defun char-downcase (c)
   (if (<= (char-code #\A) (char-code c) (char-code #\Z))

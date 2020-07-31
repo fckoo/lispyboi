@@ -19,7 +19,7 @@
                       (push `(,(cdr list) (cdr ,thing)) let-vars)))))
       (destructure-list destructure-list var))
     `(let* ((,var ,expression)
-            ,@(reverse let-vars))
+            ,@(reverse! let-vars))
        ,@body)))
 
 (export '(destructuring-bind))

@@ -1,6 +1,5 @@
-(require "defgeneric")
 (require "asserts")
-(require "format")
+(in-package :test-suite)
 
 (defgeneric test-generic (a))
 (defmethod test-generic (a) (format nil "default ~s" a))

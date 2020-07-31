@@ -21,4 +21,8 @@
               ((eq t type) t)
               (t nil)))))
 
-(export '(typep))
+(export '(typep
+          string
+          array
+          list
+          t))

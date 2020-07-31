@@ -1,6 +1,5 @@
-(in-package :lispyboi)
-
 (require "asserts")
+(in-package :test-suite)
 
 (defpackage :foo
   (:use :lispyboi)
@@ -35,7 +34,7 @@
 (setq +ok+ 123456)
 (setq +yep+ 314159)
 
-(in-package :lispyboi)
+(in-package :test-suite)
 
 (assert-eq 'foo (foo))
 (assert-eq 'bar (bar))
@@ -63,4 +62,3 @@
 
 (assert-eq 'foo::not-exported (not-exported))
 (assert-eq 'foo::foo (foo))
-

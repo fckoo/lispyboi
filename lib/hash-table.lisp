@@ -33,6 +33,8 @@
 (defsetf gethash sethash)
 
 (export '(hash-table
+          make-hash-table
+          hash-table-p
           hash-table-keys
           hash-table-values
           gethash

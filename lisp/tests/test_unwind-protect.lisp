@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (let ((val 0))
   (ignore-errors

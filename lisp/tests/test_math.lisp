@@ -1,5 +1,5 @@
 (require "asserts")
-(require "math")
+(in-package :test-suite)
 
 (assert-true (= (+) 0))
 (assert-true (= (-) 0))

@@ -25,6 +25,7 @@
    funcall
 
    - + * / < = > /= <= >=
+   bit-not bit-and bit-ior bit-xor bit-shift
 
    putchar
    null
@@ -34,6 +35,7 @@
    caaar caadr cadar caddr cdaar cdadr cddar cdddr
    caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
    cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
+   caddddr
 
    first
    rest
@@ -124,6 +126,7 @@
    pop!
 
    make-array
+   make-string
    array-type
    aref
 

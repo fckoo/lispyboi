@@ -1,5 +1,5 @@
 (require "asserts")
-(require "hash-table")
+(in-package :test-suite)
 
 (let ((hash-table (make-hash-table)))
   (assert-eq nil (gethash 'foo hash-table))

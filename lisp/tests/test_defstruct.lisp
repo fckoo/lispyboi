@@ -1,7 +1,5 @@
-
 (require "asserts")
-(require "defstruct")
-
+(in-package :test-suite)
 
 (defstruct point (x 1) (y 2) (z 3) (w 4))
 

@@ -1,5 +1,6 @@
 (defpackage :test-suite
-  (:use lispyboi))
+  (:use lispyboi
+        kernel))
 
 (in-package :test-suite)
 

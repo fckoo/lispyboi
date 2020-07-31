@@ -1,5 +1,5 @@
 (require "asserts")
-
+(in-package :test-suite)
 
 (let ((foo '(1 2 3 4 5 6)))
   (destructuring-bind (a b c)

@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 
 (defun foo (a) 123)

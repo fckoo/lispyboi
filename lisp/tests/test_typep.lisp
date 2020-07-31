@@ -1,5 +1,5 @@
 (require "asserts")
-(require "typep")
+(in-package :test-suite)
 
 
 (assert-true (typep #\A 'character))

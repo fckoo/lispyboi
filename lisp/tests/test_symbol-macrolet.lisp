@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (defstruct test-thing (val 456))
 

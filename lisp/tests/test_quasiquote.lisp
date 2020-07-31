@@ -1,4 +1,5 @@
 (require "asserts")
+(in-package :test-suite)
 
 (let ((foo 123)
       (bar (list 1 2 3 4))

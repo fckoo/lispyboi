@@ -1,5 +1,5 @@
 (require "asserts")
-(require "setf")
+(in-package :test-suite)
 
 
 (let ((lst '(1 2 3 4 5)))

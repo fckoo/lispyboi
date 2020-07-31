@@ -1,6 +1,5 @@
 (require "asserts")
-
-
+(in-package :test-suite)
 
 (assert-= (- 1) -1)
 (assert-= 1 +1)

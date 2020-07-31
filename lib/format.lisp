@@ -116,4 +116,5 @@ NIL is returned."
                nil)
         formatted)))
 
-(export '(format))
+(export '(format
+          format-error))

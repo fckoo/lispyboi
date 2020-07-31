@@ -1,5 +1,5 @@
 (require "asserts")
-(require "format")
+(in-package :test-suite)
 
 (assert-string= "" (format nil ""))
 
