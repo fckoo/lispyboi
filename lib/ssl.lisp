@@ -6,6 +6,7 @@
   (:use lispyboi
         lispyboi.socket)
   (:export ssl-context
+           ssl-error
            make-default-ssl-context
            ssl-wrap-socket
            ssl-read
@@ -36,7 +37,7 @@
    (let* ((method (c-tls-v1.2-client-method))
           (ctx (c-ssl-ctx-new method)))
      (when (ffi-nullptr-p ctx)
-       (signal 'ssl-init "Failed to initialize SSL Context"))
+       (signal 'ssl-error "Failed to initialize SSL Context"))
      (list (c-ssl-new ctx) ctx)))
  
  (defun %ssl-wrap-socket (ssl socket)
