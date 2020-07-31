@@ -6586,19 +6586,17 @@ Value func_ffi_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
 Value func_ffi_set_ref(Value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (ffi-set-ref pointer offset value value-size)
+        (ffi-set-ref pointer value value-size)
      */
-    CHECK_EXACTLY_N(nargs, 4);
+    CHECK_EXACTLY_N(nargs, 3);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
-    CHECK_FIXNUM(args[1]);
-    auto offset = args[1].as_fixnum();
-    CHECK_SYSTEM_POINTER(args[2]);
-    auto value = reinterpret_cast<uint8_t*>(args[2].as_object()->system_pointer());
-    CHECK_FIXNUM(args[3]);
-    auto value_size = args[3].as_fixnum();
+    CHECK_SYSTEM_POINTER(args[1]);
+    auto value = reinterpret_cast<uint8_t*>(args[1].as_object()->system_pointer());
+    CHECK_FIXNUM(args[2]);
+    auto value_size = args[2].as_fixnum();
     
-    memcpy(ptr + offset, value, value_size);
+    memcpy(ptr, value, value_size);
     return args[2];
 }
 
@@ -6609,10 +6607,19 @@ Value func_ffi_set_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_SYSTEM_POINTER(args[0]);
-    auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
-    CHECK_FIXNUM(args[1]);
-    auto value = args[1].as_fixnum() & 0xff;
-    *ptr = value;
+    uint8_t value;
+    auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
+    if (args[1].is_type(Object_Type::System_Pointer))
+    {
+        value = static_cast<decltype(value)>(
+            reinterpret_cast<uintptr_t>(args[1].as_object()->system_pointer()));
+    }
+    else
+    {
+        CHECK_FIXNUM(args[1]);
+        value = args[1].as_fixnum() & 0xff;
+        *ptr = value;
+    }
     return Value::wrap_fixnum(value);
 }
 
@@ -6623,10 +6630,19 @@ Value func_ffi_set_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_SYSTEM_POINTER(args[0]);
-    auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->system_pointer());
-    CHECK_FIXNUM(args[1]);
-    auto value = args[1].as_fixnum() & 0xffff;
-    *ptr = value;
+    uint16_t value;
+    auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
+    if (args[1].is_type(Object_Type::System_Pointer))
+    {
+        value = static_cast<decltype(value)>(
+            reinterpret_cast<uintptr_t>(args[1].as_object()->system_pointer()));
+    }
+    else
+    {
+        CHECK_FIXNUM(args[1]);
+        value = args[1].as_fixnum() & 0xffff;
+        *ptr = value;
+    }
     return Value::wrap_fixnum(value);
 }
 
@@ -6637,10 +6653,19 @@ Value func_ffi_set_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_SYSTEM_POINTER(args[0]);
-    auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->system_pointer());
-    CHECK_FIXNUM(args[1]);
-    auto value = args[1].as_fixnum() & 0xffffffff;
-    *ptr = value;
+    uint32_t value;
+    auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
+    if (args[1].is_type(Object_Type::System_Pointer))
+    {
+        value = static_cast<decltype(value)>(
+            reinterpret_cast<uintptr_t>(args[1].as_object()->system_pointer()));
+    }
+    else
+    {
+        CHECK_FIXNUM(args[1]);
+        value = args[1].as_fixnum() & 0xffffffff;
+        *ptr = value;
+    }
     return Value::wrap_fixnum(value);
 }
 
@@ -6651,10 +6676,19 @@ Value func_ffi_set_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_EXACTLY_N(nargs, 2);
     CHECK_SYSTEM_POINTER(args[0]);
-    auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->system_pointer());
-    CHECK_FIXNUM(args[1]);
-    auto value = args[1].as_fixnum();
-    *ptr = value;
+    uint64_t value;
+    auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
+    if (args[1].is_type(Object_Type::System_Pointer))
+    {
+        value = static_cast<decltype(value)>(
+            reinterpret_cast<uintptr_t>(args[1].as_object()->system_pointer()));
+    }
+    else
+    {
+        CHECK_FIXNUM(args[1]);
+        value = args[1].as_fixnum();
+        *ptr = value;
+    }
     return Value::wrap_fixnum(value);
 }
 

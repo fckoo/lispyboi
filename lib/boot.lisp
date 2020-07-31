@@ -51,6 +51,8 @@
    exit
    signal
    error
+   errno
+   errno-str
 
    append
    foldl

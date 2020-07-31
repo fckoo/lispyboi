@@ -13,14 +13,15 @@
                         long))
 
 (setq *ffi-type-registry*
-      (list '(uint8 1 nil)
-            '(uint16 2 nil)
-            '(uint32 4 nil)
-            '(uint64 8 nil)
-            '(char 1 nil)
-            '(short 2 nil)
-            '(int 4 nil)
-            '(long 8 nil))
+      (list
+       '(uint8 1 nil) '(int8 1 nil)
+       '(uint16 2 nil) '(int16 2 nil)
+       '(uint32 4 nil) '(int32 4 nil)
+       '(uint64 8 nil) '(int64 8 nil)
+       '(char 1 nil)
+       '(short 2 nil)
+       '(int 4 nil)
+       '(long 8 nil))
       "A list of (TYPE-NAME TYPE-SIZE DEFINITION)")
 
 (defun ffi-get-type (type)
@@ -96,15 +97,20 @@
       (push type-obj *ffi-type-registry*)
       (map (lambda (name size type offset)
              (let ((offset (third offset))
-                   (getter-name (intern (concatenate (symbol-name struct-name) "-" (symbol-name name))))
-                   (setter-name (intern (concatenate (symbol-name struct-name) "-SET-" (symbol-name name)))))
+                   (getter-name (intern (concatenate (symbol-name struct-name) "." (symbol-name name))))
+                   (setter-name (intern (concatenate (symbol-name struct-name) ".SET-" (symbol-name name))))
+                   (struct-type-p (ffi-field-offsets (ffi-get-type type))))
                (push 
                 `(defun ,getter-name (,struct-name)
-                   (,(%ffi-getter-function size) (ffi-ref ,struct-name ,offset)))
+                   ,(if struct-type-p
+                        `(ffi-ref ,struct-name ,offset)
+                        `(,(%ffi-getter-function size) (ffi-ref ,struct-name ,offset))))
                 functions)
                (push
                 `(defun ,setter-name (,struct-name value)
-                   (,(%ffi-setter-function size) (ffi-ref ,struct-name ,offset) value))
+                   ,(if struct-type-p
+                        `(ffi-set-ref (ffi-ref ,struct-name ,offset) value ,size)
+                        `(,(%ffi-setter-function size) (ffi-ref ,struct-name ,offset) value)))
                 functions)
                (push `(defsetf ,getter-name ,setter-name) functions)))
            field-names
@@ -231,6 +237,10 @@
           uint16
           uint32
           uint64
+          int8
+          int16
+          int32
+          int64
           char
           short
           int

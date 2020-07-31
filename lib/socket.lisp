@@ -27,21 +27,44 @@
   (c-connect "connect")
   (c-close "close")
   (c-send "send")
-  (c-recv "recv"))
+  (c-recv "recv")
+  (c-listen "listen")
+  (c-bind "bind")
+  (c-accept "accept")
+  (c-htons "htons"))
  
  (ffi-defstruct addrinfo
-                (ai-flags int)
-                (ai-family int)
-                (ai-socktype int)
-                (ai-protocol int)
-                (ai-addrlen int)
+                (ai-flags int32)
+                (ai-family int32)
+                (ai-socktype int32)
+                (ai-protocol int32)
+                (ai-addrlen int32)
                 (ai-addr void*)
                 (ai-canonname char*)
                 (ai-next addrinfo*))
 
+ (ffi-defstruct in-addr
+                (s-addr uint32))
+
+ (ffi-defstruct sockaddr-in
+                (sin-family int16)
+                (sin-port uint16)
+                (sin-addr in-addr)
+                ;; this is supposed to be char[8] but unsupported atm
+                (sin-zero[0] char)
+                (sin-zero[1] char)
+                (sin-zero[2] char)
+                (sin-zero[3] char)
+                (sin-zero[4] char)
+                (sin-zero[5] char)
+                (sin-zero[6] char)
+                (sin-zero[7] char))
+
  (let ((+af-unspec+ 0)
+       (+af-inet+ 2)
+       (+ai-passive+ 1)
        (+sock-stream+ 1)
-       (+ai-passive+ 1))
+       (+inaddr-any+ 0))
 
    (defun %socket-open (host port)
      (let ((host (ffi-marshal host))
@@ -49,9 +72,9 @@
            (result (ffi-nullptr))
            (hints (make-addrinfo)))
 
-       (setf (addrinfo-ai-family hints) +af-unspec+)
-       (setf (addrinfo-ai-socktype hints) +sock-stream+)
-       (setf (addrinfo-ai-flags hints) +ai-passive+)
+       (setf (addrinfo.ai-family hints) +af-unspec+)
+       (setf (addrinfo.ai-socktype hints) +sock-stream+)
+       (setf (addrinfo.ai-flags hints) +ai-passive+)
 
        (unwind-protect
             (let ((rc (ffi-coerce-int
@@ -60,17 +83,17 @@
                 (signal 'socket-error "getaddrinfo failed with code: " rc))
               (unwind-protect
                    (let* ((socket (c-socket
-                                   (addrinfo-ai-family result)
-                                   (addrinfo-ai-socktype result)
-                                   (addrinfo-ai-protocol result)))
+                                   (addrinfo.ai-family result)
+                                   (addrinfo.ai-socktype result)
+                                   (addrinfo.ai-protocol result)))
                           (rc (ffi-coerce-int socket)))
                      (when (< rc 0)
                        (signal 'socket-error "socket acquisition failed" (errno-str)))
                      (let ((rc (ffi-coerce-int
                                 (c-connect
                                  socket
-                                 (addrinfo-ai-addr result)
-                                 (addrinfo-ai-addrlen result)))))
+                                 (addrinfo.ai-addr result)
+                                 (addrinfo.ai-addrlen result)))))
                        (when (< rc 0)
                          (signal 'socket-error "connect failed with code: " rc)))
                      socket)
@@ -109,7 +132,37 @@
             (buffer (first recv))
             (bytes-read (second recv)))
        (prog1 (ffi-coerce-string buffer bytes-read)
-         (ffi-free buffer))))))
+         (ffi-free buffer))))
+
+   (defun %socket-echo-server (port)
+     (let ((server-addr (make-sockaddr-in))
+           (client-addr (make-sockaddr-in))
+           (port (c-htons port))
+           (family +af-inet+)
+           (addr +inaddr-any+)
+           (listen-fd (c-socket +af-inet+ +sock-stream+ 0))
+           (comm-fd))
+
+       (setf (sockaddr-in.sin-family server-addr) family)
+       (setf (in-addr.s-addr
+              (sockaddr-in.sin-addr server-addr))
+             addr)
+       (setf (sockaddr-in.sin-port server-addr) port)
+
+       (when (/= 0 (ffi-coerce-int (c-bind listen-fd server-addr (ffi-sizeof sockaddr-in))))
+         (signal 'socket-error "bind failed" (kernel:errno-str)))
+
+       (when (/= 0 (ffi-coerce-int (c-listen listen-fd 10)))
+         (signal 'socket-error "listen failed" (kernel:errno-str)))
+       
+       (format t "Accepting connections...~%")
+       (setq comm-fd (c-accept listen-fd client-addr (ffi-sizeof sockaddr-in)))
+       (format t "~a~%" (kernel:errno-str))
+       
+       (while t
+              (let ((recv (%socket-recv-string comm-fd 1024)))
+                (format t ">~a" recv)
+                (%socket-send comm-fd recv)))))))
 
 
 (defstruct socket (fd))
