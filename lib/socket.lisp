@@ -10,10 +10,12 @@
            socketp
            socket-fd
            socket-open
+           socket-open-server
            socket-close
            socket-send
            socket-recv
-           socket-recv-string))
+           socket-recv-string
+           socket-accept))
 
 (in-package :lispyboi.socket)
 
@@ -134,45 +136,46 @@
        (prog1 (ffi-coerce-string buffer bytes-read)
          (ffi-free buffer))))
 
-   (defun %socket-echo-server (port)
+   (defun %socket-open-server (port)
      (let ((server-addr (make-sockaddr-in))
-           (client-addr (make-sockaddr-in))
            (port (c-htons port))
            (family +af-inet+)
            (addr +inaddr-any+)
-           (listen-fd (c-socket +af-inet+ +sock-stream+ 0))
-           (comm-fd))
+           (listen-fd (c-socket +af-inet+ +sock-stream+ 0)))
 
-       (setf (sockaddr-in.sin-family server-addr) family)
-       (setf (in-addr.s-addr
-              (sockaddr-in.sin-addr server-addr))
-             addr)
-       (setf (sockaddr-in.sin-port server-addr) port)
+       (unwind-protect
+            (progn
+              (setf (sockaddr-in.sin-family server-addr) family)
+              (setf (in-addr.s-addr (sockaddr-in.sin-addr server-addr))
+                    addr)
+              (setf (sockaddr-in.sin-port server-addr) port)
 
-       (when (/= 0 (ffi-coerce-int (c-bind listen-fd server-addr (ffi-sizeof sockaddr-in))))
-         (signal 'socket-error "bind failed" (kernel:errno-str)))
+              (when (/= 0 (ffi-coerce-int (c-bind listen-fd server-addr (ffi-sizeof sockaddr-in))))
+                (signal 'socket-error "bind failed" (errno-str)))
 
-       (when (/= 0 (ffi-coerce-int (c-listen listen-fd 10)))
-         (signal 'socket-error "listen failed" (kernel:errno-str)))
-       
-       (format t "Accepting connections...~%")
-       (setq comm-fd (c-accept listen-fd client-addr (ffi-sizeof sockaddr-in)))
-       (format t "~a~%" (kernel:errno-str))
-       
-       (while t
-              (let ((recv (%socket-recv-string comm-fd 1024)))
-                (format t ">~a" recv)
-                (%socket-send comm-fd recv)))))))
+              (when (/= 0 (ffi-coerce-int (c-listen listen-fd 10)))
+                (signal 'socket-error "listen failed" (errno-str)))
+              
+              listen-fd)
+         (ffi-free server-addr))))
 
+   (defun %socket-accept (socket)
+     (let ((comm-fd (c-accept socket 0 0)))
+       (when (< (ffi-coerce-int comm-fd) 0)
+         (signal 'socket-error "accept failed" (errno-str)))
+       comm-fd))))
 
 (defstruct socket (fd))
 
+(defun check-port (port)
+  (unless (fixnump port)
+    (signal 'socket-error "Port must be a FIXNUM in the range (0-65535)" port))
+  (unless (< 0 port #x10000)
+    (signal 'socket-error "Port out of range (0-65535)" port)))
+
 (defun socket-open (host port)
-  (when (fixnump port)
-    (when (or (< port 0) (> port #xFFFF))
-      (signal 'socket-error "SOCKET-OPEN: Port out of range (0-65535)" port))
-    (setf port (format nil "~d" port)))
-  (make-socket (%socket-open host port)))
+  (check-port port)
+  (make-socket (%socket-open host (format nil "~d" port))))
 
 (defun socket-close (socket)
   (let ((int-socket (socket-fd socket)))
@@ -197,6 +200,16 @@
     (unless int-socket
       (signal 'socket-error "SOCKET-RECV-STRING: Socket internal FD is NIL"))
     (%socket-recv-string int-socket buffer-size-hint)))
+
+(defun socket-open-server (port)
+  (check-port port)
+  (make-socket (%socket-open-server port)))
+
+(defun socket-accept (socket)
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "SOCKET-ACCEPT: Socket internal FD is NIL"))
+    (make-socket (%socket-accept int-socket))))
 
 (defmethod output-stream-write-char ((socket socket) character)
   (let ((int-socket (socket-fd socket)))

@@ -196,7 +196,7 @@
 
 
 (defmethod print-object ((o system-pointer) stream)
-  (format stream "#<SYSTEM-POINTER ~X>" (ffi-coerce-fixnum o))
+  (format stream "#<SYSTEM-POINTER 0x~X>" (ffi-coerce-fixnum o))
   o)
 
 (export '(ffi-get-type

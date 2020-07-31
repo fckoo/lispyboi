@@ -6618,8 +6618,8 @@ Value func_ffi_set_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
     {
         CHECK_FIXNUM(args[1]);
         value = args[1].as_fixnum() & 0xff;
-        *ptr = value;
     }
+    *ptr = value;
     return Value::wrap_fixnum(value);
 }
 
@@ -6641,8 +6641,8 @@ Value func_ffi_set_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
     {
         CHECK_FIXNUM(args[1]);
         value = args[1].as_fixnum() & 0xffff;
-        *ptr = value;
     }
+    *ptr = value;
     return Value::wrap_fixnum(value);
 }
 
@@ -6664,8 +6664,8 @@ Value func_ffi_set_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
     {
         CHECK_FIXNUM(args[1]);
         value = args[1].as_fixnum() & 0xffffffff;
-        *ptr = value;
     }
+    *ptr = value;
     return Value::wrap_fixnum(value);
 }
 
@@ -6687,8 +6687,8 @@ Value func_ffi_set_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
     {
         CHECK_FIXNUM(args[1]);
         value = args[1].as_fixnum();
-        *ptr = value;
     }
+    *ptr = value;
     return Value::wrap_fixnum(value);
 }
 
