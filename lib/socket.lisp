@@ -9,6 +9,7 @@
            make-socket
            socketp
            socket-fd
+           socket-error
            socket-open
            socket-open-server
            socket-close
