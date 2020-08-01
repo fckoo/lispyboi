@@ -54,6 +54,21 @@
         (make-string)
         (substring string start end))))
 
+(defun string-trim-left (string)
+  (let ((start 0)
+        (end (length string)))
+    (while (and (< start end)
+                (spacep (aref string start)))
+           (incf start))
+    (substring string start)))
+
+(defun string-trim-right (string)
+  (let ((end (length string)))
+    (while (and (> end 0)
+                (spacep (aref string (- end 1))))
+           (decf end))
+    (substring string 0 end)))
+
 (defun char-downcase (c)
   (if (<= (char-code #\A) (char-code c) (char-code #\Z))
       (code-char (bit-ior (char-code c) 32))
@@ -80,6 +95,8 @@
 
 (export '(string-split
           string-trim
+          string-trim-left
+          string-trim-right
           char-downcase
           char-upcase
           string-upcase!
