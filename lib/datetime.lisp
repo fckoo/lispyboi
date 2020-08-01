@@ -96,8 +96,6 @@
                      1
                      0))
 
-      (print-line leap)
-
       (setf year-day (/ sec 86400))
       (setf sec (rem sec 86400))
       (setf hour (/ sec 3600))
