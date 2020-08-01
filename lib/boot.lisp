@@ -147,6 +147,9 @@
    macro-print
    read
 
+   get-clock-ticks
+   clocks-per-second
+
    unwind-protect
    ignore-errors
    with-open-file

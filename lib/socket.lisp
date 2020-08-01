@@ -13,6 +13,7 @@
            socket-open
            socket-open-server
            socket-close
+           socket-alive-p
            socket-send
            socket-recv
            socket-recv-string
@@ -34,7 +35,10 @@
   (c-listen "listen")
   (c-bind "bind")
   (c-accept "accept")
-  (c-htons "htons"))
+  (c-htons "htons")
+  (c-htonl "htonl")
+  (c-fcntl "fcntl")
+  (c-setsockopt "setsockopt"))
  
  (ffi-defstruct addrinfo
                 (ai-flags int32)
@@ -67,7 +71,28 @@
        (+af-inet+ 2)
        (+ai-passive+ 1)
        (+sock-stream+ 1)
-       (+inaddr-any+ 0))
+       (+inaddr-any+ 0)
+
+       (+f-getfl+ 3)
+       (+f-setfl+ 4)
+       (+o-nonblock+ 2048)
+
+       (+ewouldblock+ 11)
+       (+econnaborted+ 103))
+
+   (defun %socket-get-flags (socket)
+     (ffi-coerce-int (c-fcntl socket +f-getfl+ 0)))
+
+   (defun %socket-set-flags (socket new-flags)
+     (prog1 (%socket-get-flags socket)
+       (ffi-coerce-int (c-fcntl socket +f-setfl+ new-flags))))
+
+   (defun %socket-add-flags (socket new-flags)
+     (let ((flags (%socket-get-flags socket)))
+       (when (< flags 0)
+         (%socket-close socket)
+         (signal 'socket-error "unable to add socket flags." (errno-str)))
+       (%socket-set-flags socket (bit-ior flags new-flags))))
 
    (defun %socket-open (host port)
      (let ((host (ffi-marshal host))
@@ -103,6 +128,11 @@
                 (c-freeaddrinfo result)))
          (ffi-free hints))))
 
+   (defun %socket-open-nonblock (host port)
+     (let ((socket (%socket-open host port)))
+       (%socket-add-flags socket +o-nonblock+) 
+       socket))
+
    (defun %socket-close (socket)
      (let ((rc (ffi-coerce-int (c-close socket))))
        (when (< rc 0)
@@ -137,12 +167,21 @@
        (prog1 (ffi-coerce-string buffer bytes-read)
          (ffi-free buffer))))
 
-   (defun %socket-open-server (port)
+   (defun %socket-open-server (port &rest flags)
      (let ((server-addr (make-sockaddr-in))
            (port (c-htons port))
            (family +af-inet+)
            (addr +inaddr-any+)
            (listen-fd (c-socket +af-inet+ +sock-stream+ 0)))
+
+       (when flags
+         (let ((n 0))
+           (dolist (flag flags)
+             (case flag
+               (:nonblock (setf n (bit-ior n +o-nonblock+)))
+               (:ndelay (setf n (bit-ior n +o-nonblock+)))))
+           (unless (= 0 n)
+             (%socket-add-flags listen-fd n))))
 
        (unwind-protect
             (progn
@@ -162,9 +201,17 @@
 
    (defun %socket-accept (socket)
      (let ((comm-fd (c-accept socket 0 0)))
-       (when (< (ffi-coerce-int comm-fd) 0)
-         (signal 'socket-error "accept failed" (errno-str)))
-       comm-fd))))
+       (if (< (ffi-coerce-int comm-fd) 0)
+           (case (errno)
+             (+ewouldblock+ nil)
+             (+econnaborted+ nil)
+             (otherwise (signal 'socket-error "accept failed" (errno-str))))
+           comm-fd)))
+
+   (defun %socket-alive-p (socket)
+     t)
+
+   ))
 
 (defstruct socket (fd))
 
@@ -202,15 +249,24 @@
       (signal 'socket-error "SOCKET-RECV-STRING: Socket internal FD is NIL"))
     (%socket-recv-string int-socket buffer-size-hint)))
 
-(defun socket-open-server (port)
+(defun socket-open-server (port &rest flags)
   (check-port port)
-  (make-socket (%socket-open-server port)))
+  (make-socket (apply #'%socket-open-server port flags)))
 
 (defun socket-accept (socket)
   (let ((int-socket (socket-fd socket)))
     (unless int-socket
       (signal 'socket-error "SOCKET-ACCEPT: Socket internal FD is NIL"))
-    (make-socket (%socket-accept int-socket))))
+    (let ((accepted (%socket-accept int-socket)))
+      (if accepted
+          (list (make-socket accepted) nil nil)
+          (list nil nil nil)))))
+
+(defun socket-alive-p (socket)
+  (let ((int-socket (socket-fd socket)))
+    (unless int-socket
+      (signal 'socket-error "SOCKET-ALIVE-P: Socket internal FD is NIL"))
+    (%socket-alive-p int-socket)))
 
 (defmethod output-stream-write-char ((socket socket) character)
   (let ((int-socket (socket-fd socket)))
