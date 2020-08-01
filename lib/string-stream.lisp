@@ -91,6 +91,8 @@
 
 
 (export '(string-stream
+          make-string-stream
+          string-stream-p
           string-stream-write-char
           string-stream-write-string
           string-stream-eof-p
