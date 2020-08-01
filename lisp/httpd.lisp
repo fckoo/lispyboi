@@ -1,5 +1,6 @@
 (require "socket")
 (require "sleep")
+(require "time-it")
 (provide "httpd")
 
 (defpackage httpd 
@@ -145,7 +146,7 @@
   (array-join "\r\n"
               (format nil "HTTP/1.0 200 OK")
               (format nil "Connection: close")
-              (format nil "Content-Length: %d" (length content))
+              ;;(format nil "Content-Length: %d" (length content))
               (format nil "Content-Type: text/html; UTF-8")
               (format nil "")
               content))
@@ -198,16 +199,16 @@
            (let ((clients clients))
              (while (car clients)
                     (let ((socket (http-client-socket (car clients))))
-                      (if (socket-alive-p socket)
-                          (if (http-handle-one (car clients)
-                                               (format nil *dummy-page*
-                                                       (format nil "yer a b00t and The current time is ~s"
-                                                               (datetime-now))))
-                              (pop! clients))
+                      (if (and socket (socket-alive-p socket))
+                          (when (http-handle-one (car clients)
+                                                 (format nil *dummy-page*
+                                                         (format nil "yer a b00t and The current time is ~s"
+                                                                 (datetime-now))))
+                            (pop! clients))
                           (progn
                             (socket-close socket)
                             (pop! clients))))
-                    (setf clients (cdr clients))))
-           (msleep 250))))
+                    (setf clients (cdr clients)))
+             (msleep 250)))))
 
-(run-simple-http-server 8080)
+(run-simple-http-server 8082)

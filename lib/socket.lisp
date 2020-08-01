@@ -226,10 +226,11 @@
   (make-socket (%socket-open host (format nil "~d" port))))
 
 (defun socket-close (socket)
-  (let ((int-socket (socket-fd socket)))
-    (when int-socket
-      (prog1 (%socket-close int-socket)
-        (setf (socket-fd socket) nil)))))
+  (when socket
+    (let ((int-socket (socket-fd socket)))
+      (when int-socket
+        (prog1 (%socket-close int-socket)
+          (setf (socket-fd socket) nil))))))
 
 (defun socket-send (socket message)
   (let ((int-socket (socket-fd socket)))
@@ -264,9 +265,7 @@
 
 (defun socket-alive-p (socket)
   (let ((int-socket (socket-fd socket)))
-    (unless int-socket
-      (signal 'socket-error "SOCKET-ALIVE-P: Socket internal FD is NIL"))
-    (%socket-alive-p int-socket)))
+    (and int-socket (%socket-alive-p int-socket))))
 
 (defmethod output-stream-write-char ((socket socket) character)
   (let ((int-socket (socket-fd socket)))
