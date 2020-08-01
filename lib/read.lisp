@@ -149,15 +149,17 @@
                                  (error "Unbalanced parentheses"))
                                (read-char stream t) ;; consume closing )
                                (signal 'return head))
-                             (setf (cdr cur) (list (read stream)))
-                             (setf cur (cdr cur)))
+                             (destructuring-bind (readp read-val)
+                                 (read-maybe-nothing stream t nil)
+                               (when readp
+                                 (setf (cdr cur) (list read-val))
+                                 (setf cur (cdr cur)))))
                       (read-char stream t) ;; consume closing ), doesn't matter if eof
                       (signal 'return head))))
 
 (set-reader-macro #\)
                   (lambda (stream char)
                     (error "Unbalanced parentheses")))
-
 
 (set-reader-macro #\;
                   (lambda (stream char)
@@ -166,7 +168,7 @@
                                       (eql #\Newline (peek-char nil stream t)))
                                   (read-char stream t))
                            (setf char (peek-char t stream t)))
-                    (read stream t)))
+                    (signal 'read-nothing)))
 
 (set-reader-macro #\"
                   (lambda (stream char)
@@ -266,7 +268,8 @@
                (intern symbol-name pkg-name)
                (intern string *package*))))))
 
-(defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
+
+(defun read-impl (stream eof-error-p eof-value)
   (handler-case
       (progn
         (until (input-stream-eof-p stream)
@@ -311,6 +314,24 @@
       (if eof-error-p
           (signal 'end-of-file)
           eof-value))))
+
+(defun read-maybe-nothing (stream eof-error-p eof-value)
+  (handler-case
+      (list t (read-impl stream eof-error-p eof-value))
+    (read-nothing ()
+      (list nil nil))
+    (end-of-file ()
+      (list nil nil))))
+
+(defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
+  (destructuring-bind (readp read-value)
+      (read-maybe-nothing stream eof-error-p eof-value)
+    (cond (readp
+           read-value)
+          (t
+           (if eof-error-p
+               (signal 'end-of-file)
+               eof-value)))))
 
 (export '(set-reader-macro
           set-reader-macros
