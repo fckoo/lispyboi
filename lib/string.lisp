@@ -11,7 +11,6 @@
       (= i (length match-string)))))
 
 
-
 (defun delimiter-p (string index delimiter)
   (typecase delimiter
     (character (and (< index (length string))
@@ -19,6 +18,14 @@
     (string (string-match string index delimiter))))
 
 (defun string-split (string &optional (delimiter #\Space) max-splits)
+  "Splits STRING on a given DELIMITER up to a maximum of MAX-SPLITS.
+
+MAX-SPLITS may be NIL or a negative FIXNUM to split on every occurence of
+DELIMITER or a positive value representing the amount of splits.
+
+e.g.: if MAX-SPLITS is 1, a list containing up to two strings is returned.
+      if MAX-SPLITS is 5, a list containing up to six strings is returned.
+      etc."
   (let ((splits)
         (start 0)
         (end 0)
@@ -38,10 +45,12 @@
       (push (substring string start end) splits))
     (when (and (= max-splits 0)
                (< end (length string)))
-      (push (substring string end) splits))
+      (push (substring string (+ end (- delim-length 1))) splits))
     (reverse! splits)))
 
 (defun string-trim (string)
+  "Returns a copy of STRING with both leading and trailing whitespace characters
+removed."
   (let ((start 0)
         (end (length string)))
     (while (and (< start end)
@@ -55,6 +64,7 @@
         (substring string start end))))
 
 (defun string-trim-left (string)
+  "Returns a copy of STRING with leading whitespace characters removed."
   (let ((start 0)
         (end (length string)))
     (while (and (< start end)
@@ -63,11 +73,35 @@
     (substring string start)))
 
 (defun string-trim-right (string)
+  "Returns a copy of STRING with trailing whitespace characters removed."
   (let ((end (length string)))
     (while (and (> end 0)
                 (spacep (aref string (- end 1))))
            (decf end))
     (substring string 0 end)))
+
+(defun array-join (separator &rest arrays)
+  "Returns an new array containing every array in ARRAYS separated by SEPARATOR.
+
+SEPARATOR will be copied up to a maximum of (- (length arrays) 1) times.
+
+e.g: (array-join \", \" \"1\" \"2\" \"3\" \"4\") ==> \"1, 2, 3, 4\" "
+  (let* ((lengths (map #'length arrays))
+         (total-length (+ (* (length separator) (- (length arrays) 1))
+                          (apply #'+ lengths)))
+         (new-array (make-array total-length (array-type (first arrays))))
+         (new-array-idx 0))
+    (dotimes (i (length (car arrays)))
+      (setf (aref new-array new-array-idx) (aref (car arrays) i))
+      (incf new-array-idx))
+    (dolist (array (cdr arrays))
+      (dotimes (i (length separator))
+        (setf (aref new-array new-array-idx) (aref separator i))
+        (incf new-array-idx))
+      (dotimes (i (length array))
+        (setf (aref new-array new-array-idx) (aref array i))
+        (incf new-array-idx)))
+    new-array))
 
 (defun char-downcase (c)
   (if (<= (char-code #\A) (char-code c) (char-code #\Z))
@@ -97,6 +131,7 @@
           string-trim
           string-trim-left
           string-trim-right
+          array-join
           char-downcase
           char-upcase
           string-upcase!
