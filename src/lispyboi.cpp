@@ -6419,6 +6419,14 @@ Value func_errno_str(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(strerror(errno));
 }
 
+Value func_ffi_machine_pointer_size(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (ffi-machine-pointer-size)
+     */
+    return Value::wrap_fixnum(sizeof(void*));
+}
+
 Value func_ffi_open(Value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -7050,6 +7058,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
 
     export_function(kernel, "ERRNO", primitives::func_errno);
     export_function(kernel, "ERRNO-STR", primitives::func_errno_str);
+    export_function(kernel, "FFI-MACHINE-POINTER-SIZE", primitives::func_ffi_machine_pointer_size);
     export_function(kernel, "FFI-OPEN", primitives::func_ffi_open);
     export_function(kernel, "FFI-CLOSE", primitives::func_ffi_close);
     export_function(kernel, "FFI-GET-SYMBOL", primitives::func_ffi_get_symbol);
@@ -7364,20 +7373,17 @@ static
 Value make_symbol(const std::string &str)
 {
     auto package = g.packages.current();
-    bool check_inherited_packages = false;
     std::string symbol_name;
     std::string package_name;
     if (str.size() > 2 && str[0] == ':' && str[1] == ':')
     {
         package = g.keyword();
         symbol_name = str.substr(2);
-        check_inherited_packages = false;
     }
     else if (str.size() > 1 && str[0] == ':')
     {
         package = g.keyword();
         symbol_name = str.substr(1);
-        check_inherited_packages = false;
     }
     else
     {
@@ -7386,21 +7392,18 @@ Value make_symbol(const std::string &str)
         {
             package = g.packages.current();
             symbol_name = str;
-            check_inherited_packages = true;
         }
         else if (i+1 < str.size() && str[i+1] == ':') // two colons
         {
             package_name = str.substr(0, i);
             package = g.packages.find(package_name);
             symbol_name = str.substr(i+2);
-            check_inherited_packages = false;
         }
         else // one colon
         {
             package_name = str.substr(0, i);
             package = g.packages.find(package_name);
             symbol_name = str.substr(i+1);
-            check_inherited_packages = false;
         }
     }
 

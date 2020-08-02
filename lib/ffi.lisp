@@ -1,8 +1,6 @@
 (in-package :lispyboi)
 (provide "ffi")
 
-(setq *ffi-pointer-size* 8)
-
 (setf *ffi-bytespecs* '(uint8 byte
                         uint16
                         uint32
@@ -32,11 +30,11 @@
     (eql #\* (aref sym-name (- (length sym-name) 1)))))
 
 (defun %ffi-pointer-align-up (offset)
-  (+ (rem offset *ffi-pointer-size*) offset))
+  (+ (rem offset (ffi-machine-pointer-size)) offset))
 
 (defun %ffi-sizeof (type)
   (if (%ffi-pointer-type-p type)
-      *ffi-pointer-size*
+      (ffi-machine-pointer-size)
       (second (assoc type *ffi-type-registry*))))
 
 (defmacro ffi-sizeof (type)
@@ -209,6 +207,7 @@
           with-ffi-array
           ffi-with-symbols
 
+          ffi-machine-pointer-size
           ffi-open
           ffi-close
           ffi-get-symbol
