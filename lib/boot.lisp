@@ -149,6 +149,7 @@
 
    get-clock-ticks
    clocks-per-second
+   operating-system
 
    unwind-protect
    ignore-errors

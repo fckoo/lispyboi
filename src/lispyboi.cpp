@@ -276,7 +276,7 @@ struct Value
     {
         return is_nil() || is_cons();
     }
-    
+
     FORCE_INLINE
     bool is_garbage_collected() const noexcept
     {
@@ -294,9 +294,9 @@ struct Value
     {
         return tag_bits() == TAG_OBJECT;
     }
-    
+
     bool is_type(Object_Type type) const noexcept;
-    
+
     FORCE_INLINE
     Fixnum as_fixnum() const noexcept
     {
@@ -370,7 +370,7 @@ struct Value
         u.bits = m_bits;
         return u.c.codepoint;
     }
-    
+
     FORCE_INLINE
     void *unwrap_pointer() const noexcept
     {
@@ -427,30 +427,30 @@ struct Closure_Reference
         , m_location(nullptr)
         , m_closed_value(0)
     {}
-    
+
     Closure_Reference(Value *location)
         : next(nullptr)
         , m_location(location)
         , m_closed_value(0)
     {}
-    
+
     FORCE_INLINE
     void close()
     {
         m_closed_value = *m_location;
         m_location = &m_closed_value;
     }
-    
+
     Value &value()
     {
         return *m_location;
     }
-    
+
     const Value *location() const
     {
         return m_location;
     }
-    
+
     Closure_Reference *next;
   private:
     Value *m_location;
@@ -536,36 +536,36 @@ struct Symbol
         , m_function(Value::nil())
         , m_package(nullptr)
     {}
-    
+
     Symbol(const std::string &name, Package *package)
         : m_name(name)
         , m_function(Value::nil())
         , m_package(package)
     {}
-    
+
     Symbol(const std::string &name, Value function, Package *package)
         : m_name(name)
         , m_function(function)
         , m_package(package)
     {}
-        
+
     bool is_keyword() const;
     std::string qualified_name() const;
     const std::string &name() const
     {
         return m_name;
     }
-    
+
     Value function() const
     {
         return m_function;
     }
-    
+
     void function(Value new_func)
     {
         m_function = new_func;
     }
-    
+
     Package *package() const
     {
         return m_package;
@@ -584,7 +584,7 @@ struct Structure
         , m_num_slots(num_slots)
         , m_slots(new Value[num_slots])
     {}
-    
+
     ~Structure()
     {
         delete[] m_slots;
@@ -594,17 +594,17 @@ struct Structure
     {
         return m_type;
     }
-    
+
     Fixnum num_slots() const
     {
         return m_num_slots;
     }
-    
+
     Value &slot_value(Fixnum slot)
     {
         return m_slots[slot];
     }
-    
+
     Value type_name() const
     {
         return car(m_type);
@@ -624,17 +624,17 @@ struct Simple_Array
         , m_size(capacity)
         , m_buffer(capacity <= 0 ? nullptr : new Value[capacity]{Value(0)})
     {}
-    
+
     Value element_type() const
     {
         return m_element_type;
     }
-    
+
     Fixnum size() const
     {
         return m_size;
     }
-    
+
     Value &at(Fixnum n) const
     {
         return m_buffer[n];
@@ -654,17 +654,17 @@ struct File_Stream
         , m_path(path)
         , m_mode(mode)
     {}
-    
+
     ~File_Stream()
     {
         m_stream.flush();
     }
-    
+
     std::fstream &stream()
     {
         return m_stream;
     }
-    
+
     const std::string &path() const
     {
         return m_path;
@@ -674,7 +674,7 @@ struct File_Stream
     {
         return m_mode;
     }
-    
+
     int32_t peek_character()
     {
         if (m_ungetted.size() != 0)
@@ -688,8 +688,8 @@ struct File_Stream
             return c;
         }
     }
-    
-    int32_t read_character() 
+
+    int32_t read_character()
     {
         if (m_ungetted.size() != 0)
         {
@@ -718,28 +718,28 @@ struct File_Stream
             return c;
         }
     }
-    
+
     Fixnum write_character(int32_t c)
     {
         if (m_stream.good())
         {
             auto p = reinterpret_cast<const char*>(&c);
-            if ((c & 0xf8) == 0xf0) 
+            if ((c & 0xf8) == 0xf0)
             {
                 m_stream.write(p, 4);
                 return 4;
             }
-            else if ((c & 0xf0) == 0xe0) 
+            else if ((c & 0xf0) == 0xe0)
             {
                 m_stream.write(p, 3);
                 return 3;
             }
-            else if ((c & 0xe0) == 0xc0) 
+            else if ((c & 0xe0) == 0xc0)
             {
                 m_stream.write(p, 2);
                 return 2;
             }
-            else 
+            else
             {
                 m_stream.write(p, 1);
                 return 1;
@@ -747,7 +747,7 @@ struct File_Stream
         }
         return 0;
     }
-    
+
     void flush()
     {
         m_stream.flush();
@@ -793,12 +793,12 @@ struct Function
     {
         return m_parameters.size();
     }
-    
+
     const uint8_t *main_entry() const
     {
         return &m_code[m_main_entry];
     }
-    
+
     const uint8_t *entrypoint(uint32_t nth_param) const
     {
         if (nth_param >= arity())
@@ -808,57 +808,57 @@ struct Function
         auto ep = m_entrypoints[nth_param];
         return &m_code[ep];
     }
-    
+
     const uint8_t *begin() const
     {
         return m_code.data();
     }
-    
+
     const uint8_t *end() const
     {
         return m_code.data() + m_code.size();
     }
-    
+
     const std::vector<const Symbol*> &parameters() const
     {
         return m_parameters;
     }
-    
+
     const std::vector<Capture_Offset> &capture_offsets() const
     {
         return m_capture_offsets;
     }
-    
+
     bool has_rest() const
     {
         return m_has_rest;
     }
-    
+
     uint32_t rest_index() const
     {
         return m_parameters.size() - 1;
     }
-    
+
     bool has_captures() const
     {
         return m_capture_offsets.size() != 0;
     }
-    
+
     uint32_t optionals_start_at() const
     {
         return m_optionals_start_at;
     }
-    
+
     bool has_optionals() const
     {
         return m_has_optionals;
     }
-    
+
     bool is_too_many_args(uint32_t n) const
     {
         return !has_rest() && n > arity();
     }
-    
+
     bool is_too_few_args(uint32_t n) const
     {
         if (has_optionals())
@@ -871,12 +871,12 @@ struct Function
         }
         return n < arity();
     }
-    
+
     uint32_t num_locals() const
     {
         return m_num_locals;
     }
-    
+
     // for gdb
     __attribute__((used, noinline))
     void ez_disassemble() const
@@ -904,22 +904,22 @@ struct Closure
     {
         m_captures.resize(function->capture_offsets().size(), nullptr);
     }
-    
+
     void capture_reference(size_t idx, Closure_Reference *p)
     {
         m_captures[idx] = p;
     }
-    
+
     Value get_capture(size_t idx) const
     {
         return m_captures[idx]->value();
     }
-    
+
     void set_capture(size_t idx, Value new_val)
     {
         m_captures[idx]->value() = new_val;
     }
-    
+
     Closure_Reference *get_reference(size_t idx)
     {
         if (idx >= m_captures.size())
@@ -928,12 +928,12 @@ struct Closure
         }
         return m_captures[idx];
     }
-    
+
     const Function *function() const
     {
         return m_function;
     }
-    
+
     const std::vector<Closure_Reference*> &captures() const
     {
         return m_captures;
@@ -990,7 +990,7 @@ struct Object
     {
         u.system_pointer = new_val;
     }
-    
+
     System_Pointer pointer_ref()
     {
         return &u.system_pointer;
@@ -1030,7 +1030,7 @@ struct Object
     {
         u.system_pointer = system_pointer;
     }
-    
+
     ~Object()
     {
         switch (m_type)
@@ -1115,7 +1115,7 @@ struct GC
     {
         m_free_small_bins.resize(SMALL_BINS_SIZE);
     }
-    
+
     ~GC()
     {
         // Not the most elegant way to GC everything at exit but it works.
@@ -1155,7 +1155,7 @@ struct GC
         #endif
 
         char data[0];
-        
+
         template<typename T>
         T *as()
         {
@@ -1171,7 +1171,7 @@ struct GC
     static_assert(offsetof(Reference, data) == 8);
     #endif
 
-    
+
     Closure_Reference *make_closure_reference(Value *v)
     {
         return allocate<true, Closure_Reference>(v);
@@ -1202,7 +1202,7 @@ struct GC
             return Value::wrap_object(allocate<false, Object>(new T{args...}));
         }
     }
-    
+
     Value alloc_string(const char *str, Fixnum len);
     Value alloc_string(const std::string &str);
 
@@ -1215,7 +1215,7 @@ struct GC
     {
         return m_is_paused;
     }
-    
+
     bool pause()
     {
         auto tmp = m_is_paused;
@@ -1247,12 +1247,12 @@ struct GC
             it(*this);
         }
     }
-    
+
     inline void mark_symbol(Symbol *symbol)
     {
         mark_value(symbol->m_function);
     }
-    
+
     void mark_closure_reference(Closure_Reference *clos_ref)
     {
         while (clos_ref)
@@ -1261,7 +1261,7 @@ struct GC
             if (ref && !ref->marking)
             {
                 ref->marking = true;
-            
+
                 mark_value(clos_ref->value());
 
                 ref->collections_survived++;
@@ -1304,15 +1304,15 @@ struct GC
         {
             return;
         }
-        
-        if (ref->marking || 
+
+        if (ref->marking ||
             (ref->marked && ref->collections_survived <= GENERATIONAL_SURVIVOR_THRESHOLD))
         {
             return;
         }
-        
+
         ref->marking = true;
-        
+
         #if GC_DIAGNOSTICS
         printf("Marking: %s: %p\n", repr(value).c_str(), (void*)value.bits());
         #endif
@@ -1364,13 +1364,13 @@ struct GC
                     break;
             }
         }
-        
+
         ref->collections_survived++;
         ref->marked = true;
         ref->marking = false;
         m_marked++;
     }
-    
+
     size_t sweep()
     {
         #if GC_DIAGNOSTICS
@@ -1387,9 +1387,9 @@ struct GC
             {
                 switch (r->type)
                 {
-                    case Reference::Type::Cons: 
+                    case Reference::Type::Cons:
                         break;
-                    case Reference::Type::Object: 
+                    case Reference::Type::Object:
                         r->as<Object>()->~Object();
                         break;
                     case Reference::Type::Closure_Reference:
@@ -1417,19 +1417,19 @@ struct GC
                 i++;
             }
         }
-        
+
         #if GC_DIAGNOSTICS
         fprintf(stderr, " Moved: %zu, Freed: %zu, Generation (%zu) Size: %zu\n",
                 moved_to_generation, freed, m_generations.size(), current_gen.size());
         #endif
-        
+
         if (current_gen.size() >= NEW_GENERATION_THRESHOLD)
         {
             make_new_generation();
         }
         return freed;
     }
-    
+
     size_t mark_and_sweep()
     {
         #if GC_DIAGNOSTICS
@@ -1443,7 +1443,7 @@ struct GC
         #endif
         return sweep();
     }
-    
+
     template<typename... Args>
     Value list(Args... args)
     {
@@ -1453,7 +1453,7 @@ struct GC
         m_is_paused = paused;
         return value;
     }
-    
+
     void pin_value(Value value)
     {
         if (value.is_garbage_collected())
@@ -1461,7 +1461,7 @@ struct GC
             m_pinned_values.push_back(value);
         }
     }
-    
+
     void unpin_value(Value value)
     {
         if (value.is_garbage_collected())
@@ -1499,10 +1499,10 @@ struct GC
         Value v;
         switch (r->type)
         {
-            case Reference::Type::Cons: 
+            case Reference::Type::Cons:
                 v = Value::wrap_cons(reinterpret_cast<Cons*>(datap));
                 break;
-            case Reference::Type::Object: 
+            case Reference::Type::Object:
                 v = Value::wrap_object(reinterpret_cast<Object*>(datap));
                 break;
             case Reference::Type::Closure_Reference:
@@ -1516,19 +1516,19 @@ struct GC
     {
         return Value::nil();
     }
-    
+
     template<typename TFirst>
     Value _list(TFirst first)
     {
         return cons(first, _list());
     }
-    
+
     template<typename TFirst, typename... TRest>
     Value _list(TFirst first, TRest... rest)
     {
         return cons(first, _list(rest...));
     }
-    
+
     Reference *ptr_to_ref(void *ptr)
     {
         if (!ptr)
@@ -1537,7 +1537,7 @@ struct GC
         }
 
         auto p = reinterpret_cast<uint8_t*>(ptr) - offsetof(Reference, data);
-        
+
         auto ref = reinterpret_cast<Reference*>(p);
         #if GC_NO_OPT
         if (ref->magic != Reference::MAGIC_CONSTANT)
@@ -1547,14 +1547,14 @@ struct GC
         #endif
         return ref;
     }
-    
+
     Reference *value_to_ref(Value val)
     {
         if (!val.is_garbage_collected())
         {
             return nullptr;
         }
-        
+
         auto ptr = val.unwrap_pointer();
         return ptr_to_ref(ptr);
     }
@@ -1572,7 +1572,7 @@ struct GC
                 m_is_warmed_up = mark_and_sweep() > GC_COOLDOWN_THRESHOLD;
             }
         }
-        
+
         Reference *ref = nullptr;
         if constexpr (is_managed)
         {
@@ -1588,7 +1588,7 @@ struct GC
                 }
             }
         }
-        
+
         if (!ref)
         {
             ref = static_cast<Reference*>(::operator new(offsetof(Reference, data) + sizeof(T)));
@@ -1613,7 +1613,7 @@ struct GC
         }
         ref->marking = false;
         ref->marked = false;
-        
+
         if constexpr (is_managed)
         {
             m_recent_allocations.push_back(ref);
@@ -1624,9 +1624,9 @@ struct GC
         new (value) T{args...};
         return value;
     }
-    
+
     using Generation = std::vector<Reference*>;
-    
+
     Generation &current_generation()
     {
         if (m_generations.size() == 0)
@@ -1635,12 +1635,12 @@ struct GC
         }
         return *m_generations.back();
     }
-    
+
     void make_new_generation()
     {
         m_generations.push_back(new Generation);
     }
-    
+
     std::vector<Reference*> &get_bin(size_t size)
     {
         if (size > SMALL_BINS_SIZE)
@@ -1649,7 +1649,7 @@ struct GC
         }
         return m_free_small_bins[size];
     }
-    
+
     static constexpr auto GC_WARMUP_THRESHOLD = 1000000;
     // attempt to keep GC from running many times in succession
     static constexpr auto GC_COOLDOWN_THRESHOLD = GC_WARMUP_THRESHOLD * 0.06;
@@ -1678,7 +1678,7 @@ struct GC
 static FORCE_INLINE
 Value to_list(const Value *vals, uint32_t nvals)
 {
-    switch (nvals) 
+    switch (nvals)
     {
         case 0: return Value::nil();
         case 1: return gc.list(vals[0]);
@@ -1693,7 +1693,7 @@ Value to_list(const Value *vals, uint32_t nvals)
     GC_GUARD();
     auto head = gc.list(vals[0]);
     auto current = head;
-    for (uint32_t i = 1; i < nvals; ++i) 
+    for (uint32_t i = 1; i < nvals; ++i)
     {
         set_cdr(current, gc.cons(vals[i], Value::nil()));
         current = cdr(current);
@@ -1712,7 +1712,7 @@ static FORCE_INLINE
 std::vector<Value> to_vector(Value list)
 {
     std::vector<Value> v;
-    while (!list.is_nil()) 
+    while (!list.is_nil())
     {
         v.push_back(car(list));
         list = cdr(list);
@@ -1731,7 +1731,7 @@ struct Package
     };
 
     using Name_Symbol_Map = std::unordered_map<std::string, Value>;
-    
+
     const std::string &name() const
     {
         return m_name;
@@ -1773,7 +1773,7 @@ struct Package
         m_symbols[name] = value;
         return value;
     }
-    
+
     bool import_symbol(Value symbol_val)
     {
         auto symbol = symbol_val.as_object()->symbol();
@@ -1787,18 +1787,18 @@ struct Package
         {
             return false;
         }
-        
+
         m_symbols[symbol->name()] = symbol_val;
         return true;
     }
-    
+
     Value export_symbol(const std::string &name)
     {
         auto value = intern_symbol(name);
         m_exported_symbols[name] = value;
         return value;
     }
-    
+
     bool find_inherited(const std::string &name, Value &out_value)
     {
         for (auto it = m_inherit_from.rbegin();
@@ -1826,8 +1826,8 @@ struct Package
         }
         return false;
     }
-    
-    
+
+
     bool find_symbol(const std::string &name, Value &out_value, Symbol_Location_Type *out_loc = nullptr)
     {
         if (find_inherited(name, out_value))
@@ -1844,7 +1844,7 @@ struct Package
             out_value = it->second;
             if (out_loc)
             {
-                *out_loc = is_exported(name) 
+                *out_loc = is_exported(name)
                     ? Symbol_Location_Type::External
                     : Symbol_Location_Type::Internal;
             }
@@ -1852,7 +1852,7 @@ struct Package
         }
         return false;
     }
-    
+
     Value find_or_intern_symbol(const std::string &name)
     {
         Value res;
@@ -1871,7 +1871,7 @@ struct Package
     Package(const std::string &name) : m_name(name) {}
   private:
     friend struct Package_Registry;
-    
+
     void gc_mark(GC &gc)
     {
         for (auto &[k, v] : m_symbols)
@@ -1924,7 +1924,7 @@ struct Package_Registry
     {
         gc.register_marking_function([this](GC &gc) {this->gc_mark(gc);});
     }
-    
+
     Package *find(const std::string &name) const
     {
         auto it = m_packages.find(name);
@@ -1959,12 +1959,12 @@ struct Package_Registry
     {
         m_current_package = p;
     }
-    
+
     bool package_exists(const std::string &name) const
     {
         return m_packages.find(name) != m_packages.end();
     }
-    
+
     void alias_package(const std::string &alias, Package *to)
     {
         auto it = m_packages.find(alias);
@@ -1975,7 +1975,7 @@ struct Package_Registry
         }
         m_packages[alias] = to;
     }
-    
+
   private:
     void gc_mark(GC &gc)
     {
@@ -2002,20 +2002,20 @@ struct VM_State
         Value *locals;
         Value *stack_top;
     };
-    
-    struct Exception 
+
+    struct Exception
     {
         Exception(Value what) : what(what) {}
 
         Value what;
     };
 
-    struct Unhandleable_Exception : Exception 
+    struct Unhandleable_Exception : Exception
     {
         const char *msg;
     };
 
-    struct Signal_Exception : Exception 
+    struct Signal_Exception : Exception
     {
         Signal_Exception(Value what)
             : Exception(what)
@@ -2036,7 +2036,7 @@ struct VM_State
         const Call_Frame *stack_trace_bottom;
     };
 
-    
+
     VM_State()
         : m_current_closure(Value::nil())
         , m_open_closure_references(nullptr)
@@ -2055,65 +2055,65 @@ struct VM_State
     {
         return *(m_stack_top - 1 + n);
     }
-    
+
     void push_param(Value v)
     {
         *m_stack_top++ = v;
     }
-    
+
     Value pop_param()
     {
         return *--m_stack_top;
     }
-    
+
     void pop_params(uint32_t n)
     {
         m_stack_top -= n;
     }
-    
+
     void push_frame(const uint8_t *ip, uint32_t nargs)
     {
         Call_Frame frame {
-            ip, 
+            ip,
             m_current_closure,
             m_locals,
             m_stack_top - nargs
         };
         *m_call_frame_top++ = frame;
     }
-    
+
     Call_Frame pop_frame()
     {
         return *--m_call_frame_top;
     }
-    
+
     Call_Frame &frame_top()
     {
         return *(m_call_frame_top - 1);
     }
-    
+
     void set_frame(const Call_Frame &frame)
     {
         m_current_closure = frame.current_closure;
         m_locals = frame.locals;
         m_stack_top = frame.stack_top;
     }
-    
+
     Call_Frame &get_frame(uint32_t idx)
     {
         return *(m_call_frame_top - idx);
     }
-    
+
     const Value *stack_top() const
     {
         return m_stack_top;
     }
-    
+
     const Value *stack_bottom() const
     {
         return m_stack_bottom;
     }
-    
+
     const Call_Frame *call_frame_top() const
     {
         return m_call_frame_top;
@@ -2123,13 +2123,13 @@ struct VM_State
     {
         return m_call_frame_bottom;
     }
-    
+
     const uint8_t *execute(const uint8_t *ip);
     Value call_lisp_function(Value function_or_symbol, Value *args, uint32_t nargs);
-    
+
     void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip, bool full = false) const;
     int stack_dump(std::ostream &out, size_t max_size = 15) const;
-    
+
     struct Signal_Handler
     {
         Value tag;
@@ -2142,7 +2142,7 @@ struct VM_State
         Call_Frame *frame;
         std::vector<Signal_Handler> handlers;
     };
-    
+
     struct Save_State
     {
         Value current_closure;
@@ -2164,7 +2164,7 @@ struct VM_State
             m_handler_cases
         };
     }
-    
+
     void restore(Save_State &state)
     {
         m_current_closure = state.current_closure;
@@ -2176,7 +2176,7 @@ struct VM_State
         m_open_closure_references = state.open_closure_references;
         m_handler_cases = state.handler_cases;
     }
-    
+
     __attribute__((used))
     __attribute__((noinline))
     void ez_debug(const uint8_t *ip)
@@ -2185,17 +2185,17 @@ struct VM_State
     }
 
   private:
-    
+
     void push_handler_case(std::vector<Signal_Handler> &&handlers)
     {
         m_handler_cases.push_back({m_stack_top, m_call_frame_top, std::move(handlers)});
     }
-    
+
     void pop_handler_case()
     {
         m_handler_cases.pop_back();
     }
-    
+
     bool find_handler(Value tag, bool auto_pop, Handler_Case &out_case_state, Signal_Handler &out_handler);
 
     void gc_mark(GC &gc)
@@ -2204,7 +2204,7 @@ struct VM_State
         {
             gc.mark_value(*p);
         }
-        
+
         // Ensure our stack of closures don't accidently get GC
         for (auto p = m_call_frame_bottom; p != m_call_frame_top; ++p)
         {
@@ -2212,9 +2212,9 @@ struct VM_State
         }
 
         gc.mark_value(m_current_closure);
-        
+
         gc.mark_closure_reference(m_open_closure_references);
-        
+
         for (auto &handler_case : m_handler_cases)
         {
             for (auto &handler : handler_case.handlers)
@@ -2224,7 +2224,7 @@ struct VM_State
             }
         }
     }
-    
+
     Closure_Reference *capture_closure_reference(Value *local)
     {
         Closure_Reference* prev_ref = nullptr;
@@ -2241,18 +2241,18 @@ struct VM_State
         auto new_ref = gc.make_closure_reference(local);
         new_ref->next = curr_ref;
 
-        if (prev_ref == nullptr) 
+        if (prev_ref == nullptr)
         {
             m_open_closure_references = new_ref;
-        } 
-        else 
+        }
+        else
         {
             prev_ref->next = new_ref;
         }
 
         return new_ref;
     }
-    
+
     void close_values(Value *end)
     {
         while (m_open_closure_references != nullptr
@@ -2263,14 +2263,14 @@ struct VM_State
         }
     }
 
-    
+
     Value m_current_closure;
     Value *m_locals;
     Value *m_stack_top, *m_stack_bottom;
     Call_Frame *m_call_frame_top, *m_call_frame_bottom;
     Closure_Reference *m_open_closure_references;
     std::vector<Handler_Case> m_handler_cases;
-    
+
     struct Call_Lisp_From_Native_Stub
     {
         Call_Lisp_From_Native_Stub()
@@ -2282,7 +2282,7 @@ struct VM_State
         uint32_t nargs_offset;
         uint32_t function_offset;
     } m_stub;
-    
+
 };
 static VM_State *THE_LISP_VM;
 static Value macro_expand_impl(Value obj, VM_State &vm);
@@ -2293,25 +2293,25 @@ struct Runtime_Globals
     {
         gc.register_marking_function([this](GC &gc) {this->gc_mark(gc);});
     }
-    
+
     void gc_mark(GC &gc)
     {
         for (auto it : global_value_slots)
         {
             gc.mark_value(it);
         }
-        
+
         for (auto it : literal_object_slots)
         {
             gc.mark_value(it);
         }
-        
+
         for (auto &[k, val] : macros)
         {
             gc.mark_value(val);
         }
     }
-    
+
     Package *kernel()
     {
         return packages.find_or_create("KERNEL");
@@ -2321,7 +2321,7 @@ struct Runtime_Globals
     {
         return packages.find_or_create("KEYWORD");
     }
-    
+
     Package *core()
     {
         return packages.find_or_create("LISPYBOI");
@@ -2331,22 +2331,22 @@ struct Runtime_Globals
     {
         return packages.find_or_create("LISPYBOI-USER");
     }
-    
+
     Value get_keyword(const std::string &symbol_name)
     {
         return keyword()->intern_symbol(symbol_name);
     }
-    
+
     Value get_symbol(const std::string &symbol_name)
     {
         return packages.current()->find_or_intern_symbol(symbol_name);
     }
-    
+
     void resize_globals(size_t newsize)
     {
         global_value_slots.resize(newsize);
     }
-    
+
     Value s_T;
     Value s_IF;
     Value s_OR;
@@ -2373,7 +2373,7 @@ struct Runtime_Globals
     Value s_aOPTIONAL;
     Value s_aREST;
     Value s_aBODY;
-    
+
     Value s_NULL;
     Value s_DIVIDE_BY_ZERO_ERROR;
     Value s_INDEX_OUT_OF_BOUNDS_ERROR;
@@ -2402,12 +2402,12 @@ struct Runtime_Globals
     Value s_pHANDLER_CASE;
     Value s_pDEFINE_FUNCTION;
     Value s_pDEFINE_MACRO;
-    
+
     Package_Registry packages;
     std::vector<Value> global_value_slots;
     std::vector<Value> literal_object_slots;
     std::unordered_map<Symbol*, Value> macros;
-    
+
     struct Debugger
     {
         enum Command
@@ -2461,7 +2461,7 @@ std::string repr(Value value)
         res += ")";
         return res;
     }
-        
+
     if (value.is_character())
     {
         auto codepoint = value.as_character();
@@ -2480,7 +2480,7 @@ std::string repr(Value value)
         auto obj = value.as_object();
         switch (obj->type())
         {
-            case Object_Type::Symbol: 
+            case Object_Type::Symbol:
             {
                 auto symbol = obj->symbol();
                 //return symbol->qualified_name();
@@ -2495,11 +2495,11 @@ std::string repr(Value value)
                 }
                 return str + obj->symbol()->name();
             }
-            case Object_Type::Closure: 
+            case Object_Type::Closure:
             {
                 std::stringstream ss;
                 auto clos = obj->closure();
-                ss << "#<LAMBDA " << std::hex << reinterpret_cast<uintptr_t>(clos) 
+                ss << "#<LAMBDA " << std::hex << reinterpret_cast<uintptr_t>(clos)
                    << " -> {" << reinterpret_cast<uintptr_t>(clos->function()->begin()) << "}>";
                 return ss.str();
             }
@@ -2560,12 +2560,12 @@ std::string repr(Value value)
                     res += ")";
                     return res;
                 }
-            } 
-            case Object_Type::System_Pointer: 
+            }
+            case Object_Type::System_Pointer:
             {
                 std::stringstream ss;
-                ss << "#<SYSTEM-POINTER 0x" 
-                   << std::hex << reinterpret_cast<uintptr_t>(obj->system_pointer()) 
+                ss << "#<SYSTEM-POINTER 0x"
+                   << std::hex << reinterpret_cast<uintptr_t>(obj->system_pointer())
                    << ">";
                 return ss.str();
             }
@@ -2588,7 +2588,7 @@ bool Symbol::is_keyword() const
 FORCE_INLINE
 bool stringp(Value v)
 {
-    return v.is_type(Object_Type::Simple_Array) && 
+    return v.is_type(Object_Type::Simple_Array) &&
         v.as_object()->simple_array()->element_type() == g.s_CHARACTER;
 }
 
@@ -2597,28 +2597,28 @@ Value GC::alloc_string(const char *str, Fixnum len)
 {
     std::vector<uint32_t> codepoints;
     // valid utf-8 codepoint enumeration
-    for(Fixnum i = 0; i < len;) 
+    for(Fixnum i = 0; i < len;)
     {
         int cp_len = 1;
-        if ((str[i] & 0xf8) == 0xf0) 
+        if ((str[i] & 0xf8) == 0xf0)
         {
             cp_len = 4;
         }
-        else if ((str[i] & 0xf0) == 0xe0) 
+        else if ((str[i] & 0xf0) == 0xe0)
         {
             cp_len = 3;
         }
-        else if ((str[i] & 0xe0) == 0xc0) 
+        else if ((str[i] & 0xe0) == 0xc0)
         {
             cp_len = 2;
         }
-        if ((i + cp_len) > len) 
+        if ((i + cp_len) > len)
         {
             cp_len = 1;
         }
 
         int32_t codepoint = 0;
-        switch (cp_len) 
+        switch (cp_len)
         {
             // neat use of a fallthrough.
             case 4: codepoint |= (str[i+3] & 0xff) << 24;
@@ -2654,14 +2654,14 @@ struct Variable
     {
         return m_symbol;
     }
-    
+
     bool is_captured() const
     {
         return m_is_captured;
     }
-    
+
     bool is_global() const;
-    
+
     Scope *scope()
     {
         return m_scope;
@@ -2698,12 +2698,12 @@ struct Scope
         , m_is_just_extending(is_just_extending)
         , m_locals_offset(locals_offset)
     {}
-    
+
     bool is_root() const
     {
         return m_parent == nullptr;
     }
-    
+
     Scope *get_root()
     {
         auto p = this;
@@ -2713,32 +2713,32 @@ struct Scope
         }
         return p;
     }
-    
+
     uint32_t locals_offset() const
     {
         return m_locals_offset;
     }
-    
+
     Scope *parent()
     {
         return m_parent;
     }
-    
+
     Scope *push_scope(bool is_just_extending, uint32_t locals_offset = 0)
     {
         return new Scope(this, is_just_extending, locals_offset);
     }
-    
+
     const std::vector<Capture_Info> &capture_info() const
     {
         return m_captures;
     }
-    
+
     const std::vector<Variable*> &locals() const
     {
         return m_locals;
     }
-    
+
     Variable *create_variable(const Symbol *symbol, uint32_t *opt_out_idx = nullptr)
     {
         auto var = new Variable(symbol, this);
@@ -2749,7 +2749,7 @@ struct Scope
         m_locals.push_back(var);
         return var;
     }
-    
+
     bool resolve_local(Symbol *symbol, uint32_t &out_idx)
     {
         if (m_locals.size() != 0)
@@ -2770,20 +2770,20 @@ struct Scope
         }
         return false;
     }
-    
+
     bool resolve_capture(Symbol *symbol, uint32_t &out_idx)
     {
         if (m_parent == nullptr || m_parent->is_root())
         {
             return false;
         }
-        
+
         uint32_t idx;
         if (m_parent->resolve_local(symbol, idx))
         {
             return capture(symbol, idx, true, out_idx);
         }
-        
+
         if (m_parent->resolve_capture(symbol, idx))
         {
             return capture(symbol, idx, false, out_idx);
@@ -2815,7 +2815,7 @@ struct Scope
         m_captures.push_back({symbol, index, is_local});
         return true;
     }
-    
+
     Scope *m_parent;
     std::vector<Variable*> m_locals;
     std::vector<Capture_Info> m_captures;
@@ -2874,48 +2874,48 @@ struct Debug_Info
             : m_start(start)
             , m_size(size)
         {}
-        
+
         bool contains(const void *ptr) const
         {
             auto begin = reinterpret_cast<uintptr_t>(m_start);
             auto end = begin + m_size;
             auto p = reinterpret_cast<uintptr_t>(ptr);
-            
+
             return begin <= p && p < end;
         }
-        
+
         const void *begin() const
         {
             return m_start;
         }
-        
+
         const void *end() const
         {
             return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_start) + m_size);
         }
-        
+
         size_t size() const
         {
             return m_size;
         }
-        
+
       private:
         const void *m_start;
         size_t m_size;
     };
-        
+
     static bool find(const void *address, Value &out_expr)
     {
         size_t size = ~0ull;
         bool found = false;
         for (auto it = m_bytecode_address_expr_map.rbegin();
              it != m_bytecode_address_expr_map.rend();
-             ++it) 
+             ++it)
         {
-            if (it->first.contains(address)) 
+            if (it->first.contains(address))
             {
                 found = true;
-                if (it->first.size() < size) 
+                if (it->first.size() < size)
                 {
                     size = it->first.size();
                     out_expr = it->second;
@@ -2927,10 +2927,10 @@ struct Debug_Info
 
     static bool find_function(const void *address, const Function **out_function)
     {
-        for (auto it : m_functions) 
+        for (auto it : m_functions)
         {
             Region r(it->begin(), it->end() - it->begin());
-            if (r.contains(address)) 
+            if (r.contains(address))
             {
                 *out_function = it;
                 return true;
@@ -2947,7 +2947,7 @@ struct Debug_Info
 
     static void track_function(const Function *function)
     {
-        if (function) 
+        if (function)
         {
             m_functions.push_back(function);
         }
@@ -2966,26 +2966,26 @@ struct Emitter
         : m_scope(scope)
         , m_locked(false)
     {}
-    
+
     void emit_push_literal(Value value);
     void emit_push_nil();
     void emit_push_fixnum_0();
     void emit_push_fixnum_1();
-    
+
     void emit_funcall(uint32_t argc);
     void emit_gotocall(uint32_t argc);
     void emit_apply(uint32_t argc);
 
     void emit_return();
-    
+
     int32_t emit_jump();
     int32_t emit_pop_jump_if_nil();
-    
+
     void emit_get_value(Value value);
     void emit_set_value(Value value);
-    
+
     void emit_function_value(Value func_val);
-    
+
     void emit_instantiate_closure(const Function *function);
     void emit_close_values(uint32_t num_values);
 
@@ -2995,12 +2995,12 @@ struct Emitter
     void emit_pop();
 
     void emit_halt();
-    
+
     int32_t emit_push_handler_case(uint32_t num_handlers);
     void emit_pop_handler_case();
-    
+
     void emit_raise_signal(uint32_t argc);
-    
+
     void emit_cons();
     void emit_car();
     void emit_cdr();
@@ -3009,7 +3009,7 @@ struct Emitter
     void emit_rplacd();
     void emit_aref();
     void emit_aset();
-    
+
     void emit_debug_trap();
 
     template<typename T>
@@ -3019,19 +3019,19 @@ struct Emitter
         T *slot = reinterpret_cast<T*>(m_bytecode.data() + offset);
         *slot = value;
     }
-    
+
     void lock();
     void map_range_to(size_t begin, size_t end, Value expr);
     int32_t position() const;
     const std::vector<uint8_t> &bytecode() const;
     std::vector<uint8_t> &&move_bytecode();
-    
+
     void push_labels();
     void pop_labels();
     bool get_label(Value tag, int32_t &out_offset);
     int32_t make_label(Value tag);
     void backfill_label(int32_t offset, Value tag);
-    
+
     compiler::Scope *scope() const;
 
     void push_scope()
@@ -3056,7 +3056,7 @@ struct Emitter
     };
 
     using Label_Map = std::unordered_map<Value, int32_t>;
-    
+
     template<typename T>
     void append(T value)
     {
@@ -3071,7 +3071,7 @@ struct Emitter
         *slot = value;
     }
 
-    struct Range_Value_Pair 
+    struct Range_Value_Pair
     {
         size_t begin;
         size_t end;
@@ -3079,12 +3079,12 @@ struct Emitter
     };
 
     std::vector<Range_Value_Pair> m_debug_map;
-    
+
     std::vector<uint8_t> m_bytecode;
     std::vector<Label_Map> m_label_stack;
     std::list<Backfill_Info> m_backfills;
     compiler::Scope *m_scope;
-    
+
     bool m_locked;
 };
 
@@ -3128,7 +3128,7 @@ void Emitter::emit_push_fixnum_1()
 {
     append(Opcode::op_push_fixnum_1);
 }
-    
+
 void Emitter::emit_funcall(uint32_t argc)
 {
     append(Opcode::op_funcall);
@@ -3166,7 +3166,7 @@ int32_t Emitter::emit_pop_jump_if_nil()
     append<uint32_t>(0xDEADBEEF);
     return offset;
 }
-    
+
 void Emitter::emit_get_value(Symbol *symbol)
 {
     uint32_t idx = ~0u;
@@ -3196,9 +3196,9 @@ void Emitter::emit_get_value(Symbol *symbol)
         fprintf(stderr, "No scope has symbol variable: %s\n", symbol->qualified_name().c_str());
         bt::trace_and_abort();
     }
-    
+
     assert(idx != ~0u);
-    
+
     append(opcode);
     append(idx);
 }
@@ -3242,9 +3242,9 @@ void Emitter::emit_set_value(Symbol *symbol)
             root->create_variable(symbol, &idx);
         }
     }
-    
+
     assert(idx != ~0u);
-    
+
     append(opcode);
     append(idx);
 }
@@ -3291,7 +3291,7 @@ void Emitter::emit_stack_free(uint32_t num_values)
     append(Opcode::op_stack_free);
     append(num_values);
 }
-    
+
 void Emitter::emit_pop()
 {
     append(Opcode::op_pop);
@@ -3301,7 +3301,7 @@ void Emitter::emit_halt()
 {
     append(Opcode::op_halt);
 }
-    
+
 int32_t Emitter::emit_push_handler_case(uint32_t num_handlers)
 {
     append(Opcode::op_push_handler_case);
@@ -3315,13 +3315,13 @@ void Emitter::emit_pop_handler_case()
 {
     append(Opcode::op_pop_handler_case);
 }
-    
+
 void Emitter::emit_raise_signal(uint32_t argc)
 {
     append(Opcode::op_raise_signal);
     append(argc);
 }
-    
+
 void Emitter::emit_cons()
 {
     append(Opcode::op_cons);
@@ -3361,7 +3361,7 @@ void Emitter::emit_aset()
 {
     append(Opcode::op_aset);
 }
-    
+
 void Emitter::emit_debug_trap()
 {
     append(Opcode::op_debug_trap);
@@ -3379,13 +3379,13 @@ void Emitter::lock()
         return;
     }
 
-    for (const auto &it : m_debug_map) 
+    for (const auto &it : m_debug_map)
     {
         auto size = it.end - it.begin;
         auto addr = m_bytecode.data() + it.begin;
         Debug_Info::push(addr, size, it.value);
     }
-    
+
     m_locked = true;
 }
 
@@ -3393,7 +3393,7 @@ void Emitter::map_range_to(size_t begin, size_t end, Value expr)
 {
     m_debug_map.push_back({begin, end, expr});
 }
-    
+
 const std::vector<uint8_t> &Emitter::bytecode() const
 {
     return m_bytecode;
@@ -3403,7 +3403,7 @@ std::vector<uint8_t> &&Emitter::move_bytecode()
 {
     return std::move(m_bytecode);
 }
-    
+
 void Emitter::push_labels()
 {
     m_label_stack.push_back(Label_Map());
@@ -3430,7 +3430,7 @@ void Emitter::pop_labels()
             }
         }
     }
-    
+
     m_label_stack.pop_back();
     if (m_label_stack.size() == 0 && !m_backfills.empty())
     {
@@ -3581,7 +3581,7 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         {
             auto function = *reinterpret_cast<const Function* const*>(ip+1);
             put_bytes(out, ip, size);
-            out << name << " " << reinterpret_cast<uintptr_t>(function) 
+            out << name << " " << reinterpret_cast<uintptr_t>(function)
                 << " -> {" << reinterpret_cast<uintptr_t>(function->begin()) << "}";
             ip += size;
         } break;
@@ -3692,7 +3692,7 @@ bool effect_free(Value expr)
         return true;
     }
     auto f = car(expr);
-    if (f == g.s_QUOTE || 
+    if (f == g.s_QUOTE ||
         f == g.s_FUNCTION ||
         f == g.s_LAMBDA)
     {
@@ -3767,7 +3767,7 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
     {
         function_emitter.scope()->create_variable(symbol);
     }
-    
+
 
     std::vector<uint32_t> optional_offsets;
     for (size_t i = 0; i < optionals_start_at; ++i)
@@ -3790,12 +3790,12 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
 
             optional_offsets.push_back(function_emitter.position());
 
-            if (param.is_cons()) 
+            if (param.is_cons())
             {
                 auto symbol = first(param).as_object()->symbol();
                 function_emitter.scope()->create_variable(symbol);
                 params.push_back(symbol);
-                
+
                 compile(function_emitter, second(param), false);
                 function_emitter.emit_set_value(first(param));
                 function_emitter.emit_pop();
@@ -3805,7 +3805,7 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
                 auto symbol = param.as_object()->symbol();
                 function_emitter.scope()->create_variable(symbol);
                 params.push_back(symbol);
-                
+
                 function_emitter.emit_push_nil();
                 function_emitter.emit_set_value(param);
                 function_emitter.emit_pop();
@@ -3813,11 +3813,11 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
             cur = cdr(cur);
         }
     }
-    else 
+    else
     {
         assert(optionals_start_at == params.size());
     }
-    
+
     auto main_entry_offset = function_emitter.position();
     compile_body(function_emitter, body, true);
     function_emitter.emit_return();
@@ -3831,9 +3831,9 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
                 cap.symbol->qualified_name()
             });
     }
-    
+
     //disassemble(std::cout, "LAMBDA", function_emitter); // @DELETE-ME
-    
+
     //{
     //    auto locs = function_emitter.scope()->locals();
     //    printf("Num locals: %zu\n", locs.size());
@@ -3843,11 +3843,11 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
     //    }
     //}
 
-    auto const *function = new Function(std::move(function_emitter.move_bytecode()), 
+    auto const *function = new Function(std::move(function_emitter.move_bytecode()),
                                         std::move(optional_offsets),
                                         std::move(params),
                                         std::move(capture_offsets),
-                                        main_entry_offset, 
+                                        main_entry_offset,
                                         optionals_start_at,
                                         // using the number of locals instead of the function's arity because
                                         // we may inline immediate lambda calls which expand the number of
@@ -3856,12 +3856,12 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
                                         has_rest,
                                         has_optionals);
 
-    if (macro) 
+    if (macro)
     {
         auto obj = gc.alloc_object_unmanaged<Closure>(function);
         g.macros[name.as_object()->symbol()] = obj;
     }
-    else 
+    else
     {
         e.emit_instantiate_closure(function);
     }
@@ -3885,7 +3885,7 @@ void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool to
         }
         else if (!toplevel)
         {
-            // and in the case of a lambda instead of instantiate + funcall we just inline into the current 
+            // and in the case of a lambda instead of instantiate + funcall we just inline into the current
             // stack frame.
             // @TODO: although it's unlikely to have &optional and &rest here, we should still support it
             // but for now we'll just not do the optimization in that case.
@@ -3934,7 +3934,7 @@ void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool to
             //        e.emit_pop();
             //    }
             //    compile_body(e, cddr(func), tail_position);
-            //    // If we're in the tail position, then the gotocall will handle cleaning up the stack 
+            //    // If we're in the tail position, then the gotocall will handle cleaning up the stack
             //    // so there's no need to emit these instructions.
             //    if (!tail_position)
             //    {
@@ -3972,16 +3972,16 @@ void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool to
             compile(e, func, toplevel);
         }
     }
-    else 
+    else
     {
         e.emit_push_literal(func);
     }
 
-    if (tail_position) 
+    if (tail_position)
     {
         e.emit_gotocall(nargs);
     }
-    else 
+    else
     {
         e.emit_funcall(nargs);
     }
@@ -3996,29 +3996,29 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
         auto thing = first(expr);
         auto begin = e.position();
         auto saved_expr = expr;
-        if (thing == g.s_QUOTE) 
+        if (thing == g.s_QUOTE)
         {
             e.emit_push_literal(second(expr));
         }
-        else if (thing == g.s_pGO) 
+        else if (thing == g.s_pGO)
         {
             auto offs = e.emit_jump();
             e.backfill_label(offs, second(expr));
         }
-        else if (thing == g.s_pTAGBODY) 
+        else if (thing == g.s_pTAGBODY)
         {
             e.push_labels();
             e.emit_push_nil();
             auto body = cdr(expr);
-            while (!body.is_nil()) 
+            while (!body.is_nil())
             {
                 auto it = car(body);
-                if (it.is_cons()) 
+                if (it.is_cons())
                 {
                     compile(e, it, toplevel, false);
                     e.emit_pop();
                 }
-                else 
+                else
                 {
                     e.make_label(it);
                 }
@@ -4026,7 +4026,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             };
             e.pop_labels();
         }
-        else if (thing == g.s_IF) 
+        else if (thing == g.s_IF)
         {
             auto test = second(expr);
             auto consequence = third(expr);
@@ -4042,15 +4042,15 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
             e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
         }
-        else if (thing == g.s_pDEFINE_MACRO) 
+        else if (thing == g.s_pDEFINE_MACRO)
         {
             compile_function(e, expr, true, true);
         }
-        else if (thing == g.s_LAMBDA) 
+        else if (thing == g.s_LAMBDA)
         {
             compile_function(e, expr, false, toplevel);
         }
-        else if (thing == g.s_pSETQ) 
+        else if (thing == g.s_pSETQ)
         {
             compile(e, third(expr), toplevel);
             if (symbolp(second(expr)))
@@ -4062,21 +4062,21 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
                 fprintf(stderr, "Cannot %%SETQ a non-symbol: %s\n", repr(second(expr)).c_str());
             }
         }
-        else if (thing == g.s_pHANDLER_CASE) 
+        else if (thing == g.s_pHANDLER_CASE)
         {
             auto form = second(expr);
             auto handlers = cddr(expr);
             uint32_t nhandlers = 0;
-            while (!handlers.is_nil()) 
+            while (!handlers.is_nil())
             {
                 nhandlers++;
                 auto handler = car(handlers);
                 auto handler_tag = first(handler);
                 compile_function(e, handler, false, toplevel);
                 e.emit_push_literal(handler_tag);
-                if (handler_tag == g.s_T) 
+                if (handler_tag == g.s_T)
                 {
-                    if (!cdr(handlers).is_nil()) 
+                    if (!cdr(handlers).is_nil())
                     {
                         fprintf(stderr, "WARNING: Unreachable code in HANDLER-CASE\n");
                     }
@@ -4090,51 +4090,51 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             e.emit_pop_handler_case();
             e.set_raw<uint32_t>(offs, e.position() - before_form);
         }
-        else if (thing == g.s_FUNCTION) 
+        else if (thing == g.s_FUNCTION)
         {
             auto thing = second(expr);
-            if (thing.is_cons()) 
+            if (thing.is_cons())
             {
-                if (first(thing) == g.s_LAMBDA) 
+                if (first(thing) == g.s_LAMBDA)
                 {
                     compile(e, thing, toplevel);
                 }
-                else 
+                else
                 {
                     // ???
                 }
             }
-            else 
+            else
             {
                 e.emit_function_value(second(expr));
             }
         }
-        else if (thing == g.s_pFUNCALL) 
+        else if (thing == g.s_pFUNCALL)
         {
             compile_function_call(e, second(expr), cddr(expr), toplevel, tail_position, true);
         }
-        else if (thing == g.s_pCONS) 
+        else if (thing == g.s_pCONS)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_cons();
         }
-        else if (thing == g.s_pCAR) 
+        else if (thing == g.s_pCAR)
         {
             compile(e, second(expr), toplevel);
             e.emit_car();
         }
-        else if (thing == g.s_pCDR) 
+        else if (thing == g.s_pCDR)
         {
             compile(e, second(expr), toplevel);
             e.emit_cdr();
         }
-        else if (thing == g.s_pSIGNAL) 
+        else if (thing == g.s_pSIGNAL)
         {
             uint32_t nargs = 0;
             auto tag = second(expr);
             auto args = cddr(expr);
-            while (!args.is_nil()) 
+            while (!args.is_nil())
             {
                 compile(e, car(args), toplevel);
                 args = cdr(args);
@@ -4143,47 +4143,47 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             compile(e, tag, toplevel);
             e.emit_raise_signal(nargs);
         }
-        else if (thing == g.s_pEQ) 
+        else if (thing == g.s_pEQ)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_eq();
         }
-        else if (thing == g.s_pRPLACA) 
+        else if (thing == g.s_pRPLACA)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_rplaca();
         }
-        else if (thing == g.s_pRPLACD) 
+        else if (thing == g.s_pRPLACD)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_rplacd();
         }
-        else if (thing == g.s_pAREF) 
+        else if (thing == g.s_pAREF)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             e.emit_aref();
         }
-        else if (thing == g.s_pASET) 
+        else if (thing == g.s_pASET)
         {
             compile(e, second(expr), toplevel);
             compile(e, third(expr), toplevel);
             compile(e, fourth(expr), toplevel);
             e.emit_aset();
         }
-        else if (thing == g.s_pDEBUGGER) 
+        else if (thing == g.s_pDEBUGGER)
         {
             compile(e, second(expr), toplevel);
             e.emit_debug_trap();
         }
-        else if (thing == g.s_pAPPLY) 
+        else if (thing == g.s_pAPPLY)
         {
             uint32_t nargs = 0;
             auto args = cddr(expr);
-            while (!args.is_nil()) 
+            while (!args.is_nil())
             {
                 compile(e, car(args), toplevel);
                 nargs++;
@@ -4192,11 +4192,11 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             compile(e, second(expr), toplevel);
             e.emit_apply(nargs);
         }
-        else 
+        else
         {
             compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
         }
-        if (thing != g.s_QUOTE && thing != g.s_FUNCTION) 
+        if (thing != g.s_QUOTE && thing != g.s_FUNCTION)
         {
             auto end = e.position();
             e.map_range_to(begin, end, saved_expr); // @TODO: Debug_Info
@@ -4206,7 +4206,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
     {
         e.emit_get_value(expr);
     }
-    else 
+    else
     {
         e.emit_push_literal(expr);
     }
@@ -4236,16 +4236,16 @@ int VM_State::stack_dump(std::ostream &out, size_t max_size) const
     {
         rt--;
         pt--;
-        if (reinterpret_cast<uintptr_t>(rt) < reinterpret_cast<uintptr_t>(rb)) 
+        if (reinterpret_cast<uintptr_t>(rt) < reinterpret_cast<uintptr_t>(rb))
         {
             out << "| **************** |";
         }
-        else 
+        else
         {
             out << "| " << std::hex << std::setw(16) << reinterpret_cast<uintptr_t>(rt->ip) << " |";
         }
 
-        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) 
+        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb))
         {
             out << "                ";
         }
@@ -4261,20 +4261,20 @@ int VM_State::stack_dump(std::ostream &out, size_t max_size) const
         {
             out << "    ";
         }
-        
-        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb)) 
+
+        if (reinterpret_cast<uintptr_t>(pt) < reinterpret_cast<uintptr_t>(pb))
         {
             out << " ***";
         }
-        else 
+        else
         {
             auto obj_repr = repr(*pt);
             const int n = 70;
-            if (obj_repr.size() < n) 
+            if (obj_repr.size() < n)
             {
                 out << " " << obj_repr;
             }
-            else 
+            else
             {
                 out << " " << obj_repr.substr(0, n-3) << "...";
             }
@@ -4306,7 +4306,7 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
     //plat::clear_console();
     const Function *function;
     int lines_printed = 0;
-    if (bytecode::Debug_Info::find_function(ip, &function)) 
+    if (bytecode::Debug_Info::find_function(ip, &function))
     {
         std::vector<const uint8_t*> instructions;
         int ip_at = -1;
@@ -4320,12 +4320,12 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
             it += bytecode::opcode_size(static_cast<bytecode::Opcode>(*it));
         }
         instructions.push_back(function->end());
-        
+
         if (ip_at != -1 && instructions.size() >= 32)
         {
             out << "Disassemble for \"" << tag << "\"\n";
             lines_printed++;
-            
+
             auto first = std::max(ip_at - 15, 0);
             auto instr = instructions[first];
             bool disassembling = true;
@@ -4351,11 +4351,11 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
             lines_printed = bytecode::disassemble(out, tag, function, ip);
         }
     }
-    else 
+    else
     {
         lines_printed = bytecode::disassemble(out, tag, ip, true);
     }
-    
+
     for (; lines_printed <= 32; lines_printed++)
     {
         out << "\n";
@@ -4390,16 +4390,16 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 #define CHECK_SIMPLE_ARRAY(what) TYPE_CHECK(what, is_type(Object_Type::Simple_Array), g.s_SIMPLE_ARRAY)
 #define CHECK_SYSTEM_POINTER(what) TYPE_CHECK(what, is_type(Object_Type::System_Pointer), g.s_SYSTEM_POINTER)
 #define CHECK_STRUCT(what) TYPE_CHECK(what, is_type(Object_Type::Structure), g.s_STRUCTURE)
-        
+
 
     static_assert(sizeof(*ip) == 1, "pointer arithmetic will not work as expected.");
     Value signal_args;
     Value func;
     uint32_t nargs;
-    while (1) 
+    while (1)
     {
         const auto opcode = static_cast<bytecode::Opcode>(*ip);
-        if (g.debugger.breaking) 
+        if (g.debugger.breaking)
         {
             // @TODO: Fix debugger step over:
             // currently it just goes to the next instruction address which is ok in the case of
@@ -4412,7 +4412,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 bool eat_newline = true;
                 switch (in.peek())
                 {
-                    case 'c': 
+                    case 'c':
                         g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
                         in.get();
                         break;
@@ -4429,7 +4429,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                         eat_newline = false;
                         break;
                 }
-                
+
                 if (eat_newline && in.peek() == '\n')
                 {
                     in.get();
@@ -4448,9 +4448,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 }
             }
         }
-        switch (opcode) 
+        switch (opcode)
         {
-            case bytecode::Opcode::op_apply: 
+            case bytecode::Opcode::op_apply:
             {
                 func = pop_param();
                 nargs = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4461,7 +4461,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     GC_UNGUARD();
                     goto raise_signal;
                 }
-                
+
                 auto last_arg = pop_param();
                 CHECK_LIST(last_arg);
                 nargs--;
@@ -4485,7 +4485,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 {
                     func = func.as_object()->symbol()->function();
                 }
-                
+
                 if (func.is_lisp_primitive())
                 {
                     bool raised_signal = false;
@@ -4519,11 +4519,11 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
                     // locals always start at first argument
                     m_locals = m_stack_top - nargs;
-                    
+
                     if (function->is_too_many_args(nargs))
                     {
                         GC_GUARD();
-                        signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                        signal_args = gc.list(g.s_SIMPLE_ERROR,
                                               gc.alloc_string("Too many arguments!"),
                                               func,
                                               Value::wrap_fixnum(function->arity()),
@@ -4546,7 +4546,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
                     if (function->has_rest() && nargs > function->rest_index())
                     {
-                        auto rest = to_list(m_locals+function->rest_index(), 
+                        auto rest = to_list(m_locals+function->rest_index(),
                                             nargs - function->rest_index());
                         m_locals[function->rest_index()] = rest;
                     }
@@ -4575,9 +4575,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 goto raise_signal;
                 break;
             }
-            case bytecode::Opcode::op_gotocall: 
+            case bytecode::Opcode::op_gotocall:
             {
-                
+
                 close_values(m_locals);
 
                 func = pop_param();
@@ -4587,53 +4587,53 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 m_stack_top = m_locals;
                 std::copy(begin, end, m_stack_top);
                 m_stack_top += nargs;
-                
+
 
                 goto do_funcall;
             } break;
 
-            case bytecode::Opcode::op_pop_handler_case: 
+            case bytecode::Opcode::op_pop_handler_case:
                 pop_handler_case();
                 // fallthrough
-            case bytecode::Opcode::op_return: 
+            case bytecode::Opcode::op_return:
             {
-                if (m_call_frame_top == m_call_frame_bottom) 
+                if (m_call_frame_top == m_call_frame_bottom)
                 {
                     goto done;
                 }
-                
+
                 close_values(m_locals);
-                
+
                 auto val = param_top();
                 auto frame = pop_frame();
                 set_frame(frame);
                 push_param(val);
-                if (frame.ip == nullptr) 
+                if (frame.ip == nullptr)
                 {
                     goto done;
                 }
                 ip = frame.ip;
             } break;
 
-            case bytecode::Opcode::op_jump: 
+            case bytecode::Opcode::op_jump:
             {
                 auto offset = *reinterpret_cast<const int32_t*>(ip+1);
                 ip += offset;
             } break;
 
-            case bytecode::Opcode::op_pop_jump_if_nil: 
+            case bytecode::Opcode::op_pop_jump_if_nil:
             {
-                if (pop_param().is_nil()) 
+                if (pop_param().is_nil())
                 {
                     auto offset = *reinterpret_cast<const int32_t*>(ip+1);
                     ip += offset;
                 }
-                else 
+                else
                 {
                     ip += 5;
                 }
             } break;
-            
+
             case bytecode::Opcode::op_get_global:
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4647,7 +4647,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 g.global_value_slots[index] = param_top();
                 ip += 5;
             } break;
-            
+
             case bytecode::Opcode::op_get_local:
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4661,7 +4661,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 m_locals[index] = param_top();
                 ip += 5;
             } break;
-            
+
             case bytecode::Opcode::op_get_capture:
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4676,52 +4676,52 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 5;
             } break;
 
-            case bytecode::Opcode::op_function_value: 
+            case bytecode::Opcode::op_function_value:
             {
                 auto obj = *reinterpret_cast<const Value*>(ip+1);
                 if (symbolp(obj))
                 {
                     push_param(obj.as_object()->symbol()->function());
                 }
-                else 
+                else
                 {
                     push_param(obj);
                 }
                 ip += 1 + sizeof(obj);
             } break;
 
-            case bytecode::Opcode::op_pop: 
+            case bytecode::Opcode::op_pop:
             {
                 pop_param();
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_push_value: 
+            case bytecode::Opcode::op_push_value:
             {
                 auto val = *reinterpret_cast<const Value*>(ip+1);
                 push_param(val);
                 ip += 1 + sizeof(val);
             } break;
 
-            case bytecode::Opcode::op_push_nil: 
+            case bytecode::Opcode::op_push_nil:
             {
                 push_param(Value::nil());
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_push_fixnum_0: 
+            case bytecode::Opcode::op_push_fixnum_0:
             {
                 push_param(Value::wrap_fixnum(0));
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_push_fixnum_1: 
+            case bytecode::Opcode::op_push_fixnum_1:
             {
                 push_param(Value::wrap_fixnum(1));
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_instantiate_closure: 
+            case bytecode::Opcode::op_instantiate_closure:
             {
                 auto function = *reinterpret_cast<const Function* const*>(ip+1);
                 auto instance = gc.alloc_object<Closure>(function);
@@ -4740,10 +4740,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                             ref = capture_closure_reference(m_locals + offs.index);
                         }
                         else
-                        {   
+                        {
                             ref = m_current_closure.as_object()->closure()->get_reference(offs.index);
                         }
-                        //printf("[is_local: %d, index: %u, %s] %p %s\n", 
+                        //printf("[is_local: %d, index: %u, %s] %p %s\n",
                         //       offs.is_local,
                         //       offs.name.c_str(),
                         //       ref->location(),
@@ -4754,7 +4754,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1 + sizeof(function);
             } break;
 
-            case bytecode::Opcode::op_close_values: 
+            case bytecode::Opcode::op_close_values:
             {
                 auto n = *reinterpret_cast<const uint32_t*>(ip+1);
 
@@ -4766,33 +4766,33 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
             case bytecode::Opcode::op_stack_alloc:
             {
                 auto n = *reinterpret_cast<const uint32_t*>(ip+1);
-                
+
                 m_stack_top += n;
-                
+
                 #if DEBUG > 1
                 for (auto p = m_stack_top - n; p != m_stack_top; ++p)
                 {
                     *p = Value::nil();
                 }
                 #endif
-                
+
                 ip += 1 + sizeof(n);
             } break;
 
             case bytecode::Opcode::op_stack_free:
             {
                 auto n = *reinterpret_cast<const uint32_t*>(ip+1);
-                
+
                 auto val = pop_param();
-                
+
                 m_stack_top -= n;
-                
+
                 push_param(val);
 
                 ip += 1 + sizeof(n);
             } break;
 
-            case bytecode::Opcode::op_cons: 
+            case bytecode::Opcode::op_cons:
             {
                 // Instead of popping twice, we use param_top(n) like this to serve as
                 // a GC guard because before the GC may trigger a run before the cons
@@ -4804,14 +4804,14 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_car: 
+            case bytecode::Opcode::op_car:
             {
                 auto o = pop_param();
-                if (o.is_nil()) 
+                if (o.is_nil())
                 {
                     push_param(o);
                 }
-                else 
+                else
                 {
                     CHECK_CONS(o);
                     push_param(car(o));
@@ -4819,14 +4819,14 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_cdr: 
+            case bytecode::Opcode::op_cdr:
             {
                 auto o = pop_param();
-                if (o.is_nil()) 
+                if (o.is_nil())
                 {
                     push_param(o);
                 }
-                else 
+                else
                 {
                     CHECK_CONS(o);
                     push_param(cdr(o));
@@ -4834,12 +4834,12 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_halt: 
+            case bytecode::Opcode::op_halt:
             {
                 goto done;
             } break;
 
-            case bytecode::Opcode::op_push_handler_case: 
+            case bytecode::Opcode::op_push_handler_case:
             {
                 auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
                 auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
@@ -4855,7 +4855,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1 + sizeof(how_many) + sizeof(branch);
             } break;
 
-            case bytecode::Opcode::op_raise_signal: 
+            case bytecode::Opcode::op_raise_signal:
             {
                 {
                     GC_GUARD();
@@ -4902,28 +4902,28 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 }
             } break;
 
-            case bytecode::Opcode::op_eq: 
+            case bytecode::Opcode::op_eq:
             {
                 auto b = pop_param();
                 auto a = pop_param();
-                if (a == b) 
+                if (a == b)
                 {
                     push_param(g.s_T);
                 }
                 // @Audit: is this necessary, does it make sense to identity compare objects?
-                else if (a.is_object() && b.is_object() && 
-                         (a.as_object()->system_pointer() == b.as_object()->system_pointer())) 
+                else if (a.is_object() && b.is_object() &&
+                         (a.as_object()->system_pointer() == b.as_object()->system_pointer()))
                 {
                     push_param(g.s_T);
                 }
-                else 
+                else
                 {
                     push_param(Value::nil());
                 }
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_rplaca: 
+            case bytecode::Opcode::op_rplaca:
             {
                 auto b = pop_param();
                 auto a = param_top();
@@ -4932,7 +4932,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_rplacd: 
+            case bytecode::Opcode::op_rplacd:
             {
                 auto b = pop_param();
                 auto a = param_top();
@@ -4941,7 +4941,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_aref: 
+            case bytecode::Opcode::op_aref:
             {
                 auto subscript = pop_param();
                 CHECK_FIXNUM(subscript);
@@ -4949,7 +4949,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 CHECK_SIMPLE_ARRAY(array_val);
                 auto array = array_val.as_object()->simple_array();
                 auto index = subscript.as_fixnum();
-                if (index < 0 || index >= array->size()) 
+                if (index < 0 || index >= array->size())
                 {
                     signal_args = gc.list(g.s_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
                     goto raise_signal;
@@ -4958,7 +4958,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_aset: 
+            case bytecode::Opcode::op_aset:
             {
                 auto value = pop_param();
                 auto subscript = pop_param();
@@ -4967,7 +4967,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 CHECK_SIMPLE_ARRAY(array_val);
                 auto array = array_val.as_object()->simple_array();
                 auto index = subscript.as_fixnum();
-                if (index < 0 || index >= array->size()) 
+                if (index < 0 || index >= array->size())
                 {
                     signal_args = gc.list(g.s_INDEX_OUT_OF_BOUNDS_ERROR, subscript, array_val);
                     goto raise_signal;
@@ -4975,11 +4975,11 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto type = array->element_type();
                 if (type != g.s_T)
                 {
-                    if (type == g.s_FIXNUM && !value.is_fixnum()) 
+                    if (type == g.s_FIXNUM && !value.is_fixnum())
                     {
                         CHECK_FIXNUM(value);
                     }
-                    else if (type == g.s_CHARACTER && !value.is_character()) 
+                    else if (type == g.s_CHARACTER && !value.is_character())
                     {
                         CHECK_CHARACTER(value);
                     }
@@ -4989,7 +4989,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 ip += 1;
             } break;
 
-            case bytecode::Opcode::op_debug_trap: 
+            case bytecode::Opcode::op_debug_trap:
             {
                 g.debugger.breaking = !param_top().is_nil();
                 if (g.debugger.breaking)
@@ -5053,7 +5053,7 @@ Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
 {
     CHECK_EXACTLY_N(nargs, 1);
     auto expr = args[0];
-    if (expr.is_cons()) 
+    if (expr.is_cons())
     {
         auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
         bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
@@ -5061,21 +5061,21 @@ Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
         e.lock();
         bytecode::disassemble(std::cout, "DISASSEMBLY", e);
     }
-    else if (expr.is_fixnum()) 
+    else if (expr.is_fixnum())
     {
         auto ptr = expr.as_fixnum();
         auto val = Value(static_cast<Value::Bits_Type>(ptr));
-        if (val.is_type(Object_Type::Closure)) 
+        if (val.is_type(Object_Type::Closure))
         {
             auto closure = expr.as_object()->closure();
             bytecode::disassemble(std::cout, "DISASSEMBLY", closure->function(), closure->function()->main_entry());
         }
-        else 
+        else
         {
             bytecode::disassemble(std::cout, "DISASSEMBLY", reinterpret_cast<uint8_t*>(ptr));
         }
     }
-    else if (expr.is_type(Object_Type::Closure)) 
+    else if (expr.is_type(Object_Type::Closure))
     {
         auto closure = expr.as_object()->closure();
         bytecode::disassemble(std::cout, "DISASSEMBLY", closure->function(), closure->function()->main_entry());
@@ -5113,9 +5113,9 @@ bool check_string_like(Value &arg, Value &out_signal_args, std::string &out_stri
     else
     {
         GC_GUARD();
-        out_signal_args = gc.list(g.s_TYPE_ERROR, 
-                           gc.list(g.get_symbol("OR"), 
-                                   g.get_symbol("STRING"), 
+        out_signal_args = gc.list(g.s_TYPE_ERROR,
+                           gc.list(g.get_symbol("OR"),
+                                   g.get_symbol("STRING"),
                                    g.get_symbol("SYMBOL"),
                                    g.get_symbol("KEYWORD")),
                            arg);
@@ -5147,9 +5147,9 @@ bool check_package(Value &arg, Package **out_pkg, Value &out_signal_args)
     else
     {
         GC_GUARD();
-        out_signal_args = gc.list(g.s_TYPE_ERROR, 
-                           gc.list(g.get_symbol("OR"), 
-                                   g.get_symbol("STRING"), 
+        out_signal_args = gc.list(g.s_TYPE_ERROR,
+                           gc.list(g.get_symbol("OR"),
+                                   g.get_symbol("STRING"),
                                    g.get_symbol("SYMBOL"),
                                    g.get_symbol("KEYWORD"),
                                    g.get_symbol("PACKAGE")),
@@ -5197,7 +5197,7 @@ Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
             return signal_args;
         }
     }
-    
+
     if (g.packages.find(package_name))
     {
         raised_signal = true;
@@ -5208,7 +5208,7 @@ Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     auto package = g.packages.find_or_create(package_name);
     return package->as_lisp_value();
 }
@@ -5227,7 +5227,7 @@ Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
         }
     }
     Package *package_to_use = g.packages.find(package_name);
-    
+
     if (package_to_use == nullptr)
     {
         raised_signal = true;
@@ -5238,7 +5238,7 @@ Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     auto in_package = g.packages.current();
     if (nargs > 1)
     {
@@ -5258,7 +5258,7 @@ Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     in_package->inherit(package_to_use);
     return g.s_T;
 }
@@ -5266,8 +5266,8 @@ Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
 Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
 {
     CHECK_EXACTLY_N(nargs, 1);
-    
-    
+
+
     Package *package_to_use;
     if (args[0].is_type(Object_Type::Package))
     {
@@ -5286,7 +5286,7 @@ Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
         }
         package_to_use = g.packages.find(package_name);
     }
-    
+
     if (package_to_use == nullptr)
     {
         raised_signal = true;
@@ -5297,7 +5297,7 @@ Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     g.packages.in_package(package_to_use);
 
     set_global(compiler::THE_ROOT_SCOPE,
@@ -5322,7 +5322,7 @@ Value func_plus(Value *args, uint32_t nargs, bool &raised_signal)
         (+ &rest fixnums)
     */
     auto result = Value::wrap_fixnum(0);
-    for (uint32_t i = 0; i < nargs; ++i) 
+    for (uint32_t i = 0; i < nargs; ++i)
     {
         auto tmp = args[i];
         CHECK_FIXNUM(tmp);
@@ -5341,16 +5341,16 @@ Value func_minus(Value *args, uint32_t nargs, bool &raised_signal)
     {
         ;
     }
-    else if (nargs == 1) 
+    else if (nargs == 1)
     {
         CHECK_FIXNUM(args[0]);
         result -= args[0];
     }
-    else 
+    else
     {
         CHECK_FIXNUM(args[0]);
         result = args[0];
-        for (uint32_t i = 1; i < nargs; ++i) 
+        for (uint32_t i = 1; i < nargs; ++i)
         {
             CHECK_FIXNUM(args[i]);
             result -= args[i];
@@ -5365,7 +5365,7 @@ Value func_multiply(Value *args, uint32_t nargs, bool &raised_signal)
         (* &rest fixnums)
     */
     int64_t result = 1;
-    for (uint32_t i = 0; i < nargs; ++i) 
+    for (uint32_t i = 0; i < nargs; ++i)
     {
         auto tmp = args[i];
         CHECK_FIXNUM(tmp);
@@ -5384,7 +5384,7 @@ Value func_divide(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_FIXNUM(args[1]);
     auto x = args[0].as_fixnum();
     auto y = args[1].as_fixnum();
-    if (y == 0) 
+    if (y == 0)
     {
         raised_signal = true;
         return gc.list(g.s_DIVIDE_BY_ZERO_ERROR, args[0], args[1]);
@@ -5452,7 +5452,7 @@ Value func_bit_shift(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_FIXNUM(args[1]);
     auto integer = args[0].as_fixnum();
     auto count = args[1].as_fixnum();
-    if (count > 0) 
+    if (count > 0)
     {
         return Value::wrap_fixnum(integer << count);
     }
@@ -5470,15 +5470,15 @@ Value func_num_less(Value *args, uint32_t nargs, bool &raised_signal)
     auto b = args[1];
     CHECK_FIXNUM(b);
     bool result = a.as_fixnum() < b.as_fixnum();
-    if (result) 
+    if (result)
     {
         a = b;
-        for (uint32_t i = 2; i < nargs; ++i) 
+        for (uint32_t i = 2; i < nargs; ++i)
         {
             b = args[i];
             CHECK_FIXNUM(b);
             result = a.as_fixnum() < b.as_fixnum();
-            if (result == false) 
+            if (result == false)
             {
                 break;
             }
@@ -5496,7 +5496,7 @@ Value func_num_equal(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_AT_LEAST_N(nargs, 1);
     auto n = args[0];
     CHECK_FIXNUM(n);
-    for (uint32_t i = 1; i < nargs; ++i) 
+    for (uint32_t i = 1; i < nargs; ++i)
     {
         CHECK_FIXNUM(args[i]);
         if (args[i] != n)
@@ -5518,15 +5518,15 @@ Value func_num_greater(Value *args, uint32_t nargs, bool &raised_signal)
     auto b = args[1];
     CHECK_FIXNUM(b);
     bool result = a.as_fixnum() > b.as_fixnum();
-    if (result) 
+    if (result)
     {
         a = b;
-        for (uint32_t i = 2; i < nargs; ++i) 
+        for (uint32_t i = 2; i < nargs; ++i)
         {
             b = args[i];
             CHECK_FIXNUM(b);
             result = a.as_fixnum() > b.as_fixnum();
-            if (result == false) 
+            if (result == false)
             {
                 break;
             }
@@ -5565,7 +5565,7 @@ Value func_file_putchar(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_CHARACTER(args[1]);
     auto codepoint = args[1].as_character();
     auto bytes_written = stm->write_character(codepoint);
-    if (codepoint == '\n') 
+    if (codepoint == '\n')
     {
         stm->flush();
     }
@@ -5596,25 +5596,25 @@ Value func_type_of(Value *args, uint32_t nargs, bool &raised_signal)
     */
     CHECK_EXACTLY_N(nargs, 1);
     auto it = args[0];
-    if (it.is_fixnum()) 
+    if (it.is_fixnum())
     {
         return g.s_FIXNUM;
     }
-    if (it.is_nil()) 
+    if (it.is_nil())
     {
         return g.s_NULL;
     }
-    if (it.is_cons()) 
+    if (it.is_cons())
     {
         return g.s_CONS;
     }
-    if (it.is_character()) 
+    if (it.is_character())
     {
         return g.s_CHARACTER;
     }
-    if (it.is_object()) 
+    if (it.is_object())
     {
-        switch (it.as_object()->type()) 
+        switch (it.as_object()->type())
         {
             case Object_Type::Symbol: return g.s_SYMBOL;
             case Object_Type::Closure: return g.s_FUNCTION;
@@ -5632,11 +5632,11 @@ Value func_type_of(Value *args, uint32_t nargs, bool &raised_signal)
         }
         return Value::nil();
     }
-    if (it.is_lisp_primitive()) 
+    if (it.is_lisp_primitive())
     {
         return g.s_FUNCTION;
     }
-    if (it == g.s_T) 
+    if (it == g.s_T)
     {
         return g.s_BOOLEAN;
     }
@@ -5652,25 +5652,25 @@ Value func_read(Value *args, uint32_t nargs, bool &raised_signal)
     /***
         (read &optional file-stream eof-error-p eof-value)
     */
-    
+
     bool eof_error_p = true;
-    if (nargs > 1) 
+    if (nargs > 1)
     {
         eof_error_p = !args[1].is_nil();
     }
     auto eof_value = Value::nil();
-    if (nargs > 2) 
+    if (nargs > 2)
     {
         eof_value = args[2];
     }
 
-    if (nargs == 0) 
+    if (nargs == 0)
     {
         Value result;
         if (!read_gc_paused(std::cin, result))
         {
             // @FIXME: This should be checking for errors, not assuming EOF
-            if (eof_error_p) 
+            if (eof_error_p)
             {
                 raised_signal = true;
                 return gc.list(g.s_END_OF_FILE);
@@ -5679,14 +5679,14 @@ Value func_read(Value *args, uint32_t nargs, bool &raised_signal)
         }
         return result;
     }
-    else 
+    else
     {
         CHECK_FILE_STREAM(args[0]);
         Value result;
         if (!read_gc_paused(args[0].as_object()->file_stream()->stream(), result))
         {
             // @FIXME: This should be checking for errors, not assuming EOF
-            if (eof_error_p) 
+            if (eof_error_p)
             {
                 raised_signal = true;
                 return gc.list(g.s_END_OF_FILE);
@@ -5754,13 +5754,13 @@ Value func_gensym(Value *args, uint32_t nargs, bool &raised_signal)
     */
     static unsigned int counter = 0;
     std::string sym_name;
-    if (nargs != 0) 
+    if (nargs != 0)
     {
         auto hint = args[0];
         CHECK_STRING(hint);
         sym_name = lisp_string_to_native_string(hint);
     }
-    else 
+    else
     {
         sym_name = "G";
     }
@@ -5778,7 +5778,7 @@ Value func_make_symbol(Value *args, uint32_t nargs, bool &raised_signal)
     std::string name;
     CHECK_STRING(args[0]);
     auto array = args[0].as_object()->simple_array();
-    for (Fixnum i = 0; i < array->size(); ++i) 
+    for (Fixnum i = 0; i < array->size(); ++i)
     {
         auto codepoint = array->at(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
@@ -5828,7 +5828,7 @@ Value func_export(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     auto list_of_symbols = args[0];
     CHECK_LIST(list_of_symbols);
     while (!list_of_symbols.is_nil())
@@ -5862,7 +5862,7 @@ Value func_find_symbol(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     CHECK_STRING(args[0]);
     auto str = lisp_string_to_native_string(args[0]);
     Package::Symbol_Location_Type location;
@@ -5902,7 +5902,7 @@ Value func_import(Value *args, uint32_t nargs, bool &raised_signal)
         GC_UNGUARD();
         return res;
     }
-    
+
     auto list_of_symbols = args[0];
     CHECK_LIST(list_of_symbols);
     while (!list_of_symbols.is_nil())
@@ -5944,7 +5944,7 @@ Value func_intern(Value *args, uint32_t nargs, bool &raised_signal)
     }
 
     auto array = args[0].as_object()->simple_array();
-    for (Fixnum i = 0; i < array->size(); ++i) 
+    for (Fixnum i = 0; i < array->size(); ++i)
     {
         auto codepoint = array->at(i).as_character();
         name += reinterpret_cast<const char*>(&codepoint);
@@ -5960,7 +5960,7 @@ Value func_exit(Value *args, uint32_t nargs, bool &raised_signal)
         (exit &optional n)
     */
     int code = 0;
-    if (nargs != 0) 
+    if (nargs != 0)
     {
         CHECK_FIXNUM(args[0]);
         code = args[0].as_fixnum();
@@ -5987,7 +5987,7 @@ Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
     auto length = args[0];
     CHECK_FIXNUM(length);
     // @TODO: Array operations still need type checking
-    if (nargs != 1) 
+    if (nargs != 1)
     {
         auto type = args[1];
         if (type == g.s_CHARACTER || type == g.s_FIXNUM)
@@ -6007,7 +6007,7 @@ Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
 
     // @TODO: typecheck array in ARRAY-LENGTH primitive
     auto array = args[0];
-    if (array.is_type(Object_Type::Simple_Array)) 
+    if (array.is_type(Object_Type::Simple_Array))
     {
         return Value::wrap_fixnum(array.as_object()->simple_array()->size());
     }
@@ -6023,7 +6023,7 @@ Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
 
     // @TODO: typecheck array in ARRAY-TYPE primitive
     auto array = args[0];
-    if (array.is_type(Object_Type::Simple_Array)) 
+    if (array.is_type(Object_Type::Simple_Array))
     {
         return array.as_object()->simple_array()->element_type();
     }
@@ -6041,7 +6041,7 @@ Value func_bits_of(Value *args, uint32_t nargs, bool &raised_signal)
     auto ret = gc.alloc_object<Simple_Array>(g.s_BIT, 64);
     auto bits = obj.bits();
     auto array = ret.as_object()->simple_array();
-    for (int i = 0; i < 64; ++i) 
+    for (int i = 0; i < 64; ++i)
     {
         array->at(i) = Value::wrap_fixnum(bits & 1);
         bits >>= 1;
@@ -6101,10 +6101,10 @@ Value func_open(Value *args, uint32_t nargs, bool &raised_signal)
     auto path = lisp_string_to_native_string(args[0]);
     auto direction = args[1];
     auto mode = std::ios_base::binary;
-    if (direction.is_cons()) 
+    if (direction.is_cons())
     {
         auto p = direction;
-        while (!p.is_nil()) 
+        while (!p.is_nil())
         {
             CHECK_SYMBOL(car(p));
             mode |= get_mode(car(p));
@@ -6166,7 +6166,7 @@ Value func_file_eof(Value *args, uint32_t nargs, bool &raised_signal)
     auto it = args[0];
     if (it.is_nil()) return it;
     CHECK_FILE_STREAM(it);
-    return it.as_object()->file_stream()->stream().eof() ? g.s_T : Value::nil(); 
+    return it.as_object()->file_stream()->stream().eof() ? g.s_T : Value::nil();
 }
 
 Value func_file_mode(Value *args, uint32_t nargs, bool &raised_signal)
@@ -6294,7 +6294,7 @@ Value func_change_directory(Value *args, uint32_t nargs, bool &raised_signal)
     auto new_path = lisp_string_to_native_string(args[0]);
     std::error_code error;
     plat::change_directory(new_path, error);
-    if (error.value() != 0) 
+    if (error.value() != 0)
     {
         return Value::nil();
     }
@@ -6334,6 +6334,22 @@ Value func_clocks_per_second(Value*, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(1000000); // @FIXME use something better than costant number
 }
 
+Value func_operating_system(Value*, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (operating-system)
+    */
+#if defined(_WIN32) || defined(_WIN64)
+    return g.core()->export_symbol("WINDOWS");
+#elif defined(__linux__)
+    return g.core()->export_symbol("LINUX");
+#elif defined(__APPLE__) || defined(__MACH__)
+    return g.core()->export_symbol("MAC-OS-X");
+#else
+    return g.core()->export_symbol("UNKNOWN-OS");
+#endif
+}
+
 Value func_function_definition(Value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
@@ -6348,27 +6364,27 @@ Value func_function_definition(Value *args, uint32_t nargs, bool &raised_signal)
 static
 bool ffi_try_marshal(Value val, void **out_ptr)
 {
-    if (val.is_type(Object_Type::System_Pointer)) 
+    if (val.is_type(Object_Type::System_Pointer))
     {
         *out_ptr = val.as_object()->system_pointer();
         return true;
     }
-    if (val.is_fixnum()) 
+    if (val.is_fixnum())
     {
         *out_ptr = reinterpret_cast<void*>(val.as_fixnum());
         return true;
     }
-    if (val.is_character()) 
+    if (val.is_character())
     {
         *out_ptr = reinterpret_cast<void*>(val.as_character());
         return true;
     }
-    if (val.is_object()) 
+    if (val.is_object())
     {
-        if (val.is_type(Object_Type::Simple_Array)) 
+        if (val.is_type(Object_Type::Simple_Array))
         {
             auto array = val.as_object()->simple_array();
-            if (array->element_type() == g.s_CHARACTER) 
+            if (array->element_type() == g.s_CHARACTER)
             {
                 auto str = lisp_string_to_native_string(val);
                 auto buffer = (char*)ffi::alloc_mem(str.size()+1); // @LEAK
@@ -6453,15 +6469,15 @@ Value func_ffi_call(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_SYSTEM_POINTER(args[0]);
     auto func = args[0].as_object()->system_pointer();
     std::vector<void *> marshalled;
-    for (uint32_t i = 1; i < nargs; ++i) 
+    for (uint32_t i = 1; i < nargs; ++i)
     {
         // @TODO: marshal ffi_call
         void *m = nullptr;
-        if (ffi_try_marshal(args[i], &m)) 
+        if (ffi_try_marshal(args[i], &m))
         {
             marshalled.push_back(m);
         }
-        else 
+        else
         {
             raised_signal = true;
             GC_GUARD();
@@ -6525,16 +6541,16 @@ Value func_ffi_ref(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_AT_LEAST_N(nargs, 1);
     CHECK_SYSTEM_POINTER(args[0]);
-    if (nargs == 1) 
+    if (nargs == 1)
     {
         return gc.alloc_object<System_Pointer>(args[0].as_object()->pointer_ref());
     }
-    else 
+    else
     {
         auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
         CHECK_FIXNUM(args[1]);
         auto offset = args[1].as_fixnum();
-        
+
         return gc.alloc_object<System_Pointer>(ptr + offset);
     }
 }
@@ -6595,7 +6611,7 @@ Value func_ffi_set_ref(Value *args, uint32_t nargs, bool &raised_signal)
     auto value = reinterpret_cast<uint8_t*>(args[1].as_object()->system_pointer());
     CHECK_FIXNUM(args[2]);
     auto value_size = args[2].as_fixnum();
-    
+
     memcpy(ptr, value, value_size);
     return args[2];
 }
@@ -6699,7 +6715,7 @@ Value func_ffi_marshal(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_EXACTLY_N(nargs, 1);
     void *result = nullptr;
-    if (ffi_try_marshal(args[0], &result)) 
+    if (ffi_try_marshal(args[0], &result))
     {
         return gc.alloc_object<System_Pointer>(result);
     }
@@ -6747,7 +6763,7 @@ Value func_ffi_coerce_string(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_AT_LEAST_N(nargs, 1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<const char*>(args[0].as_object()->system_pointer());
-    if (nargs == 1) 
+    if (nargs == 1)
     {
         return gc.alloc_string(ptr);
     }
@@ -6773,10 +6789,10 @@ Value func_create_instance(Value *args, uint32_t nargs, bool &raised_signal)
      */
     CHECK_AT_LEAST_N(nargs, 1);
     auto instance_val = gc.alloc_object<Structure>(args[0], nargs-1);
-    if (nargs > 1) 
+    if (nargs > 1)
     {
         auto inst = instance_val.as_object()->structure();
-        for (uint32_t i = 1; i < nargs; ++i) 
+        for (uint32_t i = 1; i < nargs; ++i)
         {
             inst->slot_value(i-1) = args[i];
         }
@@ -6895,11 +6911,10 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     auto kernel = g.kernel();
     auto core = g.core();
     auto user = g.user();
-    
+
     core->inherit(kernel);
     kernel->inherit(core);
     user->inherit(core);
-    
 
     g.s_pCAR             = kernel->export_symbol("%CAR");
     g.s_pCDR             = kernel->export_symbol("%CDR");
@@ -6918,7 +6933,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_pSIGNAL          = kernel->export_symbol("%SIGNAL");
     g.s_pHANDLER_CASE    = kernel->export_symbol("%HANDLER-CASE");
     g.s_pDEFINE_MACRO    = kernel->export_symbol("%DEFINE-MACRO");
-    
+
     g.s_T                = core->export_symbol("T");
     g.s_IF               = core->export_symbol("IF");
     g.s_OR               = core->export_symbol("OR");
@@ -6946,7 +6961,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_aOPTIONAL        = core->export_symbol("&OPTIONAL");
     g.s_aREST            = core->export_symbol("&REST");
     g.s_aBODY            = core->export_symbol("&BODY");
-    
+
     g.s_DIVIDE_BY_ZERO_ERROR = core->export_symbol("DIVIDE-BY-ZERO-ERROR");
     g.s_INDEX_OUT_OF_BOUNDS_ERROR = core->export_symbol("INDEX-OUT-OF-BOUNDS-ERROR");
     g.s_END_OF_FILE      = core->export_symbol("END-OF-FILE");
@@ -6959,7 +6974,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_MARSHAL_ERROR    = core->export_symbol("MARSHAL-ERROR");
 
     export_function(core, "%PRINT", primitives::func_print);
-    
+
     export_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function, g.s_pDEFINE_FUNCTION);
     export_function(kernel, "%PACKAGE-NAME", primitives::func_package_name);
     export_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
@@ -7030,7 +7045,9 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
 
     export_function(kernel, "GET-CLOCK-TICKS", primitives::func_get_clock_ticks);
     export_function(kernel, "CLOCKS-PER-SECOND", primitives::func_clocks_per_second);
-    
+
+    export_function(kernel, "OPERATING-SYSTEM", primitives::func_operating_system);
+
     export_function(kernel, "ERRNO", primitives::func_errno);
     export_function(kernel, "ERRNO-STR", primitives::func_errno_str);
     export_function(kernel, "FFI-OPEN", primitives::func_ffi_open);
@@ -7062,20 +7079,24 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     export_function(kernel, "BIT-IOR", primitives::func_bit_or);
     export_function(kernel, "BIT-XOR", primitives::func_bit_xor);
     export_function(kernel, "BIT-SHIFT", primitives::func_bit_shift);
-    
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-OUTPUT*"), 
+
+#if defined(__unix__) || defined(__unix)
+    set_global(root_scope,
+               core->export_symbol("*STANDARD-OUTPUT*"),
                gc.alloc_object<File_Stream>("/dev/stdout", std::ios_base::binary | std::ios_base::app));
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-ERROR*"), 
+    set_global(root_scope,
+               core->export_symbol("*STANDARD-ERROR*"),
                gc.alloc_object<File_Stream>("/dev/stderr", std::ios_base::binary | std::ios_base::app));
-    set_global(root_scope, 
-               core->export_symbol("*STANDARD-INPUT*"), 
+    set_global(root_scope,
+               core->export_symbol("*STANDARD-INPUT*"),
                gc.alloc_object<File_Stream>("/dev/stdin", std::ios_base::binary | std::ios_base::in));
+#else
+    #error "Need to set stdio globals"
+#endif
     set_global(root_scope,
                core->export_symbol("*PACKAGE*"),
                Value::nil());
-    
+
     std::vector<Value> script_args;
     for(; *argv; ++argv)
     {
@@ -7085,6 +7106,12 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     set_global(root_scope,
                core->export_symbol("*COMMAND-LINE*"),
                to_list(script_args));
+
+    {
+        // call this function so the correct symbol is automatically exported
+        bool b;
+        primitives::func_operating_system(nullptr, 0, b);
+    }
 
 }
 
@@ -7107,7 +7134,7 @@ bool VM_State::find_handler(Value tag, bool auto_pop, Handler_Case &out_case_sta
             }
         }
     }
-    
+
     if (auto_pop)
     {
         m_handler_cases.resize(m_handler_cases.size() - npop);
@@ -7131,7 +7158,7 @@ Value VM_State::call_lisp_function(Value function_or_symbol, Value *args, uint32
         }
         return result;
     }
-    
+
     if (function.is_type(Object_Type::Closure))
     {
         // What better way to reduce code sync bugs than by just letting the VM handle dispatching the call?
@@ -7157,7 +7184,7 @@ Value VM_State::call_lisp_function(Value function_or_symbol, Value *args, uint32
         execute(m_stub.emitter->bytecode().data());
         return pop_param();
     }
-    
+
     throw Unhandleable_Exception{ {function}, "Cannot call lisp function because it's not a FUNCTION: "};
 }
 
@@ -7174,7 +7201,7 @@ Value map(Value list, Function func, ExtraArgs&... args)
     auto head = gc.list(func(car(list), args...));
     auto current = head;
     list = cdr(list);
-    while (!list.is_nil()) 
+    while (!list.is_nil())
     {
         set_cdr(current, gc.list(func(car(list), args...)));
         current = cdr(current);
@@ -7196,7 +7223,7 @@ Value zip3(Value a, Value b, Value c)
     auto head = gc.list(gc.cons(car(a), gc.cons(car(b), car(c))));
     auto current = head;
     a = cdr(a); b = cdr(b); c = cdr(c);
-    while (!a.is_nil()) 
+    while (!a.is_nil())
     {
         auto next = gc.cons(car(a), gc.cons(car(b), car(c)));
         set_cdr(current, gc.list(next));
@@ -7210,25 +7237,25 @@ Value zip3(Value a, Value b, Value c)
 static
 Value macro_expand_impl(Value obj, VM_State &vm)
 {
-    if (!obj.is_cons()) 
+    if (!obj.is_cons())
     {
         return obj;
     }
     auto car = first(obj);
-    if (symbolp(car)) 
+    if (symbolp(car))
     {
-        if (car == g.s_QUOTE) 
+        if (car == g.s_QUOTE)
         {
             return obj;
         }
-        if (car == g.s_IF) 
+        if (car == g.s_IF)
         {
             auto condition = macro_expand_impl(second(obj), vm);
             auto consequence = macro_expand_impl(third(obj), vm);
             auto alternative = macro_expand_impl(fourth(obj), vm);
             return gc.list(car, condition, consequence, alternative);
         }
-        if (car == g.s_pDEFINE_MACRO) 
+        if (car == g.s_pDEFINE_MACRO)
         {
             auto macro_name = second(obj);
             auto params_list = third(obj);
@@ -7238,7 +7265,7 @@ Value macro_expand_impl(Value obj, VM_State &vm)
             GC_UNGUARD();
             return res;
         }
-        if (car == g.s_LAMBDA) 
+        if (car == g.s_LAMBDA)
         {
             auto lambda_list = second(obj); // @TODO: macroexpand &optional default expressions
             auto body = map(cddr(obj), macro_expand_impl, vm);
@@ -7247,13 +7274,13 @@ Value macro_expand_impl(Value obj, VM_State &vm)
             GC_UNGUARD();
             return res;
         }
-        if (car == g.s_pSETQ) 
+        if (car == g.s_pSETQ)
         {
             auto variable_name = second(obj);
             auto value = macro_expand_impl(third(obj), vm);
             return gc.list(car, variable_name, value);
         }
-        if (car == g.s_pHANDLER_CASE) 
+        if (car == g.s_pHANDLER_CASE)
         {
             auto form = macro_expand_impl(second(obj), vm);
             auto handlers = cddr(obj);
@@ -7268,7 +7295,7 @@ Value macro_expand_impl(Value obj, VM_State &vm)
             return res;
         }
         auto it = g.macros.find(car.as_object()->symbol());
-        if (it != g.macros.end()) 
+        if (it != g.macros.end())
         {
             auto function = it->second;
             auto args = rest(obj);
@@ -7376,16 +7403,16 @@ Value make_symbol(const std::string &str)
             check_inherited_packages = false;
         }
     }
-    
+
     if (package == nullptr)
     {
         fprintf(stderr, "A PACKAGE named \"%s\" does not exist.\n", package_name.c_str());
         bt::trace_and_abort();
     }
-    
+
     if (symbol_name.find(':') != std::string::npos)
     {
-        fprintf(stderr, "Too many colons in symbol name: %s [package:%s symbol:%s]\n", 
+        fprintf(stderr, "Too many colons in symbol name: %s [package:%s symbol:%s]\n",
                 str.c_str(), package->name().c_str(), symbol_name.c_str());
         bt::trace_and_abort();
     }
@@ -7395,7 +7422,7 @@ Value make_symbol(const std::string &str)
         fprintf(stderr, "No symbol with package spec.: %s\n", str.c_str());
         bt::trace_and_abort();
     }
-    
+
     return package->intern_symbol(symbol_name);
 }
 
@@ -7443,7 +7470,7 @@ bool read(std::istream &source, Value &out_result)
         out_result = make_symbol(str_upper(str));
         return true;
     }
-    
+
     if (c == '#')
     {
         source.get();
@@ -7508,7 +7535,7 @@ bool read(std::istream &source, Value &out_result)
         }
         return false;
     }
-    
+
     if (c == '"')
     {
         source.get();
@@ -7532,7 +7559,7 @@ bool read(std::istream &source, Value &out_result)
         out_result = gc.alloc_string(val);
         return true;
     }
-    
+
     if (c == '\'')
     {
         source.get();
@@ -7544,7 +7571,7 @@ bool read(std::istream &source, Value &out_result)
         }
         return false;
     }
-    
+
     if (c == '`')
     {
         source.get();
@@ -7556,7 +7583,7 @@ bool read(std::istream &source, Value &out_result)
         }
         return false;
     }
-    
+
     if (c == ',')
     {
         source.get();
@@ -7574,7 +7601,7 @@ bool read(std::istream &source, Value &out_result)
         }
         return false;
     }
-    
+
     if (is_symbol_start_char(c))
     {
         std::string str;
@@ -7593,7 +7620,7 @@ bool read(std::istream &source, Value &out_result)
         }
         return true;
     }
-    
+
     if (c == '(')
     {
         source.get();
@@ -7603,7 +7630,7 @@ bool read(std::istream &source, Value &out_result)
             out_result = Value::nil();
             return true;
         }
-        
+
         Value car_obj;
         if (!read(source, car_obj))
         {
@@ -7611,7 +7638,7 @@ bool read(std::istream &source, Value &out_result)
         }
         auto head = gc.list(car_obj);
         car_obj = head;
-        
+
         while (!source.eof() && peek_consuming(source) != ')')
         {
             if (source.peek() == '.')
@@ -7625,7 +7652,7 @@ bool read(std::istream &source, Value &out_result)
                 set_cdr(car_obj, cdr_obj);
                 break;
             }
-            
+
             Value elem;
             if (!read(source, elem))
             {
@@ -7634,7 +7661,7 @@ bool read(std::istream &source, Value &out_result)
             set_cdr(car_obj, gc.list(elem));
             car_obj = cdr(car_obj);
         }
-        
+
         if (source.eof() || peek_consuming(source) != ')')
         {
             return false;
@@ -7709,7 +7736,7 @@ bool eval_file(VM_State &vm, compiler::Scope &root_scope, const std::filesystem:
         set_global(&root_scope,
                    g.core()->export_symbol("*FILE-PATH*"),
                    gc.alloc_string(path));
-    
+
         auto here_path = std::filesystem::current_path();
         auto there_path = path.parent_path();
         if (there_path != "")
@@ -7732,7 +7759,7 @@ bool eval_file(VM_State &vm, compiler::Scope &root_scope, const std::filesystem:
                     compiler::compile(e, expanded, true, true);
                     e.emit_halt();
                     e.lock();
-            
+
                     g.resize_globals(root_scope.locals().size());
 
                     vm.push_frame(nullptr, 0);
@@ -7769,12 +7796,12 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
                g.core()->export_symbol("*FILE-PATH*"),
                gc.alloc_string("<stdin>"));
 
-    
+
     g.packages.in_package(g.user());
     set_global(&root_scope,
                g.core()->export_symbol("*PACKAGE*"),
                g.packages.current()->as_lisp_value());
-    
+
     auto &stm = std::cin;
     while (!stm.eof())
     {
@@ -7792,7 +7819,7 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
                 compiler::compile(e, expanded, true, true);
                 e.emit_halt();
                 e.lock();
-            
+
                 g.resize_globals(root_scope.locals().size());
 
                 vm.push_frame(nullptr, 0);
@@ -7861,18 +7888,18 @@ int main(int argc, char **argv)
             break;
         }
     }
-    
+
     repl = repl || !file;
 
     GC_GUARD();
     compiler::THE_ROOT_SCOPE = new compiler::Scope;
     initialize_globals(compiler::THE_ROOT_SCOPE, argv+i);
-    
+
     g.packages.in_package(g.user());
-    
+
     auto vm = THE_LISP_VM = new VM_State;
     GC_UNGUARD();
-    
+
     if (use_boot)
     {
         auto exe_dir = plat::get_executable_path().parent_path();
@@ -7884,7 +7911,7 @@ int main(int argc, char **argv)
     {
         eval_file(*vm, *compiler::THE_ROOT_SCOPE, file);
     }
-    
+
     if (repl)
     {
         run_repl(*vm, *compiler::THE_ROOT_SCOPE);
