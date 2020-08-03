@@ -12,8 +12,8 @@
   (year-day))
 
 (let ((days-since-jan1
-        '((0 31 59 90 120 151 181 212 243 273 304 334 365) ;; 365 days
-          (0 31 60 91 121 152 182 213 244 274 305 335 366) ;; 366 days, leap year
+        #(#(0 31 59 90 120 151 181 212 243 273 304 334 365) ;; 365 days
+          #(0 31 60 91 121 152 182 213 244 274 305 335 366) ;; 366 days, leap year
           )))
   (defun seconds-since-epoch-to-datetime (seconds)
     (let ((sec)
@@ -107,9 +107,9 @@
       (setf month-day 1)
       (let ((done nil))
         (while (and (not done) (< month 13))
-               (if (< year-day (elt (elt days-since-jan1 leap) month))
+               (if (< year-day (aref (aref days-since-jan1 leap) month))
                    (progn
-                     (incf month-day (- year-day (elt (elt days-since-jan1 leap) (- month 1))))
+                     (incf month-day (- year-day (aref (aref days-since-jan1 leap) (- month 1))))
                      (setf done t))
                    (incf month))))
 
