@@ -1281,13 +1281,7 @@ struct GC
         }
     }
 
-    inline void mark_simple_array(Simple_Array *simple_array)
-    {
-        for (Fixnum i = 0; i < simple_array->size(); ++i)
-        {
-            mark_value(simple_array->at(i));
-        }
-    }
+    inline void mark_simple_array(Simple_Array *simple_array);
 
     inline void mark_structure(Structure *structure)
     {
@@ -2428,6 +2422,20 @@ struct Runtime_Globals
         bool breaking;
     } debugger;
 } g;
+
+
+inline void GC::mark_simple_array(Simple_Array *simple_array)
+{
+    const auto t = simple_array->element_type();
+    if (t != g.s_CHARACTER && t != g.s_FIXNUM)
+    {
+        for (Fixnum i = 0; i < simple_array->size(); ++i)
+        {
+            mark_value(simple_array->at(i));
+        }
+    }
+}
+
 
 static
 std::string repr(Value value)
@@ -6004,7 +6012,6 @@ Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
     */
     CHECK_EXACTLY_N(nargs, 1);
 
-    // @TODO: typecheck array in ARRAY-LENGTH primitive
     auto array = args[0];
     CHECK_SIMPLE_ARRAY(array);
     return Value::wrap_fixnum(array.as_object()->simple_array()->size());
@@ -6017,7 +6024,6 @@ Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
     */
     CHECK_EXACTLY_N(nargs, 1);
 
-    // @TODO: typecheck array in ARRAY-TYPE primitive
     auto array = args[0];
     CHECK_SIMPLE_ARRAY(array);
     return array.as_object()->simple_array()->element_type();
