@@ -130,32 +130,33 @@
                       (list sym (read stream)))))
 
 
-(set-reader-macro #\(
-                  (lambda (stream char)
-                    (when (eql #\) (peek-char t stream t))
-                      (read-char stream t) ;; consume closing )
-                      (signal 'return nil))
-                    (let* ((head (list (read stream)))
-                           (cur head))
-                      (until (or (input-stream-eof-p stream)
-                                 (eql #\) (peek-char t stream t)))
-                             (when (eql #\) (peek-char t stream t))
-                               (read-char stream t) ;; consume closing )
-                               (signal 'return head))
-                             (when (eql #\. (peek-char t stream t))
-                               (read-char stream t) ;; consume .
-                               (setf (cdr cur) (read stream))
-                               (unless (eql #\) (peek-char t stream t))
-                                 (error "Unbalanced parentheses"))
-                               (read-char stream t) ;; consume closing )
-                               (signal 'return head))
-                             (destructuring-bind (readp read-val)
-                                 (read-maybe-nothing stream t nil)
-                               (when readp
-                                 (setf (cdr cur) (list read-val))
-                                 (setf cur (cdr cur)))))
-                      (read-char stream t) ;; consume closing ), doesn't matter if eof
-                      (signal 'return head))))
+(defun read-list-of-values (stream char)
+  (when (eql #\) (peek-char t stream t))
+    (read-char stream t) ;; consume closing )
+    (signal 'return nil))
+  (let* ((head (list (read stream)))
+         (cur head))
+    (until (or (input-stream-eof-p stream)
+               (eql #\) (peek-char t stream t)))
+           (when (eql #\) (peek-char t stream t))
+             (read-char stream t) ;; consume closing )
+             (signal 'return head))
+           (when (eql #\. (peek-char t stream t))
+             (read-char stream t) ;; consume .
+             (setf (cdr cur) (read stream))
+             (unless (eql #\) (peek-char t stream t))
+               (error "Unbalanced parentheses"))
+             (read-char stream t) ;; consume closing )
+             (signal 'return head))
+           (destructuring-bind (readp read-val)
+               (read-maybe-nothing stream t nil)
+             (when readp
+               (setf (cdr cur) (list read-val))
+               (setf cur (cdr cur)))))
+    (read-char stream t) ;; consume closing ), doesn't matter if eof
+    (signal 'return head)))
+
+(set-reader-macro #\( #'read-list-of-values)
 
 (set-reader-macro #\)
                   (lambda (stream char)
@@ -240,6 +241,11 @@
 (set-sharpsign-macro #\. (lambda (stream char) (eval (read stream))))
 
 (set-sharpsign-macro #\' (lambda (stream char) (list 'function (read stream))))
+
+(set-sharpsign-macro #\( (lambda (stream char)
+                           (let ((vals (handler-case (read-list-of-values stream char)
+                                         (return (vals) vals))))
+                             (apply #'array vals))))
 
 (defun %has-package-p (string)
   (labels ((aux (i)
