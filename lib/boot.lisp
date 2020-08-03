@@ -810,6 +810,14 @@ may be provided or left NIL."
             ((eq 'simple-array (car type))
              t)))))
 
+(defun array (&rest vals)
+  (let ((array (make-array (length vals)))
+        (i 0))
+    (while vals
+           (setf (aref array i) (pop vals))
+           (setf i (+ i 1)))
+    array))
+
 (defun nth (n list)
   (if (and list (/= 0 n))
       (nth (- n 1) (cdr list))
