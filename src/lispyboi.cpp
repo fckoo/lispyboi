@@ -150,6 +150,19 @@ struct Value
     }
 
     FORCE_INLINE
+    Value operator|(const Value &other) const noexcept
+    {
+        return Value(m_bits | other.m_bits);
+    }
+
+    FORCE_INLINE
+    Value &operator|=(const Value &other) noexcept
+    {
+        m_bits |= other.m_bits;
+        return *this;
+    }
+
+    FORCE_INLINE
     Bits_Type bits() const noexcept
     {
         return m_bits;
@@ -5424,17 +5437,22 @@ Value func_bit_and(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(x & y);
 }
 
-Value func_bit_or(Value *args, uint32_t nargs, bool &raised_signal)
+Value func_bit_ior(Value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (bit-or x y)
+        (bit-or x y &rest z)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_AT_LEAST_N(nargs, 2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
-    auto x = args[0].as_fixnum();
-    auto y = args[1].as_fixnum();
-    return Value::wrap_fixnum(x | y);
+
+    auto res = args[0] | args[1];
+    for (uint32_t i = 2; i < nargs; ++i)
+    {
+        CHECK_FIXNUM(args[i]);
+        res |= args[i];
+    }
+    return res;
 }
 
 Value func_bit_xor(Value *args, uint32_t nargs, bool &raised_signal)
@@ -7083,7 +7101,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
 
     export_function(kernel, "BIT-NOT", primitives::func_bit_not);
     export_function(kernel, "BIT-AND", primitives::func_bit_and);
-    export_function(kernel, "BIT-IOR", primitives::func_bit_or);
+    export_function(kernel, "BIT-IOR", primitives::func_bit_ior);
     export_function(kernel, "BIT-XOR", primitives::func_bit_xor);
     export_function(kernel, "BIT-SHIFT", primitives::func_bit_shift);
 
