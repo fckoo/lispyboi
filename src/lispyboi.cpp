@@ -3436,7 +3436,7 @@ void Emitter::pop_labels()
     {
         for (auto const &it : m_backfills)
         {
-            fprintf(stderr, "No label tag found for: %s\n", repr(it.tag).c_str()); // TODO: need print it.tag name.
+            fprintf(stderr, "No label tag found for: %s\n", repr(it.tag).c_str());
         }
         bt::trace_and_abort();
     }
@@ -4199,7 +4199,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
         if (thing != g.s_QUOTE && thing != g.s_FUNCTION)
         {
             auto end = e.position();
-            e.map_range_to(begin, end, saved_expr); // @TODO: Debug_Info
+            e.map_range_to(begin, end, saved_expr);
         }
     }
     else if (symbolp(expr))
@@ -5986,7 +5986,6 @@ Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_AT_LEAST_N(nargs, 1);
     auto length = args[0];
     CHECK_FIXNUM(length);
-    // @TODO: Array operations still need type checking
     if (nargs != 1)
     {
         auto type = args[1];
@@ -6007,11 +6006,8 @@ Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
 
     // @TODO: typecheck array in ARRAY-LENGTH primitive
     auto array = args[0];
-    if (array.is_type(Object_Type::Simple_Array))
-    {
-        return Value::wrap_fixnum(array.as_object()->simple_array()->size());
-    }
-    return Value::nil();
+    CHECK_SIMPLE_ARRAY(array);
+    return Value::wrap_fixnum(array.as_object()->simple_array()->size());
 }
 
 Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
@@ -6023,11 +6019,8 @@ Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
 
     // @TODO: typecheck array in ARRAY-TYPE primitive
     auto array = args[0];
-    if (array.is_type(Object_Type::Simple_Array))
-    {
-        return array.as_object()->simple_array()->element_type();
-    }
-    return Value::nil();
+    CHECK_SIMPLE_ARRAY(array);
+    return array.as_object()->simple_array()->element_type();
 }
 
 Value func_bits_of(Value *args, uint32_t nargs, bool &raised_signal)
@@ -6479,7 +6472,6 @@ Value func_ffi_call(Value *args, uint32_t nargs, bool &raised_signal)
     std::vector<void *> marshalled;
     for (uint32_t i = 1; i < nargs; ++i)
     {
-        // @TODO: marshal ffi_call
         void *m = nullptr;
         if (ffi_try_marshal(args[i], &m))
         {

@@ -903,7 +903,8 @@ may be provided or left NIL."
 (defun code-char (code) (code-char code))
 
 (defun stringp (object)
-  (eq 'character (array-type object)))
+  (and (arrayp object)
+       (eq 'character (array-type object))))
 
 (defun characterp (object)
   (eq 'character (type-of object)))
