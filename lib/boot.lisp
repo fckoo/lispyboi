@@ -998,6 +998,7 @@ may be provided or left NIL."
 
 (defun load (file-path)
   (let* ((here-path *file-path*)
+         (here-package *package*)
          (here-dir (get-working-directory))
          (full-path (if (eql #\/ (aref file-path 0))
                         file-path
@@ -1014,6 +1015,7 @@ may be provided or left NIL."
                           (end-of-file () 'ok)))
                  (signal 'load-error "Cannot open file" file-path full-path)))
         (change-directory here-dir)
+        (in-package here-package)
         (setq *file-path* here-path)))))
 
 
