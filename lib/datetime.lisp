@@ -134,5 +134,7 @@
             year month day)))
 
 
-(export '(datetime-now
+(export '(datetime
+          datetimep
+          datetime-now
           timestamp))
