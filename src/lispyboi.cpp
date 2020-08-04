@@ -2425,12 +2425,14 @@ struct Runtime_Globals
         };
 
         Debugger()
-            : addr(nullptr)
+            : addr0(nullptr)
+            , addr1(nullptr)
             , command(Command::Continue)
             , breaking(false)
         {}
 
-        const uint8_t *addr;
+        const uint8_t *addr0;
+        const uint8_t *addr1;
         Command command;
         bool breaking;
     } debugger;
@@ -2710,14 +2712,11 @@ struct Scope
 
     Scope()
         : m_parent(nullptr)
-        , m_is_just_extending(false)
-        , m_locals_offset(0)
     {}
 
-    Scope(Scope *parent, bool is_just_extending, uint32_t locals_offset = 0)
+    Scope(Scope *parent)
         : m_parent(parent)
-        , m_is_just_extending(is_just_extending)
-        , m_locals_offset(locals_offset)
+        , m_stack_space_needed(0)
     {}
 
     bool is_root() const
@@ -2735,19 +2734,14 @@ struct Scope
         return p;
     }
 
-    uint32_t locals_offset() const
-    {
-        return m_locals_offset;
-    }
-
     Scope *parent()
     {
         return m_parent;
     }
 
-    Scope *push_scope(bool is_just_extending, uint32_t locals_offset = 0)
+    Scope *push_scope()
     {
-        return new Scope(this, is_just_extending, locals_offset);
+        return new Scope(this);
     }
 
     const std::vector<Capture_Info> &capture_info() const
@@ -2759,6 +2753,11 @@ struct Scope
     {
         return m_locals;
     }
+    
+    const size_t stack_space_needed() const
+    {
+        return m_stack_space_needed;
+    }
 
     Variable *create_variable(const Symbol *symbol, uint32_t *opt_out_idx = nullptr)
     {
@@ -2768,7 +2767,13 @@ struct Scope
             *opt_out_idx = m_locals.size();
         }
         m_locals.push_back(var);
+        m_stack_space_needed = std::max(m_stack_space_needed, m_locals.size());
         return var;
+    }
+    
+    void pop_variables(size_t n)
+    {
+        m_locals.resize(m_locals.size() - n);
     }
 
     bool resolve_local(Symbol *symbol, uint32_t &out_idx)
@@ -2780,14 +2785,10 @@ struct Scope
                 auto local = m_locals[i - 1];
                 if (local->symbol() == symbol)
                 {
-                    out_idx = i - 1 + m_locals_offset;
+                    out_idx = i - 1;
                     return true;
                 }
             }
-        }
-        if (m_is_just_extending)
-        {
-            return m_parent->resolve_local(symbol, out_idx);
         }
         return false;
     }
@@ -2840,8 +2841,7 @@ struct Scope
     Scope *m_parent;
     std::vector<Variable*> m_locals;
     std::vector<Capture_Info> m_captures;
-    bool m_is_just_extending;
-    uint32_t m_locals_offset;
+    size_t m_stack_space_needed;
 };
 
 Scope *THE_ROOT_SCOPE;
@@ -3010,9 +3010,6 @@ struct Emitter
     void emit_instantiate_closure(const Function *function);
     void emit_close_values(uint32_t num_values);
 
-    void emit_stack_alloc(uint32_t num_values);
-    void emit_stack_free(uint32_t num_values);
-
     void emit_pop();
 
     void emit_halt();
@@ -3054,18 +3051,6 @@ struct Emitter
     void backfill_label(int32_t offset, Value tag);
 
     compiler::Scope *scope() const;
-
-    void push_scope()
-    {
-        m_scope = m_scope->push_scope(true, m_scope->locals().size() + m_scope->locals_offset());
-    }
-
-    void pop_scope()
-    {
-        auto scope = m_scope->parent();
-        delete m_scope;
-        m_scope = scope;
-    }
 
   private:
     void emit_get_value(Symbol *symbol);
@@ -3298,18 +3283,6 @@ void Emitter::emit_instantiate_closure(const Function *function)
 void Emitter::emit_close_values(uint32_t num_values)
 {
     append(Opcode::op_close_values);
-    append(num_values);
-}
-
-void Emitter::emit_stack_alloc(uint32_t num_values)
-{
-    append(Opcode::op_stack_alloc);
-    append(num_values);
-}
-
-void Emitter::emit_stack_free(uint32_t num_values)
-{
-    append(Opcode::op_stack_free);
     append(num_values);
 }
 
@@ -3546,8 +3519,6 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         case Opcode::op_set_capture:
 
         case Opcode::op_close_values:
-        case Opcode::op_stack_alloc:
-        case Opcode::op_stack_free:
 
         case Opcode::op_raise_signal:
 
@@ -3708,18 +3679,19 @@ static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_p
 static
 bool effect_free(Value expr)
 {
-    if (!expr.is_cons())
-    {
-        return true;
-    }
-    auto f = car(expr);
-    if (f == g.s_QUOTE ||
-        f == g.s_FUNCTION ||
-        f == g.s_LAMBDA)
-    {
-        return true;
-    }
     return false;
+    //if (!expr.is_cons())
+    //{
+    //    return true;
+    //}
+    //auto f = car(expr);
+    //if (f == g.s_QUOTE ||
+    //    f == g.s_FUNCTION ||
+    //    f == g.s_LAMBDA)
+    //{
+    //    return true;
+    //}
+    //return false;
 }
 
 static
@@ -3744,7 +3716,7 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
     auto lambda_list = macro ? third(expr) : second(expr);
     auto body = macro ? cdddr(expr) : cddr(expr);
 
-    bytecode::Emitter function_emitter(e.scope()->push_scope(false));
+    bytecode::Emitter function_emitter(e.scope()->push_scope());
     // Optionals are a little tricky because we allow for any expression to be the default value
     // to an optional, this even means that a default value may refer to an earlier parameter eg:
     //     (defun substring (string start &optional (end (length string))) ...)
@@ -3870,10 +3842,11 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
                                         std::move(capture_offsets),
                                         main_entry_offset,
                                         optionals_start_at,
-                                        // using the number of locals instead of the function's arity because
-                                        // we may inline immediate lambda calls which expand the number of
-                                        // local variables but not change the arity of the outer function.
-                                        function_emitter.scope()->locals().size(),
+                                        // using the max number of locals instead of the function's arity 
+                                        // because we may inline immediate lambda calls which expand the 
+                                        // number of local variables but not change the arity of the 
+                                        // outer function.
+                                        function_emitter.scope()->stack_space_needed(),
                                         has_rest,
                                         has_optionals);
 
@@ -3895,6 +3868,11 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
 static
 void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool toplevel, bool tail_position, bool funcall)
 {
+    //fprintf(stderr, "====================================\n");
+    //fprintf(stderr, "top? %d, tail? %d, funcall? %d\n", (int)toplevel, (int)tail_position, (int)funcall);
+    //fprintf(stderr, ">>> %s\n", repr(func).c_str());
+    //fprintf(stderr, "--- %s\n", repr(args).c_str());
+
     if (func.is_cons() && first(func) == g.s_LAMBDA)
     {
         if (second(func).is_nil())
@@ -3910,64 +3888,61 @@ void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool to
             // stack frame.
             // @TODO: although it's unlikely to have &optional and &rest here, we should still support it
             // but for now we'll just not do the optimization in that case.
-            //bool do_opt = true;
-            //auto params = second(func);
-            //std::vector<Value> symbols;
-            //while (!params.is_nil())
-            //{
-            //    if (symbolp(car(params)))
-            //    {
-            //        symbols.push_back(car(params));
-            //    }
-            //    else
-            //    {
-            //        do_opt = false;
-            //        break;
-            //    }
-            //    params = cdr(params);
-            //}
+            bool do_opt = true;
+            auto params = second(func);
+            std::vector<Value> symbols;
+            while (!params.is_nil())
+            {
+                if (symbolp(car(params)))
+                {
+                    symbols.push_back(car(params));
+                }
+                else
+                {
+                    do_opt = false;
+                    break;
+                }
+                params = cdr(params);
+            }
 
-            //if (do_opt)
-            //{
-            //    e.emit_stack_alloc(symbols.size());
-            //    size_t i = 0;
-            //    while (!args.is_nil())
-            //    {
-            //        i++;
-            //        compile(e, car(args), false);
-            //        args = cdr(args);
-            //    }
-            //    for (; i < symbols.size(); ++i)
-            //    {
-            //        e.emit_push_nil();
-            //    }
-            //    e.push_scope();
-            //    std::vector<Variable*> vars;
-            //    for (auto symbol_value : symbols)
-            //    {
-            //        auto symbol = symbol_value.as_object()->symbol();
-            //        auto var = e.scope()->create_variable(symbol);
-            //        vars.push_back(var);
-            //    }
-            //    for (auto it = symbols.rbegin(); it != symbols.rend(); ++it)
-            //    {
-            //        e.emit_set_value(*it);
-            //        e.emit_pop();
-            //    }
-            //    compile_body(e, cddr(func), tail_position);
-            //    // If we're in the tail position, then the gotocall will handle cleaning up the stack
-            //    // so there's no need to emit these instructions.
-            //    if (!tail_position)
-            //    {
-            //        if (e.scope()->capture_info().size() != 0)
-            //        {
-            //            e.emit_close_values(symbols.size());
-            //        }
-            //        e.emit_stack_free(symbols.size());
-            //    }
-            //    e.pop_scope();
-            //    return;
-            //}
+            if (do_opt)
+            {
+                size_t i = 0;
+                while (!args.is_nil())
+                {
+                    i++;
+                    compile(e, car(args), false);
+                    args = cdr(args);
+                }
+                for (; i < symbols.size(); ++i)
+                {
+                    e.emit_push_nil();
+                }
+                std::vector<Variable*> vars;
+                for (auto symbol_value : symbols)
+                {
+                    auto symbol = symbol_value.as_object()->symbol();
+                    auto var = e.scope()->create_variable(symbol);
+                    vars.push_back(var);
+                }
+                for (auto it = symbols.rbegin(); it != symbols.rend(); ++it)
+                {
+                    e.emit_set_value(*it);
+                    e.emit_pop();
+                }
+                compile_body(e, cddr(func), tail_position);
+                // If we're in the tail position, then the gotocall will handle cleaning up the stack
+                // so there's no need to emit these instructions.
+                if (!tail_position)
+                {
+                    if (e.scope()->capture_info().size() != 0)
+                    {
+                        e.emit_close_values(symbols.size());
+                    }
+                }
+                e.scope()->pop_variables(symbols.size());
+                return;
+            }
         }
     }
 
@@ -4313,9 +4288,9 @@ int VM_State::stack_dump(std::ostream &out, size_t max_size) const
         for (size_t i = 0; i < caps.size(); ++i)
         {
             auto &offs = func_caps[i];
-            out << "[local?: " << offs.is_local << ", index: " << offs.index << ", " << offs.name << "]  "
+            out << offs.name << " "
                 << std::hex << reinterpret_cast<uintptr_t>(caps[i]->location()) << " "
-                << (caps[i] ? repr(caps[i]->value()) : "(null)") << "\n";
+                << (caps[i] ? repr(caps[i]->value()) : "#<nullptr>") << "\n";
             lines_printed++;
         }
     }
@@ -4425,7 +4400,8 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
             // @TODO: Fix debugger step over:
             // currently it just goes to the next instruction address which is ok in the case of
             // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
-            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over && g.debugger.addr == ip)
+            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over && 
+                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
                 || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
             {
                 debug_dump(std::cout, "VM EXEC", ip);
@@ -4464,7 +4440,18 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     case Runtime_Globals::Debugger::Command::Step_Into:
                         break;
                     case Runtime_Globals::Debugger::Command::Step_Over:
-                        g.debugger.addr = ip + bytecode::opcode_size(opcode);
+                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
+                        g.debugger.addr1 = nullptr;
+                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
+                        {
+                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                            g.debugger.addr1 = ip + offset;
+                        }
+                        else if (opcode == bytecode::Opcode::op_jump)
+                        {
+                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                            g.debugger.addr0 = ip + offset;
+                        }
                         break;
                 }
             }
@@ -4764,11 +4751,11 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                         {
                             ref = m_current_closure.as_object()->closure()->get_reference(offs.index);
                         }
-                        //printf("[is_local: %d, index: %u, %s] %p %s\n",
-                        //       offs.is_local,
+                        //printf("[%s] %d %p %s\n",
                         //       offs.name.c_str(),
+                        //       offs.index,
                         //       ref->location(),
-                        //       repr(ref->value()).c_str());
+                        //       (ref->location() ? repr(ref->value()).c_str() : "#<nullptr>"));
                         closure->capture_reference(i, ref);
                     }
                 }
@@ -4780,35 +4767,6 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto n = *reinterpret_cast<const uint32_t*>(ip+1);
 
                 close_values(m_stack_top-n);
-
-                ip += 1 + sizeof(n);
-            } break;
-
-            case bytecode::Opcode::op_stack_alloc:
-            {
-                auto n = *reinterpret_cast<const uint32_t*>(ip+1);
-
-                m_stack_top += n;
-
-                #if DEBUG > 1
-                for (auto p = m_stack_top - n; p != m_stack_top; ++p)
-                {
-                    *p = Value::nil();
-                }
-                #endif
-
-                ip += 1 + sizeof(n);
-            } break;
-
-            case bytecode::Opcode::op_stack_free:
-            {
-                auto n = *reinterpret_cast<const uint32_t*>(ip+1);
-
-                auto val = pop_param();
-
-                m_stack_top -= n;
-
-                push_param(val);
 
                 ip += 1 + sizeof(n);
             } break;
@@ -5749,7 +5707,7 @@ Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
     auto expanded = macro_expand_impl(expr, *vm);
     gc.unpin_value(expr);
 
-    compiler::compile(e, expanded, false, false);
+    compiler::compile(e, expanded, true, false);
     e.emit_halt();
     e.lock();
 
@@ -7775,7 +7733,7 @@ bool eval_file(VM_State &vm, compiler::Scope &root_scope, const std::filesystem:
                     gc.unpin_value(out);
 
                     bytecode::Emitter e(&root_scope);
-                    compiler::compile(e, expanded, true, true);
+                    compiler::compile(e, expanded, true, false);
                     e.emit_halt();
                     e.lock();
 
@@ -7835,7 +7793,7 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
                 gc.unpin_value(out);
 
                 bytecode::Emitter e(&root_scope);
-                compiler::compile(e, expanded, true, true);
+                compiler::compile(e, expanded, true, false);
                 e.emit_halt();
                 e.lock();
 

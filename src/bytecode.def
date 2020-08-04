@@ -201,20 +201,6 @@ BYTECODE_DEF(close_values,
 "")
 
 
-BYTECODE_DEF(stack_alloc,
-1, // noperands
-0, // nargs
-1+sizeof(uint32_t), // size
-"")
-
-
-BYTECODE_DEF(stack_free,
-1, // noperands
-0, // nargs
-1+sizeof(uint32_t), // size
-"")
-
-
 BYTECODE_DEF(cons,
 0, // noperands
 2, // nargs

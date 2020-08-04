@@ -91,3 +91,9 @@
 *** DONE implement echo server
 *** DONE implement echo client
 *** TODO implement httpd
+    
+
+*** TODO Dump image to disk
+*** TODO Load image from disk
+    
+    
