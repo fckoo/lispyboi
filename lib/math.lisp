@@ -1,7 +1,6 @@
 (in-package :lispyboi)
 (provide "math")
 
-
 (setf +most-positive-fixnum+ 4611686018427387903)
 (setf +most-negative-fixnum+ (- 4611686018427387904))
 
@@ -13,10 +12,19 @@
 (defun rem (n d)
   (- n (* d (floor n d))))
 
+(defun min (&rest nums)
+  (let ((n +most-positive-fixnum+))
+    (dolist (e nums)
+      (when (< e n)
+        (setq n e)))
+    n))
 
-(defun max (a b) (if (> a b) a b))
-
-(defun min (a b) (if (< a b) a b))
+(defun max (&rest nums)
+  (let ((n +most-negative-fixnum+))
+    (dolist (e nums)
+      (when (> e n)
+        (setq n e)))
+    n))
 
 (defun abs (a) (if (< a 0) (- a) a))
 
