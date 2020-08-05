@@ -23,7 +23,7 @@
       (push type struct-type-registry)
       `(progn
          (defun ,ctor (&optional ,@slot-initializers)
-           (%create-instance ',type ,@slot-names))
+           (kernel::%create-instance ',type ,@slot-names))
          (defun ,type-predicate (object)
            (eq ',struct-name (type-of object)))
          (defmethod print-object ((object ,struct-name) stream)
@@ -40,14 +40,14 @@
          ,@(map (lambda (getter-name index)
                   `(defun ,getter-name (instance)
                      (if (eq ',struct-name (type-of instance))
-                         (%get-slot instance ,index)
+                         (kernel::%get-slot instance ,index)
                          (signal 'type-error ',struct-name instance))))
                 getter-names
                 slot-indices)
          ,@(map (lambda (setter-name index)
                   `(defun ,setter-name (instance value)
                      (if (eq ',struct-name (type-of instance))
-                         (%set-slot instance ,index value)
+                         (kernel::%set-slot instance ,index value)
                          (signal 'type-error ',struct-name instance))))
                 setter-names
                 slot-indices)
@@ -65,18 +65,18 @@
 (defun slot-index (object slot-name)
   (index-of slot-name
             (second (member :slot-names
-                            (rest (%structure-definition object))))))
+                            (rest (kernel::%structure-definition object))))))
 
 (defun slot-value (object slot-name)
   (let ((index (slot-index object slot-name)))
     (if index
-        (%get-slot object index)
+        (kernel::%get-slot object index)
         (signal 'slot-missing-error slot-name (type-of object)))))
 
 (defun set-slot-value (object slot-name value)
   (let ((index (slot-index object slot-name)))
     (if index
-        (%set-slot object index value)
+        (kernel::%set-slot object index value)
         (signal 'slot-missing-error slot-name (type-of object)))))
 
 (defsetf slot-value set-slot-value)

@@ -49,7 +49,7 @@
 
 (defun file-accessible-p (file-path)
   (with-open-file (file file-path 'read)
-    (%file-ok-p file)))
+    (kernel::%file-ok-p file)))
 
 (defun find-if (predicate list)
   (when list

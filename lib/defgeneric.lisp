@@ -9,7 +9,7 @@
   (concatenate "%DEFINE-METHOD-" (symbol-name name)))
 
 (defmacro defgeneric (fun-name lambda-list &rest documentation)
-  (unless (%function-definition fun-name)
+  (unless (kernel::%function-definition fun-name)
     ;;(signal 'generic-already-exists "Generic function already exists" fun-name)
     (let ((define-method (intern (%get-define-method-name fun-name))))
       (export (list define-method))
@@ -34,7 +34,7 @@
                            (first args)))
            (lambda-list (cons first-name (rest args))))
       `(progn
-         ,@(when (null (%function-definition define-method))
+         ,@(when (null (kernel::%function-definition define-method))
              (list (list 'defgeneric fun-name lambda-list)))
          (,define-method
              ',first-type

@@ -1,6 +1,6 @@
-(kernel:%in-package :lispyboi)
+(kernel::%in-package :lispyboi)
 
-(%export
+(kernel::%export
  '(defun
    list
    cons
@@ -159,17 +159,17 @@
    load)
  :lispyboi)
 
-(%define-function 'list (lambda (&rest lst) lst))
+(kernel::%define-function 'list (lambda (&rest lst) lst))
 
-(%define-macro cons (x y) (list '%cons x y))
+(kernel::%define-macro cons (x y) (list '%cons x y))
 
-(%define-function 'cons (lambda (x y) (cons x y)))
+(kernel::%define-function 'cons (lambda (x y) (cons x y)))
 
-(%define-macro defmacro (name argslist &body body)
-               (cons '%define-macro (cons name (cons argslist body))))
+(kernel::%define-macro defmacro (name argslist &body body)
+                       (cons 'kernel::%define-macro (cons name (cons argslist body))))
 
 (defmacro defun (name argslist &rest body)
-  (list '%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
+  (list 'kernel::%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
 
 (defmacro car (obj) (list '%car obj))
 (defun car (obj) (car obj))
@@ -180,23 +180,23 @@
 (defmacro eq (x y) (list '%eq x y))
 (defun eq (x y) (eq x y))
 
-(defmacro setq (x y &rest documentation) (list '%setq x y))
-(defmacro tagbody (&body body) (cons '%tagbody body))
-(defmacro go (tag) (list '%go tag))
-(defmacro handler-case (&body body) (cons '%handler-case body))
+(defmacro setq (x y &rest documentation) (list 'kernel::%setq x y))
+(defmacro tagbody (&body body) (cons 'kernel::%tagbody body))
+(defmacro go (tag) (list 'kernel::%go tag))
+(defmacro handler-case (&body body) (cons 'kernel::%handler-case body))
 
-(defmacro package-name (package-designator) (list '%package-name package-designator))
+(defmacro package-name (package-designator) (list 'kernel::%package-name package-designator))
 (defun package-name (package-designator) (package-name package-designator))
 
-(defmacro make-package (package) (list '%make-package package))
-(defmacro in-package (package) (list '%in-package package))
-(defmacro use-package (to-use &optional (in-package *package*)) (list '%use-package to-use in-package))
+(defmacro make-package (package) (list 'kernel::%make-package package))
+(defmacro in-package (package) (list 'kernel::%in-package package))
+(defmacro use-package (to-use &optional (in-package *package*)) (list 'kernel::%use-package to-use in-package))
 
-(defun export (symbols &optional (package *package*)) (%export symbols package))
-(defun import (symbols &optional (package *package*)) (%import symbols package))
-(defun find-symbol (string &optional (package *package*)) (%find-symbol string package))
+(defun export (symbols &optional (package *package*)) (kernel::%export symbols package))
+(defun import (symbols &optional (package *package*)) (kernel::%import symbols package))
+(defun find-symbol (string &optional (package *package*)) (kernel::%find-symbol string package))
 
-(defmacro type-of (obj) (list '%type-of obj))
+(defmacro type-of (obj) (list 'kernel::%type-of obj))
 (defun type-of (obj) (type-of obj))
 
 (defun consp (obj) (eq 'cons (type-of obj)))
@@ -204,37 +204,37 @@
 (defun symbolp (obj) (eq 'symbol (type-of obj)))
 
 (defun eval (expr)
-  (%eval expr))
+  (kernel::%eval expr))
 
 (defmacro apply (func &rest args)
-  (cons '%apply (cons func args)))
+  (cons 'kernel::%apply (cons func args)))
 
-(defmacro - (&rest vals) (cons '%- vals))
-(defun - (&rest vals) (apply #'%- vals))
+(defmacro - (&rest vals) (cons 'kernel::%- vals))
+(defun - (&rest vals) (apply #'kernel::%- vals))
 
-(defmacro + (&rest vals) (cons '%+ vals))
-(defun + (&rest vals) (apply #'%+ vals))
+(defmacro + (&rest vals) (cons 'kernel::%+ vals))
+(defun + (&rest vals) (apply #'kernel::%+ vals))
 
-(defmacro * (&rest vals) (cons '%* vals))
-(defun * (&rest vals) (apply #'%* vals))
+(defmacro * (&rest vals) (cons 'kernel::%* vals))
+(defun * (&rest vals) (apply #'kernel::%* vals))
 
-(defmacro / (x y) (list '%/ x y))
+(defmacro / (x y) (list 'kernel::%/ x y))
 (defun / (x y) (/ x y))
 
-(defmacro < (&rest vals) (cons '%< vals))
-(defun < (&rest vals) (apply #'%< vals))
+(defmacro < (&rest vals) (cons 'kernel::%< vals))
+(defun < (&rest vals) (apply #'kernel::%< vals))
 
-(defmacro = (&rest vals) (cons '%= vals))
-(defun = (&rest vals) (apply #'%= vals))
+(defmacro = (&rest vals) (cons 'kernel::%= vals))
+(defun = (&rest vals) (apply #'kernel::%= vals))
 
-(defmacro > (&rest vals) (cons '%> vals))
-(defun > (&rest vals) (apply #'%> vals))
+(defmacro > (&rest vals) (cons 'kernel::%> vals))
+(defun > (&rest vals) (apply #'kernel::%> vals))
 
-(defmacro /= (&rest vals) (list 'not (cons '%= vals)))
-(defun /= (&rest vals) (not (apply #'%= vals)))
+(defmacro /= (&rest vals) (list 'not (cons 'kernel::%= vals)))
+(defun /= (&rest vals) (not (apply #'kernel::%= vals)))
 
 (defmacro putchar (character &optional (stm *standard-output*))
-  (list '%file-putchar stm character))
+  (list 'kernel::%file-putchar stm character))
 (defun putchar (character &optional (stm *standard-output*))
   (putchar stm character))
 
@@ -278,33 +278,33 @@
 (defun fourth (lst) (cadddr lst))
 (defun fifth (lst) (car (cddddr lst)))
 
-(defmacro gensym (&optional (hint "G")) (list '%gensym hint))
+(defmacro gensym (&optional (hint "G")) (list 'kernel::%gensym hint))
 (defun gensym (&optional (hint "G")) (gensym hint))
 
-(defmacro symbol-package (symbol) (list '%symbol-package symbol))
+(defmacro symbol-package (symbol) (list 'kernel::%symbol-package symbol))
 (defun symbol-package (symbol) (symbol-package symbol))
 
-(defmacro symbol-name (symbol) (list '%symbol-name symbol))
+(defmacro symbol-name (symbol) (list 'kernel::%symbol-name symbol))
 (defun symbol-name (symbol) (symbol-name symbol))
 
-(defmacro make-symbol (symbol-name) (list '%make-symbol symbol-name))
+(defmacro make-symbol (symbol-name) (list 'kernel::%make-symbol symbol-name))
 (defun make-symbol (symbol-name) (make-symbol symbol-name))
 
 (defun intern (symbol-name &optional (package *package*))
-  ;;(%print package symbol-name)
-  (%intern symbol-name package))
+  ;;(kernel::%print package symbol-name)
+  (kernel::%intern symbol-name package))
 
-(defmacro exit (&optional (n 0)) (list '%exit n))
+(defmacro exit (&optional (n 0)) (list 'kernel::%exit n))
 (defun exit (&optional (n 0)) (exit n))
 
 (defmacro signal (tag &rest arguments)
-  (cons '%signal (cons tag arguments)))
+  (cons 'kernel::%signal (cons tag arguments)))
 
 (defun signal (tag &rest arguments)
-  (apply #'%signal tag arguments))
+  (apply #'kernel::%signal tag arguments))
 
 (defun error (message &rest arguments)
-  (apply #'%signal 'error message arguments))
+  (apply #'kernel::%signal 'error message arguments))
 
 (defun append (x y)
   (if x
@@ -374,7 +374,7 @@
      loop
        (when curr
          (setq next (cdr curr))
-         (%rplacd curr prev)
+         (kernel::%rplacd curr prev)
          (setq prev curr)
          (setq curr next)
          (go loop)))
@@ -488,12 +488,12 @@ may be provided or left NIL."
   ;; ...)
   ;; If this code was inside a function in a labels, we wouldn't correctly fix the names
   ;; because our transform code would think they are truly quoted or a lambda.
-  (setq body (%macro-expand body))
+  (setq body (kernel::%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map (lambda (e) (%macro-expand (cddr e))) definitions)))
+         (bodies (map (lambda (e) (kernel::%macro-expand (cddr e))) definitions)))
     (cons 'let (cons (map (lambda (sym ll body)
                             (list sym (cons 'lambda (cons ll body))))
                           new-names
@@ -504,12 +504,12 @@ may be provided or left NIL."
 
 
 (defmacro labels (definitions &body body)
-  (setq body (%macro-expand body))
+  (setq body (kernel::%macro-expand body))
   (let* ((names (map #'first definitions))
          (new-names (map (lambda (e) (gensym (symbol-name e))) names))
          (old-new-names (map #'cons names new-names))
          (lambda-lists (map #'second definitions))
-         (bodies (map (lambda (e) (%macro-expand (cddr e))) definitions)))
+         (bodies (map (lambda (e) (kernel::%macro-expand (cddr e))) definitions)))
     (cons 'let* (cons (map (lambda (sym ll body)
                              (list sym (cons 'lambda (cons ll (%flet-transform old-new-names body)))))
                            new-names
@@ -594,14 +594,14 @@ may be provided or left NIL."
                              (setq expanders (cons `(,var (car ,getter-func)) expanders))
                              (setq getter-func (list 'cdr getter-func)))
                            (car list))
-                     (%rplaca list metavar)))
+                     (kernel::%rplaca list metavar)))
                  (defmacro-aux (cdr list)))))
       (defmacro-aux argslist))
-    `(%define-macro ,name ,argslist
-                    ,@(if expanders
-                          `((let (,@(reverse expanders))
-                              ,@body))
-                          body))))
+    `(kernel::%define-macro ,name ,argslist
+                            ,@(if expanders
+                                  `((let (,@(reverse expanders))
+                                      ,@body))
+                                  body))))
 
 (defmacro prog1 (&body body)
   (if (null (cdr body))
@@ -728,12 +728,12 @@ may be provided or left NIL."
   (list 'quote access-fn))
 
 (defun %set-car (cons obj)
-  (%rplaca cons obj)
+  (kernel::%rplaca cons obj)
   obj)
 (defsetf car %set-car)
 
 (defun %set-cdr (cons obj)
-  (%rplacd cons obj)
+  (kernel::%rplacd cons obj)
   obj)
 (defsetf cdr %set-cdr)
 
@@ -783,22 +783,22 @@ may be provided or left NIL."
     val))
 
 (defmacro make-array (length &optional (element-type t))
-  (list '%make-array length element-type))
+  (list 'kernel::%make-array length element-type))
 
 (defun make-array (length &optional (element-type t))
   (make-array length element-type))
 
-(defmacro array-type (array) (list '%array-type array))
+(defmacro array-type (array) (list 'kernel::%array-type array))
 
 (defun array-type (array) (array-type array))
 
-(defmacro aref (array subscript) (list '%aref array subscript))
+(defmacro aref (array subscript) (list 'kernel::%aref array subscript))
 
 (defun aref (array subscript) (aref array subscript))
 
-(defsetf aref %aset)
+(defsetf aref kernel::%aset)
 
-(defmacro array-length (array) (list '%array-length array))
+(defmacro array-length (array) (list 'kernel::%array-length array))
 
 (defun array-length (array) (array-length array))
 
@@ -878,7 +878,7 @@ may be provided or left NIL."
 (defun apply (function &rest args)
   (let* ((a (remove-last! args))
          (catted (append (first a) (second a))))
-    (%apply function catted)))
+    (kernel::%apply function catted)))
 
 (defun max (a b) (if (> a b) a b))
 
@@ -896,10 +896,10 @@ may be provided or left NIL."
       (setf (aref str i) (nth i chars)))
     str))
 
-(defmacro char-code (char) `(%char-code ,char))
+(defmacro char-code (char) `(kernel::%char-code ,char))
 (defun char-code (char) (char-code char))
 
-(defmacro code-char (code) `(%code-char ,code))
+(defmacro code-char (code) `(kernel::%code-char ,code))
 (defun code-char (code) (code-char code))
 
 (defun stringp (object)
@@ -938,7 +938,7 @@ may be provided or left NIL."
 (defun print (object &optional (stm *standard-output*))
   (if #'print-object
       (print-object object stm)
-      (%file-write stm object))
+      (kernel::%file-write stm object))
   object)
 
 (defun print-line (object &optional (stm *standard-output*))
@@ -951,7 +951,7 @@ may be provided or left NIL."
   nil)
 
 (defun read (&optional (stm *standard-input*) (eof-error-p t) eof-value)
-  (%read stm eof-error-p eof-value))
+  (kernel::%read stm eof-error-p eof-value))
 
 (defmacro unwind-protect (protected &body cleanup)
   (let ((args (gensym "ARGS"))
@@ -965,7 +965,7 @@ may be provided or left NIL."
          (t (,sig &rest ,args)
            ,@cleanup
            (unless (eq ,sig ',clean-throw)
-             (apply #'%signal ,sig ,args))))
+             (apply #'kernel::%signal ,sig ,args))))
        ,result)))
 
 (defmacro ignore-errors (&body body)
@@ -974,9 +974,9 @@ may be provided or left NIL."
        (list nil args))))
 
 (defmacro with-open-file ((var path direction) &body body)
-  `(let ((,var (%open ,path ,direction)))
+  `(let ((,var (kernel::%open ,path ,direction)))
      (unwind-protect (progn ,@body)
-       (%close ,var))))
+       (kernel::%close ,var))))
 
 (defun find-last-of (array value)
   (let ((i (- (length array) 1)))
@@ -1017,11 +1017,11 @@ may be provided or left NIL."
     (when there-dir
       (unwind-protect
            (with-open-file (file full-path 'read)
-             (if (%file-ok-p file)
-                 (until (%file-eof-p file)
-                        (handler-case
-                            (%eval (read file t))
-                          (end-of-file () 'ok)))
+             (if (kernel::%file-ok-p file)
+                 (until (kernel::%file-eof-p file)
+                   (handler-case
+                       (kernel::%eval (read file t))
+                     (end-of-file () 'ok)))
                  (signal 'load-error "Cannot open file" file-path full-path)))
         (change-directory here-dir)
         (in-package here-package)

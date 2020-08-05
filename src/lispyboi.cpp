@@ -2412,7 +2412,6 @@ struct Runtime_Globals
     Value s_pGO;
     Value s_pSIGNAL;
     Value s_pHANDLER_CASE;
-    Value s_pDEFINE_FUNCTION;
     Value s_pDEFINE_MACRO;
 
     Package_Registry packages;
@@ -6841,16 +6840,16 @@ Value func_gc_set_paused(Value *args, uint32_t nargs, bool &raised_signal)
 }
 
 static
-void export_function(Package *package, const std::string &name, Primitive func, Value &symbol)
+void export_function(Package *package, const std::string &name, Primitive func)
 {
-    symbol = package->export_symbol(name);
+    auto symbol = package->export_symbol(name);
     symbol.as_object()->symbol()->function(Value::wrap_primitive(func));
 }
 
 static
-void export_function(Package *package, const std::string &name, Primitive func)
+void internal_function(Package *package, const std::string &name, Primitive func)
 {
-    auto symbol = package->export_symbol(name);
+    auto symbol = package->intern_symbol(name);
     symbol.as_object()->symbol()->function(Value::wrap_primitive(func));
 }
 
@@ -6966,71 +6965,71 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
 
     g.s_MARSHAL_ERROR    = core->export_symbol("MARSHAL-ERROR");
 
-    export_function(core, "%PRINT", primitives::func_print);
+    internal_function(core, "%PRINT", primitives::func_print);
 
-    export_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function, g.s_pDEFINE_FUNCTION);
-    export_function(kernel, "%PACKAGE-NAME", primitives::func_package_name);
-    export_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
-    export_function(kernel, "%IN-PACKAGE", primitives::func_in_package);
-    export_function(kernel, "%MAKE-PACKAGE", primitives::func_make_package);
-    export_function(kernel, "%DISASSEMBLE", primitives::func_disassemble);
+    internal_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
+    internal_function(kernel, "%PACKAGE-NAME", primitives::func_package_name);
+    internal_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
+    internal_function(kernel, "%IN-PACKAGE", primitives::func_in_package);
+    internal_function(kernel, "%MAKE-PACKAGE", primitives::func_make_package);
+    internal_function(kernel, "%DISASSEMBLE", primitives::func_disassemble);
 
-    export_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
-    export_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
-    export_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
+    internal_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
+    internal_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
+    internal_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
 
-    export_function(kernel, "%+", primitives::func_plus);
-    export_function(kernel, "%-", primitives::func_minus);
-    export_function(kernel, "%*", primitives::func_multiply);
-    export_function(kernel, "%/", primitives::func_divide);
-    export_function(kernel, "%<", primitives::func_num_less);
-    export_function(kernel, "%=", primitives::func_num_equal);
-    export_function(kernel, "%>", primitives::func_num_greater);
-    export_function(kernel, "%TYPE-OF", primitives::func_type_of);
-    export_function(kernel, "%READ", primitives::func_read);
-    export_function(kernel, "%MACRO-EXPAND", primitives::func_macro_expand);
-    export_function(kernel, "%EVAL", primitives::func_eval);
-    export_function(kernel, "%GENSYM", primitives::func_gensym);
-    export_function(kernel, "%MAKE-SYMBOL", primitives::func_make_symbol);
-    export_function(kernel, "%SYMBOL-NAME", primitives::func_symbol_name);
-    export_function(kernel, "%SYMBOL-PACKAGE", primitives::func_symbol_package);
-    export_function(kernel, "%EXPORT", primitives::func_export);
-    export_function(kernel, "%IMPORT", primitives::func_import);
-    export_function(kernel, "%INTERN", primitives::func_intern);
-    export_function(kernel, "%FIND-SYMBOL", primitives::func_find_symbol);
-    export_function(kernel, "%EXIT", primitives::func_exit);
-    export_function(kernel, "%SIGNAL", primitives::func_signal);
+    internal_function(kernel, "%+", primitives::func_plus);
+    internal_function(kernel, "%-", primitives::func_minus);
+    internal_function(kernel, "%*", primitives::func_multiply);
+    internal_function(kernel, "%/", primitives::func_divide);
+    internal_function(kernel, "%<", primitives::func_num_less);
+    internal_function(kernel, "%=", primitives::func_num_equal);
+    internal_function(kernel, "%>", primitives::func_num_greater);
+    internal_function(kernel, "%TYPE-OF", primitives::func_type_of);
+    internal_function(kernel, "%READ", primitives::func_read);
+    internal_function(kernel, "%MACRO-EXPAND", primitives::func_macro_expand);
+    internal_function(kernel, "%EVAL", primitives::func_eval);
+    internal_function(kernel, "%GENSYM", primitives::func_gensym);
+    internal_function(kernel, "%MAKE-SYMBOL", primitives::func_make_symbol);
+    internal_function(kernel, "%SYMBOL-NAME", primitives::func_symbol_name);
+    internal_function(kernel, "%SYMBOL-PACKAGE", primitives::func_symbol_package);
+    internal_function(kernel, "%EXPORT", primitives::func_export);
+    internal_function(kernel, "%IMPORT", primitives::func_import);
+    internal_function(kernel, "%INTERN", primitives::func_intern);
+    internal_function(kernel, "%FIND-SYMBOL", primitives::func_find_symbol);
+    internal_function(kernel, "%EXIT", primitives::func_exit);
+    internal_function(kernel, "%SIGNAL", primitives::func_signal);
 
-    export_function(kernel, "%MAKE-ARRAY", primitives::func_make_array);
-    export_function(kernel, "%ARRAY-LENGTH", primitives::func_array_length);
-    export_function(kernel, "%ARRAY-TYPE", primitives::func_array_type);
+    internal_function(kernel, "%MAKE-ARRAY", primitives::func_make_array);
+    internal_function(kernel, "%ARRAY-LENGTH", primitives::func_array_length);
+    internal_function(kernel, "%ARRAY-TYPE", primitives::func_array_type);
 
-    export_function(kernel, "%CHAR-CODE", primitives::func_char_code);
-    export_function(kernel, "%CODE-CHAR", primitives::func_code_char);
+    internal_function(kernel, "%CHAR-CODE", primitives::func_char_code);
+    internal_function(kernel, "%CODE-CHAR", primitives::func_code_char);
 
-    export_function(kernel, "%BITS-OF", primitives::func_bits_of);
+    internal_function(kernel, "%BITS-OF", primitives::func_bits_of);
 
-    export_function(kernel, "%OPEN", primitives::func_open);
-    export_function(kernel, "%CLOSE", primitives::func_close);
-    export_function(kernel, "%FILE-PATH", primitives::func_file_path);
-    export_function(kernel, "%FILE-MODE", primitives::func_file_mode);
-    export_function(kernel, "%FILE-EOF-P", primitives::func_file_eof);
-    export_function(kernel, "%FILE-OK-P", primitives::func_file_ok);
-    export_function(kernel, "%FILE-FLUSH", primitives::func_file_flush);
-    export_function(kernel, "%FILE-WRITE", primitives::func_file_write);
-    export_function(kernel, "%FILE-PUTCHAR", primitives::func_file_putchar);
-    export_function(kernel, "%FILE-PUTS", primitives::func_file_puts);
-    export_function(kernel, "%FILE-READ-BYTE", primitives::func_file_read_byte);
-    export_function(kernel, "%FILE-PEEK-BYTE", primitives::func_file_peek_byte);
-    export_function(kernel, "%FILE-READ-CHARACTER", primitives::func_file_read_character);
-    export_function(kernel, "%FILE-PEEK-CHARACTER", primitives::func_file_peek_character);
+    internal_function(kernel, "%OPEN", primitives::func_open);
+    internal_function(kernel, "%CLOSE", primitives::func_close);
+    internal_function(kernel, "%FILE-PATH", primitives::func_file_path);
+    internal_function(kernel, "%FILE-MODE", primitives::func_file_mode);
+    internal_function(kernel, "%FILE-EOF-P", primitives::func_file_eof);
+    internal_function(kernel, "%FILE-OK-P", primitives::func_file_ok);
+    internal_function(kernel, "%FILE-FLUSH", primitives::func_file_flush);
+    internal_function(kernel, "%FILE-WRITE", primitives::func_file_write);
+    internal_function(kernel, "%FILE-PUTCHAR", primitives::func_file_putchar);
+    internal_function(kernel, "%FILE-PUTS", primitives::func_file_puts);
+    internal_function(kernel, "%FILE-READ-BYTE", primitives::func_file_read_byte);
+    internal_function(kernel, "%FILE-PEEK-BYTE", primitives::func_file_peek_byte);
+    internal_function(kernel, "%FILE-READ-CHARACTER", primitives::func_file_read_character);
+    internal_function(kernel, "%FILE-PEEK-CHARACTER", primitives::func_file_peek_character);
 
-    export_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
-    export_function(kernel, "%FUNCTION-DEFINITION", primitives::func_function_definition);
-    export_function(kernel, "%STRUCTURE-DEFINITION", primitives::func_structure_definition);
-    export_function(kernel, "%CREATE-INSTANCE", primitives::func_create_instance);
-    export_function(kernel, "%GET-SLOT", primitives::func_get_slot);
-    export_function(kernel, "%SET-SLOT", primitives::func_set_slot);
+    internal_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
+    internal_function(kernel, "%FUNCTION-DEFINITION", primitives::func_function_definition);
+    internal_function(kernel, "%STRUCTURE-DEFINITION", primitives::func_structure_definition);
+    internal_function(kernel, "%CREATE-INSTANCE", primitives::func_create_instance);
+    internal_function(kernel, "%GET-SLOT", primitives::func_get_slot);
+    internal_function(kernel, "%SET-SLOT", primitives::func_set_slot);
 
     export_function(kernel, "GET-WORKING-DIRECTORY", primitives::func_get_working_directory);
     export_function(kernel, "CHANGE-DIRECTORY", primitives::func_change_directory);

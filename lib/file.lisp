@@ -1,26 +1,26 @@
 (in-package :lispyboi)
 (provide "file")
 
-(defmacro open (file-path direction) `(%open ,file-path ,direction))
+(defmacro open (file-path direction) `(kernel::%open ,file-path ,direction))
 (defun open (file-path direction) (open file-path direction))
 
-(defmacro close (file-stream) `(%close ,file-stream))
+(defmacro close (file-stream) `(kernel::%close ,file-stream))
 (defun close (file-stream) (close file-stream))
 
-(defmacro file-ok-p (file-stream) `(%file-ok-p ,file-stream))
+(defmacro file-ok-p (file-stream) `(kernel::%file-ok-p ,file-stream))
 (defun file-ok-p (file-stream) (file-ok-p file-stream))
 
-(defmacro file-eof-p (file-stream) `(%file-eof-p ,file-stream))
+(defmacro file-eof-p (file-stream) `(kernel::%file-eof-p ,file-stream))
 (defun file-eof-p (file-stream) (file-eof-p file-stream))
 
-(defmacro file-path (file-stream) `(%file-path ,file-stream))
+(defmacro file-path (file-stream) `(kernel::%file-path ,file-stream))
 (defun file-path (file-stream) (file-path file-stream))
 
-(defmacro file-flush (file-stream) `(%file-flush ,file-stream))
+(defmacro file-flush (file-stream) `(kernel::%file-flush ,file-stream))
 (defun file-flush (file-stream) (file-flush file-stream))
 
 (defun file-mode (file-stream)
-  (case (%file-mode file-stream)
+  (case (kernel::%file-mode file-stream)
     (0 nil)
     (1 'read)
     (2 'overwrite)
@@ -33,28 +33,28 @@
       (if eof-error-p
           (signal 'end-of-file)
           eof-value)
-      (%file-read-byte file-stream)))
+      (kernel::%file-read-byte file-stream)))
 
 (defun file-peek-byte (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
           (signal 'end-of-file)
           eof-value)
-      (%file-peek-byte file-stream)))
+      (kernel::%file-peek-byte file-stream)))
 
 (defun file-read-character (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
           (signal 'end-of-file)
           eof-value)
-      (%file-read-character file-stream)))
+      (kernel::%file-read-character file-stream)))
 
 (defun file-peek-character (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
           (signal 'end-of-file)
           eof-value)
-      (%file-peek-character file-stream)))
+      (kernel::%file-peek-character file-stream)))
 
 (defun file-read-line (file-stream)
   (with-output-to-string (ss)
@@ -74,13 +74,13 @@
   fs)
 
 (defmethod output-stream-write-char ((stream file-stream) character)
-  (%file-putchar stream character))
+  (kernel::%file-putchar stream character))
 
 (defmethod output-stream-write-string ((stream file-stream) string)
-  (%file-puts stream string))
+  (kernel::%file-puts stream string))
 
 (defmethod input-stream-eof-p ((stream file-stream))
-  (%file-eof-p stream))
+  (kernel::%file-eof-p stream))
 
 (defmethod input-stream-peek-char ((stream file-stream) &optional eof-error-p eof-value)
   (file-peek-character stream eof-error-p eof-value))
@@ -99,4 +99,8 @@
           file-peek-byte
           file-read-character
           file-peek-character
-          file-read-line))
+          file-read-line
+
+          read
+          overwrite
+          append))
