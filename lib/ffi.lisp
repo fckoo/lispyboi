@@ -125,7 +125,7 @@
 (defun ffi-get-symbol-or-signal (library-handle symbol-name)
   (let ((sym (ffi-get-symbol library-handle symbol-name)))
     (unless sym
-      (signal 'ffi-symbol-not-found library-handle symbol-name))
+      (signal 'ffi-symbol-not-found-error library-handle symbol-name))
     sym))
 
 (defun ffi-nullptr-p (obj)
@@ -181,9 +181,15 @@
                    (ffi-free ,buffer)
                    ,@body))))))))
 
+(defun ffi-open-or-signal (library-name)
+  (let ((handle (ffi-open library-name)))
+    (unless handle
+      (signal 'ffi-library-not-found-error library-name))
+    handle))
+
 (defmacro ffi-with-symbols (library-name symbols &body body)
   (let ((lib-var (gensym)))
-    `(let* ((,lib-var (ffi-open ,library-name))
+    `(let* ((,lib-var (ffi-open-or-signal ,library-name))
             ,@(map1 (lambda (e)
                       `(,(first e) (ffi-get-symbol-or-signal ,lib-var ,(second e))))
                     symbols))
@@ -233,6 +239,8 @@
           ffi-set-ref-64
 
           bytespec-error
+          ffi-library-not-found-error
+          ffi-symbol-not-found-error
 
           uint8
           uint16
