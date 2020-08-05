@@ -638,6 +638,11 @@ struct Simple_Array
         , m_buffer(capacity <= 0 ? nullptr : new Value[capacity]{Value(0)})
     {}
 
+    ~Simple_Array()
+    {
+        delete[] m_buffer;
+    }
+
     Value element_type() const
     {
         return m_element_type;
@@ -2753,7 +2758,7 @@ struct Scope
     {
         return m_locals;
     }
-    
+
     const size_t stack_space_needed() const
     {
         return m_stack_space_needed;
@@ -2770,7 +2775,7 @@ struct Scope
         m_stack_space_needed = std::max(m_stack_space_needed, m_locals.size());
         return var;
     }
-    
+
     void pop_variables(size_t n)
     {
         m_locals.resize(m_locals.size() - n);
@@ -3842,9 +3847,9 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
                                         std::move(capture_offsets),
                                         main_entry_offset,
                                         optionals_start_at,
-                                        // using the max number of locals instead of the function's arity 
-                                        // because we may inline immediate lambda calls which expand the 
-                                        // number of local variables but not change the arity of the 
+                                        // using the max number of locals instead of the function's arity
+                                        // because we may inline immediate lambda calls which expand the
+                                        // number of local variables but not change the arity of the
                                         // outer function.
                                         function_emitter.scope()->stack_space_needed(),
                                         has_rest,
@@ -3868,11 +3873,6 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
 static
 void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool toplevel, bool tail_position, bool funcall)
 {
-    //fprintf(stderr, "====================================\n");
-    //fprintf(stderr, "top? %d, tail? %d, funcall? %d\n", (int)toplevel, (int)tail_position, (int)funcall);
-    //fprintf(stderr, ">>> %s\n", repr(func).c_str());
-    //fprintf(stderr, "--- %s\n", repr(args).c_str());
-
     if (func.is_cons() && first(func) == g.s_LAMBDA)
     {
         if (second(func).is_nil())
@@ -4030,13 +4030,24 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             compile(e, test, toplevel);
             auto alt_offs = e.emit_pop_jump_if_nil();
             compile(e, consequence, toplevel, tail_position);
-            auto out_offs = e.emit_jump();
-            auto label_alt = e.position();
-            compile(e, alternative, toplevel, tail_position);
-            auto label_out = e.position();
+            if (tail_position)
+            {
+                e.emit_return();
+                auto label_alt = e.position();
+                compile(e, alternative, toplevel, tail_position);
 
-            e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
-            e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+                e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+            }
+            else
+            {
+                auto out_offs = e.emit_jump();
+                auto label_alt = e.position();
+                compile(e, alternative, toplevel, tail_position);
+                auto label_out = e.position();
+
+                e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
+                e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+            }
         }
         else if (thing == g.s_pDEFINE_MACRO)
         {
@@ -4400,7 +4411,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
             // @TODO: Fix debugger step over:
             // currently it just goes to the next instruction address which is ok in the case of
             // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
-            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over && 
+            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
                  (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
                 || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
             {
