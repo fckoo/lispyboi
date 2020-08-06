@@ -108,7 +108,9 @@
 
    cond
    case
+   ecase
    typecase
+   etypecase
 
    get-setf-functions
    get-setf-expansion
@@ -688,7 +690,7 @@ may be provided or left NIL."
          ,(test-generator body)))))
 
 
-(defun %case (keyform errorp &body body)
+(defun %case (keyform errorp body)
   (%case-generator (lambda (sym-name case-value) `(eql ,sym-name ',case-value))
                    keyform
                    body
@@ -703,7 +705,7 @@ may be provided or left NIL."
            `(signal 'simple-error "ECASE fell through: " ,sym-name ',case-tests))
          body))
 
-(defun %typecase (keyform errorp &body body)
+(defun %typecase (keyform errorp body)
   (%case-generator (lambda (sym-name type-name)
                      (cond ((eq 'list type-name)
                             `(listp ,sym-name))
@@ -1025,7 +1027,7 @@ may be provided or left NIL."
     new-array))
 
 (defun concatenate (first &rest rest)
-  (typecase first
+  (etypecase first
     (cons (apply #'append first rest))
     (array (apply #'concatenate-arrays first rest))))
 
