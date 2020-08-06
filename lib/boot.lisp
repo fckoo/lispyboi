@@ -709,7 +709,8 @@ may be provided or left NIL."
   (%case keyform
          (lambda (sym-name case-tests)
            `(signal 'simple-error "ECASE fell through: " ,sym-name ',case-tests))
-         body))
+         body
+         nil))
 
 (defun %typecase (keyform errorp body var)
   (%case-generator (lambda (sym-name type-name)
