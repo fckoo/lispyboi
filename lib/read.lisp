@@ -138,21 +138,21 @@
          (cur head))
     (until (or (input-stream-eof-p stream)
                (eql #\) (peek-char t stream t)))
-           (when (eql #\) (peek-char t stream t))
-             (read-char stream t) ;; consume closing )
-             (signal 'return head))
-           (when (eql #\. (peek-char t stream t))
-             (read-char stream t) ;; consume .
-             (setf (cdr cur) (read stream))
-             (unless (eql #\) (peek-char t stream t))
-               (error "Unbalanced parentheses"))
-             (read-char stream t) ;; consume closing )
-             (signal 'return head))
-           (destructuring-bind (readp read-val)
-               (read-maybe-nothing stream t nil)
-             (when readp
-               (setf (cdr cur) (list read-val))
-               (setf cur (cdr cur)))))
+      (when (eql #\) (peek-char t stream t))
+        (read-char stream t) ;; consume closing )
+        (signal 'return head))
+      (when (eql #\. (peek-char t stream t))
+        (read-char stream t) ;; consume .
+        (setf (cdr cur) (read stream))
+        (unless (eql #\) (peek-char t stream t))
+          (error "Unbalanced parentheses"))
+        (read-char stream t) ;; consume closing )
+        (signal 'return head))
+      (destructuring-bind (readp read-val)
+          (read-maybe-nothing stream t nil)
+        (when (eq t readp)
+          (setf (cdr cur) (list read-val))
+          (setf cur (cdr cur)))))
     (read-char stream t) ;; consume closing ), doesn't matter if eof
     (signal 'return head)))
 
@@ -165,27 +165,49 @@
 (set-reader-macro #\;
                   (lambda (stream char)
                     (while (eql #\; char)
-                           (until (or (input-stream-eof-p stream)
-                                      (eql #\Newline (peek-char nil stream t)))
-                                  (read-char stream t))
-                           (setf char (peek-char t stream t)))
+                      (until (or (input-stream-eof-p stream)
+                                 (eql #\Newline (peek-char nil stream t)))
+                        (read-char stream t))
+                      (setf char (peek-char t stream t)))
                     (signal 'read-nothing)))
+
+
+(set-sharpsign-macro #\|
+                     (lambda (stream char)
+                       (let ((nesting-depth 1))
+                         (until (or (input-stream-eof-p stream)
+                                    (= 0 nesting-depth))
+                           (case (peek-char nil stream t)
+                             (#\|
+                              (read-char stream t)
+                              (when (eq #\# (peek-char nil stream t))
+                                (read-char stream t)
+                                (decf nesting-depth)))
+                             (#\#
+                              (read-char stream t)
+                              (when (eq #\| (peek-char nil stream t))
+                                (read-char stream t)
+                                (incf nesting-depth)))
+                             (otherwise
+                              (read-char stream t))))
+                         (signal 'read-nothing))))
+
 
 (set-reader-macro #\"
                   (lambda (stream char)
                     (let ((buf (make-string-stream)))
                       (until (or (input-stream-eof-p stream)
                                  (eql #\" (peek-char nil stream t)))
-                             (let ((c (read-char stream t)))
-                               (if (not (eql #\\ c))
-                                   (string-stream-write-char buf c)
-                                   (string-stream-write-char buf
-                                                             (let ((c (read-char stream t)))
-                                                               (case c
-                                                                 (#\n #\Newline)
-                                                                 (#\t #\Tab)
-                                                                 (#\r #\Return)
-                                                                 (t c)))))))
+                        (let ((c (read-char stream t)))
+                          (if (not (eql #\\ c))
+                              (string-stream-write-char buf c)
+                              (string-stream-write-char buf
+                                                        (let ((c (read-char stream t)))
+                                                          (case c
+                                                            (#\n #\Newline)
+                                                            (#\t #\Tab)
+                                                            (#\r #\Return)
+                                                            (t c)))))))
                       (read-char stream t) ;; consume closing "
                       (string-stream-str buf))))
 
@@ -325,15 +347,17 @@
   (handler-case
       (list t (read-impl stream eof-error-p eof-value))
     (read-nothing ()
-      (list nil nil))
+      (list 'nothing nil))
     (end-of-file ()
-      (list nil nil))))
+      (list 'eof nil))))
 
 (defun read (&optional (stream *standard-input*) (eof-error-p t) eof-value)
   (destructuring-bind (readp read-value)
       (read-maybe-nothing stream eof-error-p eof-value)
-    (cond (readp
+    (cond ((eq t readp)
            read-value)
+          ((eq 'nothing readp)
+           (read stream eof-error-p eof-value))
           (t
            (if eof-error-p
                (signal 'end-of-file)
