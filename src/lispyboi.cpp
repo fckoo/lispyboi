@@ -21,7 +21,6 @@
 
 #include "ffi.hpp"
 #include "platform.hpp"
-#include "backtrace.hpp"
 
 #if !defined(DEBUG)
 #define DEBUG 0
@@ -34,7 +33,7 @@
         if (!(expr)) {                                                  \
             fputs("ENSURE failed: '" STR(expr) "' was false.\n", stderr); \
             fputs("    " __FILE__ ":" STR(__LINE__) "\n", stderr);      \
-            bt::trace_and_abort(10);                                    \
+            abort();                                    \
         }                                                               \
     } while (0)
 
@@ -59,6 +58,10 @@
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
 #define GC_NO_OPT 0
+#endif
+
+#if !defined(ENABLE_DEBUGGER) && DEBUG > 0
+#define ENABLE_DEBUGGER 1
 #endif
 
 #ifndef GC_NO_OPT
@@ -3073,7 +3076,7 @@ struct Emitter
         if (m_locked)
         {
             fprintf(stderr, "cannot write to locked bytecode emitter!\n");
-            bt::trace_and_abort();
+            abort();
         }
         m_bytecode.resize(m_bytecode.size() + sizeof(T), 0xCC);
         auto end = m_bytecode.data() + m_bytecode.size();
@@ -3204,7 +3207,7 @@ void Emitter::emit_get_value(Symbol *symbol)
     else
     {
         fprintf(stderr, "No scope has symbol variable: %s\n", symbol->qualified_name().c_str());
-        bt::trace_and_abort();
+        abort();
     }
 
     assert(idx != ~0u);
@@ -3218,7 +3221,7 @@ void Emitter::emit_get_value(Value value)
     if (!symbolp(value))
     {
         fprintf(stderr, "Cannot get_value non-symbol value: %s\n", repr(value).c_str());
-        bt::trace_and_abort();
+        abort();
     }
     else if (value == g.s_T || value.as_object()->symbol()->is_keyword())
     {
@@ -3264,7 +3267,7 @@ void Emitter::emit_set_value(Value value)
     if (!symbolp(value))
     {
         fprintf(stderr, "Cannot set_value non-symbol value: %s\n", repr(value).c_str());
-        bt::trace_and_abort();
+        abort();
     }
     else
     {
@@ -3436,7 +3439,7 @@ void Emitter::pop_labels()
         {
             fprintf(stderr, "No label tag found for: %s\n", repr(it.tag).c_str());
         }
-        bt::trace_and_abort();
+        abort();
     }
 }
 
@@ -3460,7 +3463,7 @@ int32_t Emitter::make_label(Value tag)
     if (m_label_stack.back().find(tag) != m_label_stack.back().end())
     {
         fprintf(stderr, "Label tag named %s already exists.\n", repr(tag).c_str());
-        bt::trace_and_abort();
+        abort();
     }
     auto pos = position();
     m_label_stack.back()[tag] = pos;
@@ -3677,7 +3680,7 @@ static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_p
 #define NYI(msg)                                                \
     do {                                                        \
         fprintf(stderr, "Not yet implemented... %s\n", msg);    \
-        bt::trace_and_abort(10);                                \
+        abort(10);                                \
     } while (0)
 
 static
@@ -3754,7 +3757,7 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
         {
             fprintf(stderr, "Non-symbol parameter in lambda-list: %s\n", repr(sym).c_str());
             fprintf(stderr, "Expr was: %s\n", repr(expr).c_str());
-            bt::trace_and_abort();
+            abort();
         }
         params.push_back(sym.as_object()->symbol());
         cur = cdr(cur);
@@ -4405,6 +4408,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
     while (1)
     {
         const auto opcode = static_cast<bytecode::Opcode>(*ip);
+#if ENABLE_DEBUGGER
         if (g.debugger.breaking)
         {
             // @TODO: Fix debugger step over:
@@ -4466,6 +4470,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 }
             }
         }
+#endif
         switch (opcode)
         {
             case bytecode::Opcode::op_apply:
@@ -7394,20 +7399,20 @@ Value make_symbol(const std::string &str)
     if (package == nullptr)
     {
         fprintf(stderr, "A PACKAGE named \"%s\" does not exist.\n", package_name.c_str());
-        bt::trace_and_abort();
+        abort();
     }
 
     if (symbol_name.find(':') != std::string::npos)
     {
         fprintf(stderr, "Too many colons in symbol name: %s [package:%s symbol:%s]\n",
                 str.c_str(), package->name().c_str(), symbol_name.c_str());
-        bt::trace_and_abort();
+        abort();
     }
 
     if (symbol_name.size() == 0)
     {
         fprintf(stderr, "No symbol with package spec.: %s\n", str.c_str());
-        bt::trace_and_abort();
+        abort();
     }
 
     return package->intern_symbol(symbol_name);
