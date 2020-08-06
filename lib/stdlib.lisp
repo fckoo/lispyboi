@@ -13,9 +13,11 @@
 (require "file")
 (require "read")
 
+(require "format")
+(require "error")
+
 (require "defpackage")
 (require "datetime")
 (require "math")
 (require "setf")
-(require "format")
 (require "hash-table")
