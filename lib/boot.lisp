@@ -670,26 +670,40 @@ may be provided or left NIL."
          (and (equal (car x) (car y))
               (equal (cdr x) (cdr y))))))
 
-(defun %case-generator (test-fn keyform body)
-  (let ((tmp-val-name (gensym)))
+(defun %case-generator (test-fn keyform body &optional fail-fn)
+  (let ((tmp-val-name (gensym))
+        (tests))
     (labels ((test-generator (lst)
-               (when lst
-                 (let ((the-case (car lst)))
-                   (if (or (eq 't (car the-case))
-                           (eq 'otherwise (car the-case)))
-                       `(progn ,@(cdr the-case))
-                       `(if ,(funcall test-fn tmp-val-name (car the-case))
-                            (progn ,@(cdr the-case))
-                            ,(test-generator (cdr lst))))))))
+               (if lst
+                   (let ((the-case (car lst)))
+                     (setq tests (cons (car the-case) tests))
+                     (if (or (eq 't (car the-case))
+                             (eq 'otherwise (car the-case)))
+                         `(progn ,@(cdr the-case))
+                         `(if ,(funcall test-fn tmp-val-name (car the-case))
+                              (progn ,@(cdr the-case))
+                              ,(test-generator (cdr lst)))))
+                   (when fail-fn (funcall fail-fn tmp-val-name (reverse! tests))))))
       `(let ((,tmp-val-name ,keyform))
          ,(test-generator body)))))
 
-(defmacro case (keyform &body body)
+
+(defun %case (keyform errorp &body body)
   (%case-generator (lambda (sym-name case-value) `(eql ,sym-name ',case-value))
                    keyform
-                   body))
+                   body
+                   errorp))
 
-(defmacro typecase (keyform &body body)
+(defmacro case (keyform &body body)
+  (%case keyform nil body))
+
+(defmacro ecase (keyform &body body)
+  (%case keyform
+         (lambda (sym-name case-tests)
+           `(signal 'simple-error "ECASE fell through: " ,sym-name ',case-tests))
+         body))
+
+(defun %typecase (keyform errorp &body body)
   (%case-generator (lambda (sym-name type-name)
                      (cond ((eq 'list type-name)
                             `(listp ,sym-name))
@@ -700,7 +714,17 @@ may be provided or left NIL."
                            (t
                             `(eq ',type-name (type-of ,sym-name)))))
                    keyform
-                   body))
+                   body
+                   errorp))
+
+(defmacro typecase (keyform &body body)
+  (%typecase keyform nil body))
+
+(defmacro etypecase (keyform &body body)
+  (%typecase keyform
+             (lambda (sym-name case-tests)
+               `(signal 'simple-error "ETYPECASE fell through: " ,sym-name ',case-tests))
+             body))
 
 (let ((setf-functions nil))
 
