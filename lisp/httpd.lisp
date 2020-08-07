@@ -38,8 +38,8 @@
 
 (let ((method-map
         (map1 (lambda (s) (cons (symbol-name s) s))
-              '(get head post put delete connect
-                options trace patch))))
+              '(:get :head :post :put :delete :connect
+                :options :trace :patch))))
   (defun parse-method (method-string)
     (or (cdr (assoc method-string method-map #'string=))
         (signal 'http-error 400 "Unrecognized method: ~a" method-string))))
@@ -135,20 +135,19 @@
   (defun http-status-code-message (status-code)
     (cdr (assoc status-code status-code-message-map #'=))))
 
-(defun http-error-response (error-code)
+(defun http-error (error-code &optional content)
   (array-join "\r\n"
               (format nil "HTTP/1.0 ~a ~a" error-code (http-status-code-message error-code))
-              (format nil "Connection: close")
-              (format nil "Content-Length: 0")
-              (format nil "")))
+              "Connection: close"
+              ""
+              (if content content "")))
 
 (defun http-ok (content)
   (array-join "\r\n"
-              (format nil "HTTP/1.0 200 OK")
-              (format nil "Connection: close")
-              ;;(format nil "Content-Length: %d" (length content))
-              (format nil "Content-Type: text/html; UTF-8")
-              (format nil "")
+              "HTTP/1.0 200 OK"
+              "Connection: close"
+              "Content-Type: text/html; UTF-8"
+              ""
               content))
 
 (defun seconds-from-now (n)
@@ -160,15 +159,63 @@
   (port)
   (time-to-live (seconds-from-now 60)))
 
-(setq *dummy-page*
-      "<html>
+
+
+
+(let ((get)
+      (post))
+  (defun defroute (method route-path view-template controller-function)
+    (ecase method
+      (:get (push (list route-path view-template controller-function) get))
+      (:post (push (list route-path view-template controller-function) post))))
+
+  (defun dispatch-path (header)
+    (destructuring-bind (the-path the-args)
+        (string-split (http-header-path header) #\? 1)
+      (when the-args
+        (setq the-args (string-split the-args #\&))
+        (setq the-args (map1 (lambda (str) (string-split str #\= 1))
+                             the-args)))
+      (destructuring-bind (path view func)
+          (assoc the-path
+                 (case (http-header-method header)
+                   (:get get)
+                   (:post post))
+                 #'string=)
+        (if func
+            (http-ok (funcall func header path view the-args))
+            (http-error 404 (404-handler header path the-args)))))))
+
+(defconstant +dummy-page+
+  "<html>
     <body>
         <h1>Hello world</h1>
         <p>~s<p>
     </body>
 </html>")
 
-(defun http-handle-one (client content)
+(defun 404-handler (header path args)
+  "<html>
+    <body>
+        <h1>404.</h1></br>
+        <p>That page was not found.</p>
+    </body>
+</html>")
+
+(defroute :get "/foo" +dummy-page+
+  (lambda (header path view args)
+    (format nil view "GET")))
+
+(defroute :post "/foo" +dummy-page+
+  (lambda (header path view args)
+    (format nil view "POST")))
+
+(defroute :get "/baz" +dummy-page+
+  (lambda (header path view args)
+    (format t "ARGS: ~s~%" args)
+    view))
+
+(defun http-handle-one (client)
   (let* ((socket (http-client-socket client))
          (recv (socket-recv-string socket))
          (timestamp (timestamp)))
@@ -176,39 +223,41 @@
         (let ((header (parse-http-header recv)))
           (format t "~a ~a ~s~%"
                   timestamp (http-header-method header) (http-header-path header))
-          (socket-send socket (http-ok content)))
+          (socket-send socket (dispatch-path header)))
       (http-error (code &rest args)
-        (format t "~a HTTP ERROR ~d: ~s~%" timestamp code (apply #'format nil args))
-        (socket-send socket (http-error-response code)))
+        (if args
+            (format t "~a HTTP ERROR ~d: ~s~%" timestamp code (apply #'format nil args))
+            (format t "~a HTTP ERROR ~d~%" timestamp code))
+        (socket-send socket (http-error code)))
       (t (tag &rest args)
         (format t "~a INTERNAL ERROR ~s: ~s~%" timestamp tag args)
-        (socket-send socket (http-error-response 400))))
+        (socket-send socket (http-error 400))))
     (socket-close socket)
     t))
 
 (defun run-simple-http-server (port &optional (max-connections 20))
   (let* ((server (socket-open-server port :nonblock))
          (clients (list nil)))
+    (format t "Listening on port ~a~%" port)
     (while t
-           (when (< (length clients) max-connections)
-             (destructuring-bind (client-socket client-addr client-port)
-                 (socket-accept server)
-               (when client-socket
-                 (push (make-http-client client-socket client-addr client-port)
-                       clients))))
-           (let ((clients clients))
-             (while (car clients)
-                    (let ((socket (http-client-socket (car clients))))
-                      (if (and socket (socket-alive-p socket))
-                          (when (http-handle-one (car clients)
-                                                 (format nil *dummy-page*
-                                                         (format nil "yer a b00t and The current time is ~s"
-                                                                 (datetime-now))))
-                            (pop! clients))
-                          (progn
-                            (socket-close socket)
-                            (pop! clients))))
-                    (setf clients (cdr clients)))
-             (msleep 250)))))
+      (when (< (length clients) max-connections)
+        (destructuring-bind (client-socket client-addr client-port)
+            (socket-accept server)
+          (when client-socket
+            (push (make-http-client client-socket client-addr client-port)
+                  clients))))
+      (let ((clients clients))
+        (while (car clients)
+          (let ((socket (http-client-socket (car clients))))
+            (if (and socket (socket-alive-p socket))
+                (when (http-handle-one (car clients))
+                  (pop! clients))
+                (progn
+                  (socket-close socket)
+                  (pop! clients))))
+          (setf clients (cdr clients)))
+        (msleep 250)))))
 
-(run-simple-http-server 8082)
+
+(run-simple-http-server (or (and (second *command-line*) (parse-integer (second *command-line*)))
+                            8080))
