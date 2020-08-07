@@ -7,9 +7,7 @@
   (:use lispyboi
         lispyboi.socket
         lispyboi.sleep)
-  (:export http-error
-           get head post put delete connect
-           options trace patch))
+  (:export http-error))
 
 (in-package :httpd)
 
