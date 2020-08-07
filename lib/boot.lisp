@@ -1,12 +1,13 @@
 (kernel::%in-package :lispyboi)
 
 (kernel::%export
- '(defun
-   list
+ '(list
    cons
+   defun
    defmacro
    defconstant
    defvar
+   &optional &rest &key
    car
    cdr
    setq
@@ -16,6 +17,7 @@
 
    package-name
    make-package
+   find-package
    in-package
    use-package
    import
@@ -195,7 +197,12 @@
 (defmacro package-name (package-designator) (list 'kernel::%package-name package-designator))
 (defun package-name (package-designator) (package-name package-designator))
 
+(defmacro find-package (package) (list 'kernel::%find-package package))
+(defun find-package (string-designator) (find-package string-designator))
+
 (defmacro make-package (package) (list 'kernel::%make-package package))
+(defun make-package (package) (make-package package))
+
 (defmacro in-package (package) (list 'kernel::%in-package package))
 (defmacro use-package (to-use &optional (in-package *package*)) (list 'kernel::%use-package to-use in-package))
 
@@ -1073,7 +1080,6 @@ may be provided or left NIL."
         (change-directory here-dir)
         (in-package here-package)
         (setq *file-path* here-path)))))
-
 
 
 (load "modules.lisp")

@@ -5214,6 +5214,23 @@ Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
     return package->as_lisp_value();
 }
 
+Value func_find_package(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    std::string package_name;
+    {
+        Value signal_args;
+        raised_signal = check_string_like(args[0], signal_args, package_name);
+        if (raised_signal)
+        {
+            return signal_args;
+        }
+    }
+
+    auto pkg = g.packages.find(package_name);
+    return pkg ? pkg->as_lisp_value() : Value::nil();
+}
+
 Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
 {
     CHECK_AT_LEAST_N(nargs, 1);
@@ -6984,6 +7001,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     internal_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
     internal_function(kernel, "%IN-PACKAGE", primitives::func_in_package);
     internal_function(kernel, "%MAKE-PACKAGE", primitives::func_make_package);
+    internal_function(kernel, "%FIND-PACKAGE", primitives::func_find_package);
     internal_function(kernel, "%DISASSEMBLE", primitives::func_disassemble);
 
     internal_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
