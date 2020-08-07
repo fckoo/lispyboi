@@ -5,6 +5,8 @@
    list
    cons
    defmacro
+   defconstant
+   defvar
    car
    cdr
    setq
