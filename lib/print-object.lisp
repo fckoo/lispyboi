@@ -49,8 +49,11 @@ OBJECT should be returned")
   c)
 
 (defmethod print-object ((o symbol) stream)
-  (unless (symbol-package o)
-    (output-stream-write-string stream "#:"))
+  (let ((pkg (symbol-package o)))
+    (cond ((eq pkg (symbol-package :keyword))
+           (output-stream-write-char stream #\:))
+          ((null pkg)
+           (output-stream-write-string stream "#:"))))
   (output-stream-write-string stream (symbol-name o))
   o)
 
