@@ -132,6 +132,7 @@
    make-array
    make-string
    array-type
+   simple-array
    aref
 
    nth
@@ -1042,6 +1043,12 @@ may be provided or left NIL."
   (etypecase first
     (cons (apply #'append first rest))
     (array (apply #'concatenate-arrays first rest))))
+
+(defmacro defconstant (symbol value &optional doc)
+  `(setq ,symbol ,value))
+
+(defmacro defvar (symbol &optional value doc)
+  `(setq ,symbol ,value))
 
 (defun load (file-path)
   (let* ((here-path *file-path*)
