@@ -3240,7 +3240,14 @@ void Emitter::emit_set_value(Symbol *symbol)
 
     if (m_scope->resolve_local(symbol, idx))
     {
-        opcode = Opcode::op_set_local;
+        if (m_scope->is_root())
+        {
+            opcode = Opcode::op_set_global;
+        }
+        else
+        {
+            opcode = Opcode::op_set_local;
+        }
     }
     else if (m_scope->resolve_capture(symbol, idx))
     {
