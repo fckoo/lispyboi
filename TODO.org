@@ -78,7 +78,6 @@
 * DONE implement :import-from in defpackage macro
 * DONE implement ffi marshalling
 * DONE make lisp/irc.lisp work
-* TODO implement threads via ffi
 * DONE implement echo server
 * DONE implement echo client
 * TODO implement httpd
@@ -95,6 +94,6 @@
    +atan
    +pow
 ** TODO stdlib JSON parser
-** TODO stdlib readl hashtable
+** TODO stdlib real hashtable
 ** DONE make lib/socket.lisp work
 ** DONE make lib/socket.ssl work
