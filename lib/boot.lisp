@@ -3,6 +3,7 @@
 (kernel::%export
  '(list
    cons
+   lambda
    defun
    defmacro
    defconstant
@@ -168,9 +169,13 @@
    load)
  :lispyboi)
 
+
+(kernel::%define-macro lambda (lambda-list &body body)
+                       (kernel::%cons 'kernel::%lambda (kernel::%cons lambda-list body)))
+
 (kernel::%define-function 'list (lambda (&rest lst) lst))
 
-(kernel::%define-macro cons (x y) (list '%cons x y))
+(kernel::%define-macro cons (x y) (list 'kernel::%cons x y))
 
 (kernel::%define-function 'cons (lambda (x y) (cons x y)))
 
@@ -1081,6 +1086,92 @@ may be provided or left NIL."
         (in-package here-package)
         (setq *file-path* here-path)))))
 
+(defun %keylist-member (member list)
+  (labels ((aux (list)
+             (when list
+               (if (eq member (car list))
+                   list
+                   (aux (cddr list))))))
+    (aux list)))
+
+(defmacro lambda (lambda-list &body body)
+  (let ((has-&key-p (member '&key lambda-list)))
+    (if has-&key-p
+        (let ((key-args lambda-list)
+              (new-lambda-list)
+              (key-arg-names)
+              (key-arg-keywords)
+              (key-arg-defaults)
+              (allow-other-keys-p)
+              (rest-variable)
+              (verify-key-args-code))
+          (until (or (null key-args)
+                     (eq '&key (car key-args)))
+            (push (car key-args) new-lambda-list)
+            (when (eq '&rest (car key-args))
+              (setq rest-variable (second key-args)))
+            (setq key-args (cdr key-args)))
+
+          (when (eq '&key (car key-args))
+            (setq key-args (cdr key-args)))
+
+          (while key-args
+            (cond
+              ((or (eq '&rest (car key-args)) (eq '&body (car key-args)))
+               (signal 'simple-error
+                       "Malformed lambda list, unexpected value in keyword-args list"
+                       (car key-args)))
+              ((eq '&allow-other-keys (car key-args))
+               (setq allow-other-keys-p t)
+               (when (cdr key-args)
+                 (signal 'simple-error "&ALLOW-OTHER-KEYS is only allowed in the final argument position."))
+               (setq key-args nil))
+              ((symbolp (car key-args))
+               (push (car key-args) key-arg-names)
+               (push nil key-arg-defaults))
+              ((consp (car key-args))
+               (push (caar key-args) key-arg-names)
+               (push (cadar key-args) key-arg-defaults))
+              (t
+               (signal 'simple-error "Unexpected expression in lambda list" (car key-args))))
+            (setq key-args (cdr key-args)))
+          (unless rest-variable
+            (setq rest-variable (gensym))
+            (push '&rest new-lambda-list)
+            (push rest-variable new-lambda-list))
+          (setq key-arg-names (reverse! key-arg-names))
+          (setq key-arg-keywords (map1 (lambda (s) (intern (symbol-name s) "KEYWORD"))
+                                       key-arg-names))
+          (setq key-arg-defaults (reverse! key-arg-defaults))
+          (setq new-lambda-list (reverse! new-lambda-list))
+          (unless allow-other-keys-p
+            (setq verify-key-args-code
+                  (let ((tmp-var (gensym "TEMP")))
+                    `((let ((,tmp-var ,rest-variable))
+                        (while ,tmp-var
+                          (cond ((member (car ,tmp-var)
+                                         '(,@key-arg-keywords :allow-other-keys))
+                                 (setq ,tmp-var (cddr ,tmp-var)))
+                                ((second (member :allow-other-keys ,rest-variable))
+                                 (setq ,tmp-var nil))
+                                (t
+                                 (signal 'simple-error "Keyword argument is not one of" ,key-arg-keywords
+                                        (car ,tmp-var))))))))))
+          `(kernel::%lambda ,new-lambda-list
+             (let* (,@(map
+                        (lambda (symbol keyword default)
+                          (setq default
+                                (if default
+                                    `(or (second (lispyboi::%keylist-member ,keyword ,rest-variable))
+                                         ,default)
+                                    `(second (lispyboi::%keylist-member ,keyword ,rest-variable))))
+                          (list symbol default))
+                        key-arg-names
+                        key-arg-keywords
+                        key-arg-defaults))
+               ,@verify-key-args-code
+               ,@body)))
+        (cons 'kernel::%lambda (cons lambda-list body)))))
 
 (load "modules.lisp")
 (provide "boot")

@@ -2365,7 +2365,6 @@ struct Runtime_Globals
     Value s_T;
     Value s_IF;
     Value s_OR;
-    Value s_LAMBDA;
     Value s_FIXNUM;
     Value s_CONS;
     Value s_LIST;
@@ -2399,6 +2398,7 @@ struct Runtime_Globals
     Value s_READ;
     Value s_MARSHAL_ERROR;
 
+    Value s_pLAMBDA;
     Value s_pCAR;
     Value s_pCDR;
     Value s_pCONS;
@@ -3693,19 +3693,18 @@ static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_p
 static
 bool effect_free(Value expr)
 {
+    if (!expr.is_cons())
+    {
+        return true;
+    }
+    auto f = car(expr);
+    if (f == g.s_QUOTE ||
+        f == g.s_FUNCTION ||
+        f == g.s_pLAMBDA)
+    {
+        return true;
+    }
     return false;
-    //if (!expr.is_cons())
-    //{
-    //    return true;
-    //}
-    //auto f = car(expr);
-    //if (f == g.s_QUOTE ||
-    //    f == g.s_FUNCTION ||
-    //    f == g.s_LAMBDA)
-    //{
-    //    return true;
-    //}
-    //return false;
 }
 
 static
@@ -3882,7 +3881,7 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
 static
 void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool toplevel, bool tail_position, bool funcall)
 {
-    if (func.is_cons() && first(func) == g.s_LAMBDA)
+    if (func.is_cons() && first(func) == g.s_pLAMBDA)
     {
         if (second(func).is_nil())
         {
@@ -3962,7 +3961,7 @@ void compile_function_call(bytecode::Emitter &e, Value func, Value args, bool to
         nargs++;
         args = cdr(args);
     }
-    if (func.is_cons() && first(func) == g.s_LAMBDA)
+    if (func.is_cons() && first(func) == g.s_pLAMBDA)
     {
         compile(e, func, toplevel);
     }
@@ -4062,7 +4061,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
         {
             compile_function(e, expr, true, true);
         }
-        else if (thing == g.s_LAMBDA)
+        else if (thing == g.s_pLAMBDA)
         {
             compile_function(e, expr, false, toplevel);
         }
@@ -4111,7 +4110,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             auto thing = second(expr);
             if (thing.is_cons())
             {
-                if (first(thing) == g.s_LAMBDA)
+                if (first(thing) == g.s_pLAMBDA)
                 {
                     compile(e, thing, toplevel);
                 }
@@ -6954,11 +6953,11 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_pSIGNAL          = kernel->export_symbol("%SIGNAL");
     g.s_pHANDLER_CASE    = kernel->export_symbol("%HANDLER-CASE");
     g.s_pDEFINE_MACRO    = kernel->export_symbol("%DEFINE-MACRO");
+    g.s_pLAMBDA           = kernel->export_symbol("%LAMBDA");
 
     g.s_T                = core->export_symbol("T");
     g.s_IF               = core->export_symbol("IF");
     g.s_OR               = core->export_symbol("OR");
-    g.s_LAMBDA           = core->export_symbol("LAMBDA");
     g.s_FIXNUM           = core->export_symbol("FIXNUM");
     g.s_CONS             = core->export_symbol("CONS");
     g.s_NULL             = core->export_symbol("NULL");
@@ -7288,7 +7287,7 @@ Value macro_expand_impl(Value obj, VM_State &vm)
             GC_UNGUARD();
             return res;
         }
-        if (car == g.s_LAMBDA)
+        if (car == g.s_pLAMBDA)
         {
             auto lambda_list = second(obj); // @TODO: macroexpand &optional default expressions
             auto body = map(cddr(obj), macro_expand_impl, vm);
