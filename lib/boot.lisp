@@ -1155,7 +1155,7 @@ may be provided or left NIL."
                                 ((second (member :allow-other-keys ,rest-variable))
                                  (setq ,tmp-var nil))
                                 (t
-                                 (signal 'simple-error "Keyword argument is not one of" ,key-arg-keywords
+                                 (signal 'simple-error "Keyword argument is not one of" ',key-arg-keywords
                                         (car ,tmp-var))))))))))
           `(kernel::%lambda ,new-lambda-list
              (let* (,@(map
