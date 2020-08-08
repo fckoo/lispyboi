@@ -8,7 +8,8 @@
    defmacro
    defconstant
    defvar
-   &optional &rest &key &allow-other-keys
+   &optional &rest &body
+   &key &allow-other-keys
    car
    cdr
    setq
