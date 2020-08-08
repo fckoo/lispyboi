@@ -51,3 +51,15 @@
   (assert-equal test-list '(0 1 2 3 4))
   (assert-equal 0 (pop test-list))
   (assert-equal test-list '(1 2 3 4)))
+
+
+(assert-equal '(5 4 3 2 1) (reverse '(1 2 3 4 5)))
+(assert-equal '(2 1) (reverse '(1 2)))
+(assert-equal '(1) (reverse '(1)))
+(assert-equal nil (reverse nil))
+
+(assert-equal '(5 4 3 2 1) (reverse! '(1 2 3 4 5)))
+(assert-equal '(2 1) (reverse! '(1 2)))
+(let ((list '(1)))
+  (assert-eq list (reverse! list)))
+(assert-eq nil (reverse! nil))

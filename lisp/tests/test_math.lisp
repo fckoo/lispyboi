@@ -52,6 +52,14 @@
 (assert-= 123 (max 42 123))
 (assert-= 123 (max 123 42))
 
+(assert-= 10 (max 5 10 3 7))
+(assert-= 10 (max 10 3 5 7))
+(assert-= 10 (max 5 3 7 10))
+
+(assert-= 3 (min 5 10 3 7))
+(assert-= 3 (min 3 10 5 7))
+(assert-= 3 (min 5 7 10 3))
+
 (assert-= 123 (abs (- 123)))
 (assert-= 123 (abs 123))
 
@@ -65,3 +73,5 @@
 (assert-= -2 (bit-not 1))
 (assert-= +most-positive-fixnum+ (bit-not +most-negative-fixnum+))
 (assert-= +most-negative-fixnum+ (bit-not +most-positive-fixnum+))
+
+(assert-= 15 (bit-ior 1 2 4 8))
