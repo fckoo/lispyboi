@@ -1148,8 +1148,8 @@ may be provided or left NIL."
           (unless allow-other-keys-p
             (setq verify-key-args-code
                   (let ((tmp-var (gensym "TEMP")))
-                    `((let ((,tmp-var ,rest-variable))
-                        (while ,tmp-var
+                    `(let ((,tmp-var ,rest-variable))
+                         (while ,tmp-var
                           (cond ((member (car ,tmp-var)
                                          '(,@key-arg-keywords :allow-other-keys))
                                  (setq ,tmp-var (cddr ,tmp-var)))
@@ -1157,7 +1157,7 @@ may be provided or left NIL."
                                  (setq ,tmp-var nil))
                                 (t
                                  (signal 'simple-error "Keyword argument is not one of" ',key-arg-keywords
-                                        (car ,tmp-var))))))))))
+                                        (car ,tmp-var)))))))))
           `(kernel::%lambda ,new-lambda-list
              (let* (,@(map
                         (lambda (symbol keyword default)
@@ -1170,7 +1170,7 @@ may be provided or left NIL."
                         key-arg-names
                         key-arg-keywords
                         key-arg-defaults))
-               ,@verify-key-args-code
+               ,verify-key-args-code
                ,@body)))
         (cons 'kernel::%lambda (cons lambda-list body)))))
 
