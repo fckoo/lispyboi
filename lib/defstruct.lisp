@@ -22,7 +22,7 @@
                                                     "P")))))
       (push type struct-type-registry)
       `(progn
-         (defun ,ctor (&optional ,@slot-initializers)
+         (defun ,ctor (&key ,@slot-initializers)
            (kernel::%create-instance ',type ,@slot-names))
          (defun ,type-predicate (object)
            (eq ',struct-name (type-of object)))
