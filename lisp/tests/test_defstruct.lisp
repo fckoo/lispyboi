@@ -3,7 +3,7 @@
 
 (defstruct point (x 1) (y 2) (z 3) (w 4))
 
-(let ((pt (make-point 123 456)))
+(let ((pt (make-point :x 123 :y 456)))
   (assert-eq 'point (type-of pt))
   (assert-= 123 (point-x pt))
   (assert-= 456 (point-y pt))
