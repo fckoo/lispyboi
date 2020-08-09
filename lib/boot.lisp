@@ -62,6 +62,7 @@
    errno
    errno-str
 
+   make-list
    append
    foldl
    foldl-for-effect
@@ -262,7 +263,7 @@
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
-(defun id (x) x)
+(defun identity (x) x)
 
 (defun caar (x) (car (car x)))
 (defun cadr (x) (car (cdr x)))
@@ -328,8 +329,6 @@
 (defun error (message &rest arguments)
   (apply #'kernel::%signal 'error message arguments))
 
-(defun identity (e) e)
-
 (defmacro progn (&body body)
   (if (null (cdr body))
       (car body)
@@ -374,6 +373,9 @@
      head)
    nil nil))
 
+(defun copy-list (list)
+  (map1 #'identity list))
+
 (defun map (func &rest seqs)
   ;; NOT TAIL RECURSIVE, but a later redefinition is
   (if (null (cdr seqs))
@@ -381,9 +383,6 @@
       (if (car seqs)
           (cons (apply func (map1 #'car seqs))
                 (apply #'map func (map1 #'cdr seqs))))))
-
-(defun copy-list (list)
-  (map1 #'id list))
 
 (defmacro let (args &body body)
   (cons (cons 'lambda (cons (map #'first args) body))
@@ -398,6 +397,16 @@
                       vals)))
       (cons (cons 'lambda (cons names (append setqs body)))
             (map (lambda (&rest p) nil) names)))))
+
+(defun make-list (length &optional initial-element)
+  (let ((list nil))
+    (tagbody
+     loop
+       (when (> length 0)
+         (setq list (cons initial-element list))
+         (setq length (- length 1))
+         (go loop)))
+    list))
 
 
 (defun reverse (list)
@@ -552,16 +561,49 @@ may be provided or left NIL."
                            bodies)
                       (%flet-transform old-new-names body)))))
 
-(defun map (func &rest seqs)
-  (if (null (cdr seqs))
-      (map1 func (car seqs))
-      (if (car seqs)
-          (labels ((map-aux (accum lists)
-                     (if (car lists)
-                         (map-aux (cons (apply func (map1 #'car lists)) accum)
-                                  (map1 #'cdr lists))
-                         (reverse! accum))))
-            (map-aux nil seqs)))))
+(defun list-length (list)
+  (let ((n 0))
+    (tagbody
+     loop
+       (when list
+         (setq n (+ n 1))
+         (setq list (cdr list))
+         (go loop)))
+    n))
+
+(defun map (function &rest lists)
+  (if (null (cdr lists))
+      (map1 function (car lists))
+      (let* ((result (make-list (list-length (car lists))))
+             (tail result)
+             (args (make-list (list-length lists)))
+             (args-tails)
+             (tmp-lists))
+        (tagbody loop
+           (when (car lists)
+             ;; Copy the head of every list into args
+             (setq args-tails args)
+             (setq tmp-lists lists)
+             (tagbody loop
+                (when args-tails
+                  (kernel::%rplaca args-tails (caar tmp-lists))
+                  (setq tmp-lists (cdr tmp-lists))
+                  (setq args-tails (cdr args-tails))
+                  (go loop)))
+             
+             ;; Store the result
+             (kernel::%rplaca tail (apply function args))
+             (setq tail (cdr tail))
+             
+             ;; Set every list to its tail
+             (setq tmp-lists lists)
+             (tagbody loop
+                (when (car tmp-lists)
+                  (kernel::%rplaca tmp-lists (cdar tmp-lists))
+                  (setq tmp-lists (cdr tmp-lists))
+                  (go loop)))
+             (go loop)))
+        result)))
 
 (defun filter1 (func seq)
   (labels ((filter1-aux (accum list)
@@ -885,13 +927,6 @@ may be provided or left NIL."
       (setf (car list) value)))
 
 (defsetf nth set-nth)
-
-(defun list-length (list)
-  (labels ((f (lst accum)
-             (if lst
-                 (f (cdr lst) (+ 1 accum))
-                 accum)))
-    (f list 0)))
 
 (defun listp (obj)
   (if (null obj)
