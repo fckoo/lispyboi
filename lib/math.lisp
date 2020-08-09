@@ -28,10 +28,15 @@
 
 (defun abs (a) (if (< a 0) (- a) a))
 
+(defun evenp (n) (= 0 (rem n 2)))
+(defun oddp (n) (/= 0 (rem n 2)))
+
 (export '(+most-positive-fixnum+
           +most-negative-fixnum+
           floor
           rem
           max
           min
-          abs))
+          abs
+          evenp
+          oddp))

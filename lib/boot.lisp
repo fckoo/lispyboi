@@ -89,6 +89,8 @@
    unquote
    unquote-splicing
 
+   identity
+
    progn
    prog1
    when
@@ -326,6 +328,19 @@
 (defun error (message &rest arguments)
   (apply #'kernel::%signal 'error message arguments))
 
+(defun identity (e) e)
+
+(defmacro progn (&body body)
+  (if (null (cdr body))
+      (car body)
+      (list (cons 'lambda (cons 'nil body)))))
+
+(defmacro when (test &body body)
+  (list 'if test (cons 'progn body) nil))
+
+(defmacro unless (test &body body)
+  (list 'if test nil (cons 'progn body)))
+
 (defun append (x y)
   (if x
       (cons (car x) (append (cdr x) y))
@@ -343,13 +358,24 @@
     (funcall func (first list))
     (foldl-for-effect func (rest list))))
 
-(defun map1 (func seq)
-  ;; NOT TAIL RECURSIVE! later definitions are
-  (if seq (cons (funcall func (car seq))
-                (map1 func (cdr seq)))))
+(defun map1 (function list)
+  ((lambda (head tail)
+     (when list
+       (setq head (cons (funcall function (car list)) nil))
+       (setq tail head)
+       (setq list (cdr list))
+       (tagbody
+        loop
+          (when list
+            (kernel::%rplacd tail (cons (funcall function (car list)) nil))
+            (setq tail (cdr tail))
+            (setq list (cdr list))
+            (go loop))))
+     head)
+   nil nil))
 
 (defun map (func &rest seqs)
-  ;; NOT TAIL RECURSIVE! later definitions are
+  ;; NOT TAIL RECURSIVE, but a later redefinition is
   (if (null (cdr seqs))
       (map1 func (car seqs))
       (if (car seqs)
@@ -373,17 +399,6 @@
       (cons (cons 'lambda (cons names (append setqs body)))
             (map (lambda (&rest p) nil) names)))))
 
-(defmacro progn (&body body)
-  (if (null (cdr body))
-      (car body)
-      (cons 'let (cons 'nil body))))
-
-
-(defmacro when (test &body body)
-  (list 'if test (cons 'progn body) nil))
-
-(defmacro unless (test &body body)
-  (list 'if test nil (cons 'progn body)))
 
 (defun reverse (list)
   (foldl #'cons nil list))
@@ -536,19 +551,6 @@ may be provided or left NIL."
                            lambda-lists
                            bodies)
                       (%flet-transform old-new-names body)))))
-
-
-
-
-;; Yes we are redefining MAP1 and MAP because the earlier definitions are not tail recursive
-;; and we have some friendlier constructs to define them now
-(defun map1 (func seq)
-  (labels ((map1-aux (accum list)
-             (if list
-                 (map1-aux (cons (funcall func (car list)) accum)
-                           (cdr list))
-                 (reverse! accum))))
-    (map1-aux nil seq)))
 
 (defun map (func &rest seqs)
   (if (null (cdr seqs))
