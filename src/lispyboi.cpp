@@ -43,31 +43,78 @@
 
 #define GC_DIAGNOSTICS 0
 
-#if DEBUG > 2
+#if DEBUG >= 2
 #ifndef GC_DIAGNOSTICS
 #define GC_DIAGNOSTICS 1
 #endif
 #define FORCE_INLINE inline __attribute__((noinline))
 #define FLATTEN __attribute__((noinline))
 
-#elif DEBUG > 1
+#elif DEBUG == 1
 #define FORCE_INLINE inline
 #define FLATTEN
 
-#else
+#elif DEBUG == 0
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
 #define GC_NO_OPT 0
 #define USE_COMPUTED_GOTOS 1
+
+#else
+#define FORCE_INLINE
+#define FLATTEN
+#error "Unknown DEBUG value"
 #endif
 
 #if !defined(ENABLE_DEBUGGER) && DEBUG > 0
 #define ENABLE_DEBUGGER 1
 #endif
 
-#ifndef GC_NO_OPT
+#if !defined(USE_COMPUTED_GOTOS)
+#define USE_COMPUTED_GOTOS 0
+#endif
+
+#if !defined(GC_NO_OPT)
 #define GC_NO_OPT 1
 #endif
+
+#if USE_COMPUTED_GOTOS == 0 && DEBUG > 1
+#define PROFILE_OPCODE_PAIRS 1
+#warning "Profiling opcode pairs is enabled."
+#else
+#define PROFILE_OPCODE_PAIRS 0
+#endif
+
+
+struct Opcode_Pair
+{
+    int a;
+    int b;
+
+    bool operator==(const Opcode_Pair &other) const noexcept
+    {
+        return a == other.a && b == other.b;
+    }
+
+    bool operator!=(const Opcode_Pair &other) const noexcept
+    {
+        return !(*this == other);
+    }
+};
+
+namespace std
+{
+
+template <>
+struct hash<Opcode_Pair>
+{
+    std::size_t operator()(const Opcode_Pair& p) const
+    {
+        return p.a << 8 | p.b;
+    }
+};
+
+}
 
 namespace lisp
 {
@@ -2200,6 +2247,13 @@ struct VM_State
         debug_dump(std::cout, "EZ DEBUG", ip, true);
     }
 
+    #if PROFILE_OPCODE_PAIRS
+    const std::unordered_map<Opcode_Pair, int> &opcode_pairs() const
+    {
+        return m_opcode_pairs;
+    }
+    #endif
+
   private:
 
     void push_handler_case(std::vector<Signal_Handler> &&handlers)
@@ -2298,6 +2352,10 @@ struct VM_State
         uint32_t nargs_offset;
         uint32_t function_offset;
     } m_stub;
+
+    #if PROFILE_OPCODE_PAIRS
+    std::unordered_map<Opcode_Pair, int> m_opcode_pairs;
+    #endif
 
 };
 static VM_State *THE_LISP_VM;
@@ -4390,7 +4448,7 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
 const uint8_t *VM_State::execute(const uint8_t *ip)
 {
 
-#if defined(USE_COMPUTED_GOTOS) && USE_COMPUTED_GOTOS
+#if USE_COMPUTED_GOTOS
 #define BYTECODE_DEF(name, noperands, nargs, size, docstring) &&opcode_ ## name,
     void *computed_gotos[256] =
     {
@@ -4402,6 +4460,13 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 #define DISPATCH_NEXT goto *computed_gotos[*ip];
 #define EXEC goto *computed_gotos[*ip];
 #define DISPATCH_LOOP // empty
+#define PREDICT(name)                                                   \
+    do {                                                                \
+        if (static_cast<bytecode::Opcode>(*ip) == bytecode::Opcode::op_ ## name) \
+        {                                                               \
+            goto opcode_ ## name;                                       \
+        }                                                               \
+    } while (0)
 
 #else
 
@@ -4409,9 +4474,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 #define DISPATCH_NEXT break;
 #define EXEC switch(static_cast<bytecode::Opcode>(*ip))
 #define DISPATCH_LOOP for (;;)
+#define PREDICT(name) // empty
 
 #endif // USE_COMPUTED_GOTOS
-
 
 
 #define TYPE_CHECK(what, typecheck, expected)                           \
@@ -4503,6 +4568,23 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 //            }
 //        }
 //#endif
+        #if PROFILE_OPCODE_PAIRS
+        {
+            auto this_opcode = static_cast<bytecode::Opcode>(*ip);
+            switch (this_opcode)
+            {
+                case bytecode::Opcode::op_halt:
+                case bytecode::Opcode::op_return:
+                case bytecode::Opcode::op_gotocall:
+                    break;
+                default: {
+                    auto next_opcode = *(ip + bytecode::opcode_size(this_opcode));
+                    m_opcode_pairs[Opcode_Pair{static_cast<short>(this_opcode), next_opcode}]++;
+                } break;
+            }
+        }
+        #endif
+
         EXEC
         {
             DISPATCH(apply)
@@ -4707,6 +4789,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 g.global_value_slots[index] = param_top();
                 ip += 5;
+                PREDICT(pop);
                 DISPATCH_NEXT;
             }
 
@@ -4715,6 +4798,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 push_param(m_locals[index]);
                 ip += 5;
+                PREDICT(push_value);
                 DISPATCH_NEXT;
             }
 
@@ -4723,6 +4807,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 m_locals[index] = param_top();
                 ip += 5;
+                PREDICT(pop);
                 DISPATCH_NEXT;
             }
 
@@ -4739,6 +4824,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 m_current_closure.as_object()->closure()->set_capture(index, param_top());
                 ip += 5;
+                PREDICT(pop);
                 DISPATCH_NEXT;
             }
 
@@ -4769,6 +4855,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 auto val = *reinterpret_cast<const Value*>(ip+1);
                 push_param(val);
                 ip += 1 + sizeof(val);
+                PREDICT(funcall);
                 DISPATCH_NEXT;
             }
 
@@ -7989,6 +8076,27 @@ int main(int argc, char **argv)
     {
         run_repl(*vm, *compiler::THE_ROOT_SCOPE);
     }
+
+#if PROFILE_OPCODE_PAIRS
+    std::vector<std::pair<Opcode_Pair, int>> results;
+    for (auto &[k, v] : vm->opcode_pairs())
+    {
+        if (v > 50000)
+        {
+            results.push_back({k, v});
+        }
+    }
+    std::sort(results.begin(), results.end(), [](const std::pair<Opcode_Pair, int> &a,
+                                                 const std::pair<Opcode_Pair, int> &b) {
+                                                  return a.second > b.second;
+                                              });
+    for (auto &[pair, times] : results)
+    {
+        std::cout << bytecode::opcode_name(static_cast<bytecode::Opcode>(pair.a)) << " : "
+                  << bytecode::opcode_name(static_cast<bytecode::Opcode>(pair.b)) << " -> "
+                  << times << "\n";
+    }
+#endif
 
     return 0;
 }
