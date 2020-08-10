@@ -4460,23 +4460,25 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 #define DISPATCH_NEXT goto *computed_gotos[*ip];
 #define EXEC goto *computed_gotos[*ip];
 #define DISPATCH_LOOP // empty
-#define PREDICT(name)                                                   \
-    do {                                                                \
-        if (static_cast<bytecode::Opcode>(*ip) == bytecode::Opcode::op_ ## name) \
-        {                                                               \
-            goto opcode_ ## name;                                       \
-        }                                                               \
-    } while (0)
 
 #else
 
 #define DISPATCH(name) case bytecode::Opcode::op_ ## name:
+    
 #define DISPATCH_NEXT break;
 #define EXEC switch(static_cast<bytecode::Opcode>(*ip))
 #define DISPATCH_LOOP for (;;)
-#define PREDICT(name) // empty
 
 #endif // USE_COMPUTED_GOTOS
+
+#define PREDICTED(name) predicted_ ## name:
+#define PREDICT(name)                                                   \
+    do {                                                                \
+        if (static_cast<bytecode::Opcode>(*ip) == bytecode::Opcode::op_ ## name) \
+        {                                                               \
+            goto predicted_ ## name;                                       \
+        }                                                               \
+    } while (0)
 
 
 #define TYPE_CHECK(what, typecheck, expected)                           \
@@ -4613,6 +4615,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
             DISPATCH(funcall)
             {
+                PREDICTED(funcall);
                 func = pop_param();
                 nargs = *reinterpret_cast<const uint32_t*>(ip+1);
 
@@ -4795,6 +4798,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
             DISPATCH(get_local)
             {
+                PREDICTED(get_local);
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 push_param(m_locals[index]);
                 ip += 5;
@@ -4845,13 +4849,16 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
             DISPATCH(pop)
             {
+                PREDICTED(pop);
                 pop_param();
                 ip += 1;
+                PREDICT(get_local);
                 DISPATCH_NEXT;
             }
 
             DISPATCH(push_value)
             {
+                PREDICTED(push_value);
                 auto val = *reinterpret_cast<const Value*>(ip+1);
                 push_param(val);
                 ip += 1 + sizeof(val);
@@ -7009,6 +7016,11 @@ Value func_gc_set_paused(Value *args, uint32_t nargs, bool &raised_signal)
     return args[0];
 }
 
+Value func_gc_collect(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    return Value::wrap_fixnum(gc.mark_and_sweep());
+}
+
 }
 
 static
@@ -7150,6 +7162,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     internal_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
     internal_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
     internal_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
+    internal_function(kernel, "%GC-COLLECT", primitives::func_gc_collect);
 
     internal_function(kernel, "%+", primitives::func_plus);
     internal_function(kernel, "%-", primitives::func_minus);
