@@ -58,6 +58,7 @@
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define FLATTEN __attribute__((flatten))
 #define GC_NO_OPT 0
+#define USE_COMPUTED_GOTOS 1
 #endif
 
 #if !defined(ENABLE_DEBUGGER) && DEBUG > 0
@@ -4388,6 +4389,31 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
 
 const uint8_t *VM_State::execute(const uint8_t *ip)
 {
+
+#if defined(USE_COMPUTED_GOTOS) && USE_COMPUTED_GOTOS
+#define BYTECODE_DEF(name, noperands, nargs, size, docstring) &&opcode_ ## name,
+    void *computed_gotos[256] =
+    {
+        #include "bytecode.def"
+    };
+
+
+#define DISPATCH(name) opcode_ ## name:
+#define DISPATCH_NEXT goto *computed_gotos[*ip];
+#define EXEC goto *computed_gotos[*ip];
+#define DISPATCH_LOOP // empty
+
+#else
+
+#define DISPATCH(name) case bytecode::Opcode::op_ ## name:
+#define DISPATCH_NEXT break;
+#define EXEC switch(static_cast<bytecode::Opcode>(*ip))
+#define DISPATCH_LOOP for (;;)
+
+#endif // USE_COMPUTED_GOTOS
+
+
+
 #define TYPE_CHECK(what, typecheck, expected)                           \
     do {                                                                \
         if (!(what).typecheck) {                                        \
@@ -4411,75 +4437,75 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
     Value signal_args;
     Value func;
     uint32_t nargs;
-    while (1)
+    DISPATCH_LOOP
     {
-        const auto opcode = static_cast<bytecode::Opcode>(*ip);
-#if ENABLE_DEBUGGER
-        if (g.debugger.breaking)
+//        const auto opcode = static_cast<bytecode::Opcode>(*ip);
+//#if ENABLE_DEBUGGER
+//        if (g.debugger.breaking)
+//        {
+//            // @TODO: Fix debugger step over:
+//            // currently it just goes to the next instruction address which is ok in the case of
+//            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
+//            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
+//                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
+//                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
+//            {
+//                debug_dump(std::cout, "VM EXEC", ip);
+//                auto &in = std::cin;
+//                bool eat_newline = true;
+//                switch (in.peek())
+//                {
+//                    case 'c':
+//                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
+//                        in.get();
+//                        break;
+//                    case 's':
+//                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
+//                        in.get();
+//                        break;
+//                    case 'n':
+//                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
+//                        in.get();
+//                        break;
+//                    case '\n':
+//                        in.get();
+//                        eat_newline = false;
+//                        break;
+//                }
+//
+//                if (eat_newline && in.peek() == '\n')
+//                {
+//                    in.get();
+//                }
+//
+//                switch (g.debugger.command)
+//                {
+//                    case Runtime_Globals::Debugger::Command::Continue:
+//                        g.debugger.breaking = false;
+//                        break;
+//                    case Runtime_Globals::Debugger::Command::Step_Into:
+//                        break;
+//                    case Runtime_Globals::Debugger::Command::Step_Over:
+//                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
+//                        g.debugger.addr1 = nullptr;
+//                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
+//                        {
+//                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+//                            g.debugger.addr1 = ip + offset;
+//                        }
+//                        else if (opcode == bytecode::Opcode::op_jump)
+//                        {
+//                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+//                            g.debugger.addr0 = ip + offset;
+//                        }
+//                        break;
+//                }
+//            }
+//        }
+//#endif
+        EXEC
         {
-            // @TODO: Fix debugger step over:
-            // currently it just goes to the next instruction address which is ok in the case of
-            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
-            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
-                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
-                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
-            {
-                debug_dump(std::cout, "VM EXEC", ip);
-                auto &in = std::cin;
-                bool eat_newline = true;
-                switch (in.peek())
-                {
-                    case 'c':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
-                        in.get();
-                        break;
-                    case 's':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
-                        in.get();
-                        break;
-                    case 'n':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
-                        in.get();
-                        break;
-                    case '\n':
-                        in.get();
-                        eat_newline = false;
-                        break;
-                }
-
-                if (eat_newline && in.peek() == '\n')
-                {
-                    in.get();
-                }
-
-                switch (g.debugger.command)
-                {
-                    case Runtime_Globals::Debugger::Command::Continue:
-                        g.debugger.breaking = false;
-                        break;
-                    case Runtime_Globals::Debugger::Command::Step_Into:
-                        break;
-                    case Runtime_Globals::Debugger::Command::Step_Over:
-                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
-                        g.debugger.addr1 = nullptr;
-                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
-                        {
-                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-                            g.debugger.addr1 = ip + offset;
-                        }
-                        else if (opcode == bytecode::Opcode::op_jump)
-                        {
-                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-                            g.debugger.addr0 = ip + offset;
-                        }
-                        break;
-                }
-            }
-        }
-#endif
-        switch (opcode)
-        {
-            case bytecode::Opcode::op_apply:
+            DISPATCH(apply)
             {
                 func = pop_param();
                 nargs = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4501,9 +4527,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     nargs++;
                 }
                 goto do_funcall;
-            } break;
+            }
 
-            case bytecode::Opcode::op_funcall:
+            DISPATCH(funcall)
             {
                 func = pop_param();
                 nargs = *reinterpret_cast<const uint32_t*>(ip+1);
@@ -4531,13 +4557,16 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                         push_param(result);
                         ip += 1 + sizeof(nargs);
                     }
-                    break;
+                    DISPATCH_NEXT;
                 }
 
                 if (func.is_type(Object_Type::Closure))
                 {
-                    if (opcode == bytecode::Opcode::op_funcall ||
-                        opcode == bytecode::Opcode::op_apply)
+                    // Although op_raise_signal also jumps here in a "funcall"-like way, it has
+                    // already setup the stack in the state the closure expects to execute under
+                    // so there is no need to push a frame for it here.
+                    if (static_cast<bytecode::Opcode>(*ip) == bytecode::Opcode::op_funcall ||
+                        static_cast<bytecode::Opcode>(*ip) == bytecode::Opcode::op_apply)
                     {
                         push_frame(ip+5, nargs);
                     }
@@ -4594,7 +4623,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     #endif
 
                     ip = function->entrypoint(nargs);
-                    break;
+                    DISPATCH_NEXT;
                 }
 
                 // error
@@ -4602,9 +4631,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 signal_args = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Not a callable object"), ofunc, func);
                 GC_UNGUARD();
                 goto raise_signal;
-                break;
             }
-            case bytecode::Opcode::op_gotocall:
+
+            DISPATCH(gotocall)
             {
 
                 close_values(m_locals);
@@ -4617,14 +4646,13 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 std::copy(begin, end, m_stack_top);
                 m_stack_top += nargs;
 
-
                 goto do_funcall;
-            } break;
+            }
 
-            case bytecode::Opcode::op_pop_handler_case:
+            DISPATCH(pop_handler_case)
                 pop_handler_case();
                 // fallthrough
-            case bytecode::Opcode::op_return:
+            DISPATCH(return)
             {
                 if (m_call_frame_top == m_call_frame_bottom)
                 {
@@ -4642,15 +4670,17 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     goto done;
                 }
                 ip = frame.ip;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_jump:
+            DISPATCH(jump)
             {
                 auto offset = *reinterpret_cast<const int32_t*>(ip+1);
                 ip += offset;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_pop_jump_if_nil:
+            DISPATCH(pop_jump_if_nil)
             {
                 if (pop_param().is_nil())
                 {
@@ -4661,51 +4691,58 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 {
                     ip += 5;
                 }
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_get_global:
+            DISPATCH(get_global)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 push_param(g.global_value_slots[index]);
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_set_global:
+            DISPATCH(set_global)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 g.global_value_slots[index] = param_top();
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_get_local:
+            DISPATCH(get_local)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 push_param(m_locals[index]);
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_set_local:
+            DISPATCH(set_local)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 m_locals[index] = param_top();
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_get_capture:
+            DISPATCH(get_capture)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 push_param(m_current_closure.as_object()->closure()->get_capture(index));
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_set_capture:
+            DISPATCH(set_capture)
             {
                 auto index = *reinterpret_cast<const uint32_t*>(ip+1);
                 m_current_closure.as_object()->closure()->set_capture(index, param_top());
                 ip += 5;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_function_value:
+            DISPATCH(function_value)
             {
                 auto obj = *reinterpret_cast<const Value*>(ip+1);
                 if (symbolp(obj))
@@ -4717,40 +4754,46 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     push_param(obj);
                 }
                 ip += 1 + sizeof(obj);
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_pop:
+            DISPATCH(pop)
             {
                 pop_param();
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_push_value:
+            DISPATCH(push_value)
             {
                 auto val = *reinterpret_cast<const Value*>(ip+1);
                 push_param(val);
                 ip += 1 + sizeof(val);
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_push_nil:
+            DISPATCH(push_nil)
             {
                 push_param(Value::nil());
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_push_fixnum_0:
+            DISPATCH(push_fixnum_0)
             {
                 push_param(Value::wrap_fixnum(0));
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_push_fixnum_1:
+            DISPATCH(push_fixnum_1)
             {
                 push_param(Value::wrap_fixnum(1));
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_instantiate_closure:
+            DISPATCH(instantiate_closure)
             {
                 auto function = *reinterpret_cast<const Function* const*>(ip+1);
                 auto instance = gc.alloc_object<Closure>(function);
@@ -4781,18 +4824,20 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     }
                 }
                 ip += 1 + sizeof(function);
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_close_values:
+            DISPATCH(close_values)
             {
                 auto n = *reinterpret_cast<const uint32_t*>(ip+1);
 
                 close_values(m_stack_top-n);
 
                 ip += 1 + sizeof(n);
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_cons:
+            DISPATCH(cons)
             {
                 // Instead of popping twice, we use param_top(n) like this to serve as
                 // a GC guard because before the GC may trigger a run before the cons
@@ -4802,9 +4847,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 pop_params(2);
                 push_param(val);
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_car:
+            DISPATCH(car)
             {
                 auto o = pop_param();
                 if (o.is_nil())
@@ -4817,9 +4863,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     push_param(car(o));
                 }
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_cdr:
+            DISPATCH(cdr)
             {
                 auto o = pop_param();
                 if (o.is_nil())
@@ -4832,30 +4879,34 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     push_param(cdr(o));
                 }
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_halt:
+            DISPATCH(halt)
             {
                 goto done;
-            } break;
+            }
 
-            case bytecode::Opcode::op_push_handler_case:
+            DISPATCH(push_handler_case)
             {
-                auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
-                auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
-                std::vector<Signal_Handler> handlers;
-                for (uint32_t i = 0; i < how_many; ++i)
                 {
-                    auto tag = pop_param();
-                    auto handler = pop_param();
-                    handlers.push_back({tag, handler});
+                    auto how_many = *reinterpret_cast<const uint32_t*>(ip+1);
+                    auto branch = *reinterpret_cast<const uint32_t*>(ip+1+sizeof(how_many));
+                    std::vector<Signal_Handler> handlers;
+                    for (uint32_t i = 0; i < how_many; ++i)
+                    {
+                        auto tag = pop_param();
+                        auto handler = pop_param();
+                        handlers.push_back({tag, handler});
+                    }
+                    push_frame(ip + branch, 0);
+                    push_handler_case(std::move(handlers));
+                    ip += 1 + sizeof(how_many) + sizeof(branch);
                 }
-                push_frame(ip + branch, 0);
-                push_handler_case(std::move(handlers));
-                ip += 1 + sizeof(how_many) + sizeof(branch);
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_raise_signal:
+            DISPATCH(raise_signal)
             {
                 {
                     GC_GUARD();
@@ -4900,9 +4951,9 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     m_stack_top = m_stack_bottom;
                     throw Signal_Exception(signal_args, ip, top, bottom);
                 }
-            } break;
+            }
 
-            case bytecode::Opcode::op_eq:
+            DISPATCH(eq)
             {
                 auto b = pop_param();
                 auto a = pop_param();
@@ -4921,27 +4972,30 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     push_param(Value::nil());
                 }
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_rplaca:
+            DISPATCH(rplaca)
             {
                 auto b = pop_param();
                 auto a = param_top();
                 CHECK_CONS(a);
                 set_car(a, b);
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_rplacd:
+            DISPATCH(rplacd)
             {
                 auto b = pop_param();
                 auto a = param_top();
                 CHECK_CONS(a);
                 set_cdr(a, b);
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_aref:
+            DISPATCH(aref)
             {
                 auto subscript = pop_param();
                 CHECK_FIXNUM(subscript);
@@ -4956,9 +5010,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 }
                 push_param(array->at(index));
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_aset:
+            DISPATCH(aset)
             {
                 auto value = pop_param();
                 auto subscript = pop_param();
@@ -4987,9 +5042,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 array->at(index) = value;
                 push_param(value);
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
 
-            case bytecode::Opcode::op_debug_trap:
+            DISPATCH(debug_trap)
             {
                 g.debugger.breaking = !param_top().is_nil();
                 if (g.debugger.breaking)
@@ -5001,7 +5057,8 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
                 }
                 ip += 1;
-            } break;
+                DISPATCH_NEXT;
+            }
         }
     }
     done:
