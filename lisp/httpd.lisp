@@ -79,18 +79,20 @@
       ;; go until no more lines or we hit an empty lines
       (until (or (null (first lines))
                  (= 0 (length (first lines))))
-             (destructuring-bind (key value)
-                 (string-split (first lines) #\: 1)
-               (when (and key value)
-                 (push (cons key (string-trim value)) other-headers)))
-             (setf lines (parse-http-next (second lines))))
+        (destructuring-bind (key value)
+            (string-split (first lines) #\: 1)
+          (when (and key value)
+            (push (cons key (string-trim value)) other-headers)))
+        (setf lines (parse-http-next (second lines))))
       (setf user-agent (cdr (assoc "User-Agent" other-headers #'string=)))
-      (make-http-header method path protocol
-                        user-agent
-                        other-headers
-                        (if (second lines)
-                            (string-trim-left (second lines))
-                            (make-string))))))
+      (make-http-header :method method
+                        :path path
+                        :protocol protocol
+                        :user-agent user-agent
+                        :other-headers other-headers
+                        :request (if (second lines)
+                                     (string-trim-left (second lines))
+                                     (make-string))))))
 
 
 
@@ -242,7 +244,9 @@
         (destructuring-bind (client-socket client-addr client-port)
             (socket-accept server)
           (when client-socket
-            (push (make-http-client client-socket client-addr client-port)
+            (push (make-http-client :socket client-socket
+                                    :address client-addr
+                                    :port client-port)
                   clients))))
       (let ((clients clients))
         (while (car clients)

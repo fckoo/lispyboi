@@ -107,7 +107,7 @@
 
 (defun make-default-ssl-context ()
   (destructuring-bind (ssl ctx) (%ssl-create-default-context)
-    (make-ssl-context ssl ctx)))
+    (make-ssl-context :ssl ssl :ctx ctx)))
 
 (defun ssl-wrap-socket (ssl-context socket)
   (%ssl-wrap-socket (ssl-context-ssl ssl-context) (socket-fd socket)))
@@ -128,6 +128,3 @@
 
 (defmethod output-stream-write-string ((stream ssl-context) string)
   (%ssl-write (ssl-context-ssl stream) string))
-
-
-

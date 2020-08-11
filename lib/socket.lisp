@@ -223,7 +223,7 @@
 
 (defun socket-open (host port)
   (check-port port)
-  (make-socket (%socket-open host (format nil "~d" port))))
+  (make-socket :fd (%socket-open host (format nil "~d" port))))
 
 (defun socket-close (socket)
   (when socket
@@ -252,7 +252,7 @@
 
 (defun socket-open-server (port &rest flags)
   (check-port port)
-  (make-socket (apply #'%socket-open-server port flags)))
+  (make-socket :fd (apply #'%socket-open-server port flags)))
 
 (defun socket-accept (socket)
   (let ((int-socket (socket-fd socket)))
@@ -260,7 +260,7 @@
       (signal 'socket-error "SOCKET-ACCEPT: Socket internal FD is NIL"))
     (let ((accepted (%socket-accept int-socket)))
       (if accepted
-          (list (make-socket accepted) nil nil)
+          (list (make-socket :fd accepted) nil nil)
           (list nil nil nil)))))
 
 (defun socket-alive-p (socket)
