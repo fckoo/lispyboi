@@ -41,10 +41,9 @@
 #define ENSURE_VALUE(value, expr) ((void)value)
 #endif
 
-#define GC_DIAGNOSTICS 0
 
 #if DEBUG >= 2
-#ifndef GC_DIAGNOSTICS
+#if !defined(GC_DIAGNOSTICS)
 #define GC_DIAGNOSTICS 1
 #endif
 #define FORCE_INLINE inline __attribute__((noinline))
@@ -64,6 +63,10 @@
 #define FORCE_INLINE
 #define FLATTEN
 #error "Unknown DEBUG value"
+#endif
+
+#if !defined GC_DIAGNOSTICS
+#define GC_DIAGNOSTICS 0
 #endif
 
 #if !defined(ENABLE_DEBUGGER) && DEBUG > 0
@@ -1307,6 +1310,7 @@ struct GC
     void set_paused(bool new_val)
     {
         m_is_paused = new_val;
+        maybe_mark_and_sweep();
     }
 
     using Mark_Function = std::function<void(GC&)>;
@@ -1388,7 +1392,7 @@ struct GC
 
         ref->marking = true;
 
-        #if GC_DIAGNOSTICS
+        #if GC_DIAGNOSTICS > 1
         printf("Marking: %s: %p\n", repr(value).c_str(), (void*)value.bits());
         #endif
         if (value.is_cons())
@@ -1448,7 +1452,7 @@ struct GC
 
     size_t sweep()
     {
-        #if GC_DIAGNOSTICS
+        #if GC_DIAGNOSTICS > 0
         fprintf(stderr, "Running sweep... %zu ", m_recent_allocations.size());
         #endif
         auto &current_gen = current_generation();
@@ -1493,7 +1497,7 @@ struct GC
             }
         }
 
-        #if GC_DIAGNOSTICS
+        #if GC_DIAGNOSTICS > 0
         fprintf(stderr, " Moved: %zu, Freed: %zu, Generation (%zu) Size: %zu\n",
                 moved_to_generation, freed, m_generations.size(), current_gen.size());
         #endif
@@ -1507,12 +1511,12 @@ struct GC
 
     size_t mark_and_sweep()
     {
-        #if GC_DIAGNOSTICS
+        #if GC_DIAGNOSTICS > 0
         fprintf(stderr, "New mark started.\n");
         #endif
         m_marked = 0;
         mark();
-        #if GC_DIAGNOSTICS
+        #if GC_DIAGNOSTICS > 0
         fprintf(stderr, "Mark phase finished.\n");
         fprintf(stderr, "Marked %zu\n", m_marked);
         #endif
@@ -1522,10 +1526,9 @@ struct GC
     template<typename... Args>
     Value list(Args... args)
     {
-        auto paused = m_is_paused;
-        m_is_paused = true;
+        auto paused = pause();
         auto value = _list(args...);
-        m_is_paused = paused;
+        set_paused(paused);
         return value;
     }
 
@@ -1639,23 +1642,25 @@ struct GC
         return ptr_to_ref(ptr);
     }
 
+    FORCE_INLINE
+    void maybe_mark_and_sweep()
+    {
+        if (!m_is_paused && m_is_warmed_up)
+        {
+            // If a sweep doesn't free enough then to minimize successive garbage collections
+            // we'll revert to a no longer warmed-up state which will only switch back when
+            // there are enough recent allocations.
+            m_is_warmed_up = mark_and_sweep() > GC_COOLDOWN_THRESHOLD;
+        }
+    }
+
     template<bool is_managed>
     Reference *allocate(size_t size)
     {
         if constexpr (is_managed)
         {
             m_total_consed += size;
-        }
-
-        if constexpr (is_managed)
-        {
-            if (!m_is_paused && m_is_warmed_up)
-            {
-                // If a sweep doesn't free enough then to minimize successive garbage collections
-                // we'll revert to a no longer warmed-up state which will only switch back when
-                // there are enough recent allocations.
-                m_is_warmed_up = mark_and_sweep() > GC_COOLDOWN_THRESHOLD;
-            }
+            maybe_mark_and_sweep();
         }
 
         Reference *ref = nullptr;
