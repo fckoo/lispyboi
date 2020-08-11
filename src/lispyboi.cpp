@@ -1314,7 +1314,7 @@ struct GC
     void set_paused(bool new_val)
     {
         m_is_paused = new_val;
-        maybe_mark_and_sweep();
+        //maybe_mark_and_sweep();
     }
 
     using Mark_Function = std::function<void(GC&)>;
@@ -1326,9 +1326,11 @@ struct GC
 
     void mark()
     {
-        for (auto it : m_pinned_values)
+        auto curr = m_pinned_values.head();
+        while (curr)
         {
-            mark_value(it);
+            mark_value(curr->value);
+            curr = curr->next;
         }
 
         for (auto it : m_mark_functions)
@@ -1536,27 +1538,21 @@ struct GC
         return value;
     }
 
-    void pin_value(Value value)
+    void *pin_value(Value value)
     {
         if (value.is_garbage_collected())
         {
-            m_pinned_values.push_back(value);
+            return m_pinned_values.push_back(value);
         }
+        return nullptr;
     }
 
-    void unpin_value(Value value)
+    void unpin_value(void *handle)
     {
-        if (value.is_garbage_collected())
+        if (handle)
         {
-            for (size_t i = 0; i < m_pinned_values.size(); ++i)
-            {
-                if (m_pinned_values[i] == value)
-                {
-                    m_pinned_values[i] = m_pinned_values.back();
-                    m_pinned_values.pop_back();
-                    break;
-                }
-            }
+            auto node = static_cast<Pinned_Values_List::Node*>(handle);
+            m_pinned_values.unlink(node);
         }
     }
 
@@ -1743,7 +1739,62 @@ struct GC
     //std::vector<Reference*> m_free_references;
     std::vector<std::vector<Reference*>> m_free_small_bins;
     std::vector<Reference*> m_free_large_bin;
-    std::vector<Value> m_pinned_values;
+    struct Pinned_Values_List
+    {
+        struct Node
+        {
+            Value value;
+            Node *next;
+            Node *prev;
+        };
+        Pinned_Values_List()
+            : m_head(nullptr)
+            , m_tail(nullptr)
+        {}
+
+        Node *head()
+        {
+            return m_head;
+        }
+
+        Node *tail()
+        {
+            return m_tail;
+        }
+
+        Node *push_back(Value value)
+        {
+            if (m_head)
+            {
+                m_tail->next = new Node {value, nullptr, m_tail};
+                m_tail = m_tail->next;
+            }
+            else
+            {
+                m_head = new Node {value, nullptr, nullptr};
+                m_tail = m_head;
+            }
+            return m_tail;
+        }
+
+        void unlink(Node *node)
+        {
+            auto prev = node->prev;
+            auto next = node->next;
+            if (prev)
+            {
+                prev->next = next;
+            }
+            if (next)
+            {
+                next->prev = prev;
+            }
+        }
+
+      private:
+        Node *m_head;
+        Node *m_tail;
+    } m_pinned_values;
     std::vector<Mark_Function> m_mark_functions;
     size_t m_marked;
     size_t m_total_consed;
@@ -5914,12 +5965,12 @@ Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
 
     CHECK_EXACTLY_N(nargs, 1);
     auto expr = args[0];
-    gc.pin_value(expr);
+    auto expr_handle = gc.pin_value(expr);
 
     bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
 
     auto expanded = macro_expand_impl(expr, *vm);
-    gc.unpin_value(expr);
+    gc.unpin_value(expr_handle);
 
     compiler::compile(e, expanded, true, false);
     e.emit_halt();
@@ -7953,11 +8004,11 @@ bool eval_file(VM_State &vm, compiler::Scope &root_scope, const std::filesystem:
             Value out;
             if (read_gc_paused(stm, out))
             {
-                gc.pin_value(out);
+                auto out_handle = gc.pin_value(out);
                 try
                 {
                     auto expanded = macro_expand_impl(out, vm);
-                    gc.unpin_value(out);
+                    gc.unpin_value(out_handle);
 
                     bytecode::Emitter e(&root_scope);
                     compiler::compile(e, expanded, true, false);
@@ -8013,11 +8064,11 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
         Value out;
         if (read_gc_paused(stm, out))
         {
-            gc.pin_value(out);
+            auto out_handle = gc.pin_value(out);
             try
             {
                 auto expanded = macro_expand_impl(out, vm);
-                gc.unpin_value(out);
+                gc.unpin_value(out_handle);
 
                 bytecode::Emitter e(&root_scope);
                 compiler::compile(e, expanded, true, false);
@@ -8031,7 +8082,7 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
             }
             catch (VM_State::Signal_Exception e)
             {
-                gc.unpin_value(out);
+                gc.unpin_value(out_handle);
                 trace_signal_exception(vm, e);
                 continue;
             }
