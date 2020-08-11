@@ -1179,7 +1179,9 @@ bool stringp(Value v);
 struct GC
 {
     GC()
-        : m_is_paused(false)
+        : m_marked(0)
+        , m_total_consed(0)
+        , m_is_paused(false)
         , m_is_warmed_up(false)
     {
         m_free_small_bins.resize(SMALL_BINS_SIZE);
@@ -1541,6 +1543,11 @@ struct GC
         }
     }
 
+    size_t get_consed() const
+    {
+        return m_total_consed;
+    }
+
   private:
     void diag(Reference *r)
     {
@@ -1625,6 +1632,10 @@ struct GC
     template<bool is_managed, typename T, typename... Args>
     T *allocate(Args... args)
     {
+        if constexpr (is_managed)
+        {
+            m_total_consed += sizeof(T);
+        }
         if constexpr (is_managed)
         {
             if (!m_is_paused && m_is_warmed_up)
@@ -1729,6 +1740,7 @@ struct GC
     std::vector<Value> m_pinned_values;
     std::vector<Mark_Function> m_mark_functions;
     size_t m_marked;
+    size_t m_total_consed;
     bool m_is_paused;
     bool m_is_warmed_up;
 } gc;
@@ -4464,7 +4476,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 #else
 
 #define DISPATCH(name) case bytecode::Opcode::op_ ## name:
-    
+
 #define DISPATCH_NEXT break;
 #define EXEC switch(static_cast<bytecode::Opcode>(*ip))
 #define DISPATCH_LOOP for (;;)
@@ -7021,6 +7033,11 @@ Value func_gc_collect(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(gc.mark_and_sweep());
 }
 
+Value func_gc_get_consed(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    return Value::wrap_fixnum(gc.get_consed());
+}
+
 }
 
 static
@@ -7163,6 +7180,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     internal_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
     internal_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
     internal_function(kernel, "%GC-COLLECT", primitives::func_gc_collect);
+    internal_function(kernel, "%GC-GET-CONSED", primitives::func_gc_get_consed);
 
     internal_function(kernel, "%+", primitives::func_plus);
     internal_function(kernel, "%-", primitives::func_minus);
