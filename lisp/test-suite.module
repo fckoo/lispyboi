@@ -30,6 +30,7 @@
            (run-test "tests/test_quasiquote.lisp")
            (run-test "tests/test_setf.lisp")
            (run-test "tests/test_sequence.lisp")
+           (run-test "tests/test_sort.lisp")
            (run-test "tests/test_stream.lisp")
            (run-test "tests/test_string.lisp")
            (run-test "tests/test_typep.lisp")

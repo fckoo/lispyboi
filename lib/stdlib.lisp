@@ -2,6 +2,7 @@
 (provide "stdlib")
 
 (require "list")
+(require "sort")
 (require "string")
 (require "destructuring-bind")
 (require "typep")
@@ -21,3 +22,4 @@
 (require "math")
 (require "setf")
 (require "hash-table")
+(require "random")
