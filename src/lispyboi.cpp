@@ -42,10 +42,14 @@
 #endif
 
 
-#if DEBUG >= 2
+#if DEBUG > 2
 #if !defined(GC_DIAGNOSTICS)
 #define GC_DIAGNOSTICS 1
 #endif
+#define FORCE_INLINE inline __attribute__((noinline))
+#define FLATTEN __attribute__((noinline))
+
+#elif DEBUG == 2
 #define FORCE_INLINE inline __attribute__((noinline))
 #define FLATTEN __attribute__((noinline))
 
@@ -4484,6 +4488,10 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
 
 #endif // USE_COMPUTED_GOTOS
 
+#if PROFILE_OPCODE_PAIRS
+#define PREDICTED(name) //empty
+#define PREDICT(name) //empty
+#else
 #define PREDICTED(name) predicted_ ## name:
 #define PREDICT(name)                                                   \
     do {                                                                \
@@ -4492,6 +4500,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
             goto predicted_ ## name;                                       \
         }                                                               \
     } while (0)
+#endif
 
 
 #define TYPE_CHECK(what, typecheck, expected)                           \
@@ -4591,6 +4600,8 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 case bytecode::Opcode::op_halt:
                 case bytecode::Opcode::op_return:
                 case bytecode::Opcode::op_gotocall:
+                case bytecode::Opcode::op_jump:
+                case bytecode::Opcode::op_pop_jump_if_nil:
                     break;
                 default: {
                     auto next_opcode = *(ip + bytecode::opcode_size(this_opcode));
@@ -4816,6 +4827,7 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 push_param(m_locals[index]);
                 ip += 5;
                 PREDICT(push_value);
+                PREDICT(get_local);
                 DISPATCH_NEXT;
             }
 
@@ -8113,20 +8125,22 @@ int main(int argc, char **argv)
     std::vector<std::pair<Opcode_Pair, int>> results;
     for (auto &[k, v] : vm->opcode_pairs())
     {
-        if (v > 50000)
-        {
-            results.push_back({k, v});
-        }
+        results.push_back({k, v});
     }
     std::sort(results.begin(), results.end(), [](const std::pair<Opcode_Pair, int> &a,
                                                  const std::pair<Opcode_Pair, int> &b) {
                                                   return a.second > b.second;
                                               });
+    int count = 10;
     for (auto &[pair, times] : results)
     {
         std::cout << bytecode::opcode_name(static_cast<bytecode::Opcode>(pair.a)) << " : "
                   << bytecode::opcode_name(static_cast<bytecode::Opcode>(pair.b)) << " -> "
                   << times << "\n";
+        if (count-- == 0)
+        {
+            break;
+        }
     }
 #endif
 
