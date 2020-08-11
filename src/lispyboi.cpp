@@ -116,6 +116,8 @@ struct hash<Opcode_Pair>
 
 }
 
+template <class...> constexpr std::false_type always_false{};
+
 namespace lisp
 {
 
@@ -1020,114 +1022,117 @@ struct Object
         return m_type;
     }
 
-    Symbol *symbol() const
+    Symbol *symbol()
     {
-        return u.symbol;
+        return as<Symbol>();
     }
 
-    Closure *closure() const
+    Closure *closure()
     {
-        return u.closure;
+        return as<Closure>();
     }
 
-    Package *package() const
+    Package *package()
     {
-        return u.package;
+        return as<Package>();
     }
 
-    File_Stream *file_stream() const
+    File_Stream *file_stream()
     {
-        return u.file_stream;
+        return as<File_Stream>();
     }
 
-    Simple_Array *simple_array() const
+    Simple_Array *simple_array()
     {
-        return u.simple_array;
+        return as<Simple_Array>();
     }
 
-    Structure *structure() const
+    Structure *structure()
     {
-        return u.structure;
+        return as<Structure>();
     }
 
-    System_Pointer system_pointer() const
+    System_Pointer system_pointer()
     {
-        return u.system_pointer;
+        return *as<System_Pointer>();
     }
 
     void system_pointer(System_Pointer new_val)
     {
-        u.system_pointer = new_val;
+        *as<System_Pointer>() = new_val;
     }
 
     System_Pointer pointer_ref()
     {
-        return &u.system_pointer;
-    }
-
-    Object(Symbol *symbol) : m_type(Object_Type::Symbol)
-    {
-        u.symbol = symbol;
-    }
-
-    Object(Closure *closure) : m_type(Object_Type::Closure)
-    {
-        u.closure = closure;
-    }
-
-    Object(Package *package) : m_type(Object_Type::Package)
-    {
-        u.package = package;
-    }
-
-    Object(File_Stream *file_stream) : m_type(Object_Type::File_Stream)
-    {
-        u.file_stream = file_stream;
-    }
-
-    Object(Simple_Array *simple_array) : m_type(Object_Type::Simple_Array)
-    {
-        u.simple_array = simple_array;
-    }
-
-    Object(Structure *structure) : m_type(Object_Type::Structure)
-    {
-        u.structure = structure;
-    }
-
-    Object(System_Pointer system_pointer) : m_type(Object_Type::System_Pointer)
-    {
-        u.system_pointer = system_pointer;
-    }
-
-    ~Object()
-    {
-        switch (m_type)
-        {
-            case Object_Type::Symbol: delete u.symbol; break;
-            case Object_Type::Closure: delete u.closure; break;
-            case Object_Type::Package: break;
-            case Object_Type::File_Stream: delete u.file_stream; break;
-            case Object_Type::Simple_Array: delete u.simple_array; break;
-            case Object_Type::System_Pointer: break;
-            case Object_Type::Structure: delete u.structure; break;
-        }
+        return as<System_Pointer>();
     }
 
   private:
     friend struct GC;
-    Object_Type m_type;
-    union
+
+    template<typename T>
+    FORCE_INLINE
+    T *as()
     {
-        Symbol *symbol;
-        Closure *closure;
-        Package *package;
-        File_Stream *file_stream;
-        Simple_Array *simple_array;
-        Structure *structure;
-        System_Pointer system_pointer;
-    } u;
-    static_assert(sizeof(u) == sizeof(void*));
+        return reinterpret_cast<T*>(&m_data[0]);
+    }
+
+    template<typename T, typename... Args>
+    FORCE_INLINE
+    void construct_data(Args... args)
+    {
+        if constexpr (std::is_same<T, Symbol>::value)
+        {
+            m_type = Object_Type::Symbol;
+        }
+        else if constexpr (std::is_same<T, Closure>::value)
+        {
+            m_type = Object_Type::Closure;
+        }
+        else if constexpr (std::is_same<T, Package>::value)
+        {
+            m_type = Object_Type::Package;
+        }
+        else if constexpr (std::is_same<T, File_Stream>::value)
+        {
+            m_type = Object_Type::File_Stream;
+        }
+        else if constexpr (std::is_same<T, Simple_Array>::value)
+        {
+            m_type = Object_Type::Simple_Array;
+        }
+        else if constexpr (std::is_same<T, System_Pointer>::value)
+        {
+            m_type = Object_Type::System_Pointer;
+        }
+        else if constexpr (std::is_same<T, Structure>::value)
+        {
+            m_type = Object_Type::Structure;
+        }
+        else
+        {
+            static_assert(always_false<T>);
+        }
+
+        new (&m_data[0]) T{args...};
+    }
+
+    void destruct_data()
+    {
+        switch (m_type)
+        {
+            case Object_Type::Symbol: symbol()->~Symbol(); break;
+            case Object_Type::Closure: closure()->~Closure(); break;
+            case Object_Type::Package: break;
+            case Object_Type::File_Stream: file_stream()->~File_Stream(); break;
+            case Object_Type::Simple_Array: simple_array()->~Simple_Array(); break;
+            case Object_Type::System_Pointer: break;
+            case Object_Type::Structure: structure()->~Structure(); break;
+        }
+    }
+
+    Object_Type m_type;
+    char m_data[0];
 };
 
 static
@@ -1194,6 +1199,7 @@ struct GC
         {
             for (auto ref : *gen)
             {
+                ref->marked = false;
                 m_recent_allocations.push_back(ref);
             }
         }
@@ -1222,6 +1228,8 @@ struct GC
         uint32_t marked : 1;
 
         #if GC_NO_OPT
+        // This padding is required because we need data to be 8-byte aligned so that Value
+        // is guaranteed to have 3 bits of tag storage.
         uint32_t _pad;
         #endif
 
@@ -1230,7 +1238,7 @@ struct GC
         template<typename T>
         T *as()
         {
-            return reinterpret_cast<T*>(&data);
+            return reinterpret_cast<T*>(&data[0]);
         }
     };
     #if GC_NO_OPT
@@ -1245,33 +1253,31 @@ struct GC
 
     Closure_Reference *make_closure_reference(Value *v)
     {
-        return allocate<true, Closure_Reference>(v);
+        auto ref = allocate<true>(sizeof(Closure_Reference));
+        ref->type = Reference::Type::Closure_Reference;
+        auto clos_ref = ref->as<Closure_Reference>();
+        new (clos_ref) Closure_Reference{v};
+        return clos_ref;
     }
 
     template<typename T, typename... Args>
     Value alloc_object(Args... args)
     {
-        if constexpr (std::is_same<T, System_Pointer>::value)
-        {
-            return Value::wrap_object(allocate<true, Object>((void*)args...));
-        }
-        else
-        {
-            return Value::wrap_object(allocate<true, Object>(new T{args...}));
-        }
+        auto ref = allocate<true>(offsetof(Object, m_data) + sizeof(T));
+        ref->type = Reference::Type::Object;
+        auto obj = ref->as<Object>();
+        obj->construct_data<T>(args...);
+        return Value::wrap_object(obj);
     }
 
     template<typename T, typename... Args>
     Value alloc_object_unmanaged(Args... args)
     {
-        if constexpr (std::is_same<T, System_Pointer>::value)
-        {
-            return Value::wrap_object(allocate<false, Object>((void*)args...));
-        }
-        else
-        {
-            return Value::wrap_object(allocate<false, Object>(new T{args...}));
-        }
+        auto ref = allocate<false>(offsetof(Object, m_data) + sizeof(T));
+        ref->type = Reference::Type::Object;
+        auto obj = ref->as<Object>();
+        obj->construct_data<T>(args...);
+        return Value::wrap_object(obj);
     }
 
     Value alloc_string(const char *str, Fixnum len);
@@ -1279,7 +1285,11 @@ struct GC
 
     Value cons(Value car, Value cdr)
     {
-        return Value::wrap_cons(allocate<true, Cons>(car, cdr));
+        auto ref = allocate<true>(sizeof(Cons));
+        ref->type = Reference::Type::Cons;
+        auto cons = ref->as<Cons>();
+        new (cons) Cons{car, cdr};
+        return Value::wrap_cons(cons);
     }
 
     bool paused() const
@@ -1629,13 +1639,14 @@ struct GC
         return ptr_to_ref(ptr);
     }
 
-    template<bool is_managed, typename T, typename... Args>
-    T *allocate(Args... args)
+    template<bool is_managed>
+    Reference *allocate(size_t size)
     {
         if constexpr (is_managed)
         {
-            m_total_consed += sizeof(T);
+            m_total_consed += size;
         }
+
         if constexpr (is_managed)
         {
             if (!m_is_paused && m_is_warmed_up)
@@ -1650,10 +1661,10 @@ struct GC
         Reference *ref = nullptr;
         if constexpr (is_managed)
         {
-            auto &bin = get_bin(sizeof(T));
+            auto &bin = get_bin(size);
             for (size_t i = 0; i < bin.size(); ++i)
             {
-                if (bin[i]->size >= sizeof(T))
+                if (bin[i]->size >= size)
                 {
                     ref = bin[i];
                     bin[i] = bin.back();
@@ -1665,26 +1676,14 @@ struct GC
 
         if (!ref)
         {
-            ref = static_cast<Reference*>(::operator new(offsetof(Reference, data) + sizeof(T)));
-            ref->size = sizeof(T);
+            ref = static_cast<Reference*>(::operator new(offsetof(Reference, data) + size));
+            ref->size = size;
         }
 
         #if GC_NO_OPT
         ref->magic = Reference::MAGIC_CONSTANT;
         #endif
         ref->collections_survived = 0;
-        if constexpr (std::is_same<T, Cons>::value)
-        {
-            ref->type = Reference::Type::Cons;
-        }
-        else if constexpr (std::is_same<T, Object>::value)
-        {
-            ref->type = Reference::Type::Object;
-        }
-        else if constexpr (std::is_same<T, Closure_Reference>::value)
-        {
-            ref->type = Reference::Type::Closure_Reference;
-        }
         ref->marking = false;
         ref->marked = false;
 
@@ -1694,9 +1693,7 @@ struct GC
             m_is_warmed_up |= m_recent_allocations.size() >= GC_WARMUP_THRESHOLD;
         }
 
-        auto value = ref->as<T>();
-        new (value) T{args...};
-        return value;
+        return ref;
     }
 
     using Generation = std::vector<Reference*>;
@@ -1794,7 +1791,6 @@ std::vector<Value> to_vector(Value list)
     }
     return v;
 }
-
 
 struct Package
 {
@@ -4518,70 +4514,70 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
     uint32_t nargs;
     DISPATCH_LOOP
     {
-//        const auto opcode = static_cast<bytecode::Opcode>(*ip);
-//#if ENABLE_DEBUGGER
-//        if (g.debugger.breaking)
-//        {
-//            // @TODO: Fix debugger step over:
-//            // currently it just goes to the next instruction address which is ok in the case of
-//            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
-//            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
-//                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
-//                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
-//            {
-//                debug_dump(std::cout, "VM EXEC", ip);
-//                auto &in = std::cin;
-//                bool eat_newline = true;
-//                switch (in.peek())
-//                {
-//                    case 'c':
-//                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
-//                        in.get();
-//                        break;
-//                    case 's':
-//                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
-//                        in.get();
-//                        break;
-//                    case 'n':
-//                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
-//                        in.get();
-//                        break;
-//                    case '\n':
-//                        in.get();
-//                        eat_newline = false;
-//                        break;
-//                }
-//
-//                if (eat_newline && in.peek() == '\n')
-//                {
-//                    in.get();
-//                }
-//
-//                switch (g.debugger.command)
-//                {
-//                    case Runtime_Globals::Debugger::Command::Continue:
-//                        g.debugger.breaking = false;
-//                        break;
-//                    case Runtime_Globals::Debugger::Command::Step_Into:
-//                        break;
-//                    case Runtime_Globals::Debugger::Command::Step_Over:
-//                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
-//                        g.debugger.addr1 = nullptr;
-//                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
-//                        {
-//                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-//                            g.debugger.addr1 = ip + offset;
-//                        }
-//                        else if (opcode == bytecode::Opcode::op_jump)
-//                        {
-//                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-//                            g.debugger.addr0 = ip + offset;
-//                        }
-//                        break;
-//                }
-//            }
-//        }
-//#endif
+#if ENABLE_DEBUGGER && USE_COMPUTED_GOTOS == 0
+        const auto opcode = static_cast<bytecode::Opcode>(*ip);
+        if (g.debugger.breaking)
+        {
+            // @TODO: Fix debugger step over:
+            // currently it just goes to the next instruction address which is ok in the case of
+            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
+            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
+                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
+                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
+            {
+                debug_dump(std::cout, "VM EXEC", ip);
+                auto &in = std::cin;
+                bool eat_newline = true;
+                switch (in.peek())
+                {
+                    case 'c':
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
+                        in.get();
+                        break;
+                    case 's':
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
+                        in.get();
+                        break;
+                    case 'n':
+                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
+                        in.get();
+                        break;
+                    case '\n':
+                        in.get();
+                        eat_newline = false;
+                        break;
+                }
+
+                if (eat_newline && in.peek() == '\n')
+                {
+                    in.get();
+                }
+
+                switch (g.debugger.command)
+                {
+                    case Runtime_Globals::Debugger::Command::Continue:
+                        g.debugger.breaking = false;
+                        break;
+                    case Runtime_Globals::Debugger::Command::Step_Into:
+                        break;
+                    case Runtime_Globals::Debugger::Command::Step_Over:
+                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
+                        g.debugger.addr1 = nullptr;
+                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
+                        {
+                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                            g.debugger.addr1 = ip + offset;
+                        }
+                        else if (opcode == bytecode::Opcode::op_jump)
+                        {
+                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                            g.debugger.addr0 = ip + offset;
+                        }
+                        break;
+                }
+            }
+        }
+#endif
         #if PROFILE_OPCODE_PAIRS
         {
             auto this_opcode = static_cast<bytecode::Opcode>(*ip);
@@ -5067,8 +5063,8 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                 {
                     push_param(g.s_T);
                 }
-                // @Audit: is this necessary, does it make sense to identity compare objects?
-                else if (a.is_object() && b.is_object() &&
+                else if (a.is_type(Object_Type::System_Pointer) &&
+                         b.is_type(Object_Type::System_Pointer) &&
                          (a.as_object()->system_pointer() == b.as_object()->system_pointer()))
                 {
                     push_param(g.s_T);
