@@ -107,21 +107,21 @@
       (setf month-day 1)
       (let ((done nil))
         (while (and (not done) (< month 13))
-               (if (< year-day (aref (aref days-since-jan1 leap) month))
-                   (progn
-                     (incf month-day (- year-day (aref (aref days-since-jan1 leap) (- month 1))))
-                     (setf done t))
-                   (incf month))))
+          (if (< year-day (aref (aref days-since-jan1 leap) month))
+              (progn
+                (incf month-day (- year-day (aref (aref days-since-jan1 leap) (- month 1))))
+                (setf done t))
+              (incf month))))
 
       (make-datetime
-       sec
-       minute
-       hour
-       month-day
-       month
-       year 
-       week-day
-       year-day))))
+       :second sec
+       :minute minute
+       :hour hour
+       :day month-day
+       :month month
+       :year year 
+       :week-day week-day
+       :year-day year-day))))
 
 (defun datetime-now ()
   (seconds-since-epoch-to-datetime (/ (get-clock-ticks) (clocks-per-second))))
