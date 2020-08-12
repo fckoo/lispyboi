@@ -3333,8 +3333,12 @@ void Emitter::emit_get_value(Symbol *symbol)
     }
     else
     {
-        fprintf(stderr, "No scope has symbol variable: %s\n", symbol->qualified_name().c_str());
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("Undefined symbol"), 
+                                   gc.alloc_string(symbol->qualified_name()));
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
 
     assert(idx != ~0u);
@@ -3569,11 +3573,17 @@ void Emitter::pop_labels()
     m_label_stack.pop_back();
     if (m_label_stack.size() == 0 && !m_backfills.empty())
     {
+        std::vector<Value> vals;
         for (auto const &it : m_backfills)
         {
-            fprintf(stderr, "No label tag found for: %s\n", repr(it.tag).c_str());
+            vals.push_back(it.tag);
         }
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("No label tag found"), 
+                                   to_list(vals));
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
 }
 
@@ -3596,8 +3606,12 @@ int32_t Emitter::make_label(Value tag)
     assert(m_label_stack.size() != 0);
     if (m_label_stack.back().find(tag) != m_label_stack.back().end())
     {
-        fprintf(stderr, "Label tag named %s already exists.\n", repr(tag).c_str());
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("Label with tag already exists"), 
+                                   tag);
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
     auto pos = position();
     m_label_stack.back()[tag] = pos;
@@ -3811,12 +3825,6 @@ namespace compiler
 
 static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position = false);
 
-#define NYI(msg)                                                \
-    do {                                                        \
-        fprintf(stderr, "Not yet implemented... %s\n", msg);    \
-        abort(10);                                \
-    } while (0)
-
 static
 bool effect_free(Value expr)
 {
@@ -3888,9 +3896,12 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
         optionals_start_at++;
         if (!symbolp(sym))
         {
-            fprintf(stderr, "Non-symbol parameter in lambda-list: %s\n", repr(sym).c_str());
-            fprintf(stderr, "Expr was: %s\n", repr(expr).c_str());
-            abort();
+            GC_GUARD();
+            auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                       gc.alloc_string("Non-symbol parameter in lambda list"), 
+                                       sym);
+            GC_UNGUARD();
+            throw VM_State::Signal_Exception(signal_args);
         }
         params.push_back(sym.as_object()->symbol());
         cur = cdr(cur);
@@ -7661,21 +7672,32 @@ Value make_symbol(const std::string &str)
 
     if (package == nullptr)
     {
-        fprintf(stderr, "A PACKAGE named \"%s\" does not exist.\n", package_name.c_str());
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("Package does not exist"), 
+                                   gc.alloc_string(package_name));
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
 
     if (symbol_name.find(':') != std::string::npos)
     {
-        fprintf(stderr, "Too many colons in symbol name: %s [package:%s symbol:%s]\n",
-                str.c_str(), package->name().c_str(), symbol_name.c_str());
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("Too many colons in symbol name"), 
+                                   gc.alloc_string(str));
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
 
     if (symbol_name.size() == 0)
     {
-        fprintf(stderr, "No symbol with package spec.: %s\n", str.c_str());
-        abort();
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
+                                   gc.alloc_string("A package was specifed with no symbol"), 
+                                   gc.alloc_string(str));
+        GC_UNGUARD();
+        throw VM_State::Signal_Exception(signal_args);
     }
 
     return package->intern_symbol(symbol_name);
@@ -7953,7 +7975,7 @@ void trace_signal_exception(VM_State &vm, const VM_State::Signal_Exception &e)
             }
         }
     }
-    else
+    else if (e.ip)
     {
         vm.debug_dump(std::cout, "WHOOPS", e.ip, true);
     }
