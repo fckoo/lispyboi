@@ -1569,38 +1569,6 @@ struct GC
     }
 
   private:
-    void diag(Reference *r)
-    {
-        fprintf(stderr, "Diagnostics for: %p\n", r);
-        if (!r)
-        {
-            return;
-        }
-        #if GC_NO_OPT
-        fprintf(stderr, "    magic = %x\n", r->magic);
-        #endif
-        fprintf(stderr, "    size = %u\n", r->size);
-        fprintf(stderr, "    survived = %u\n", r->collections_survived);
-        fprintf(stderr, "    marked = %u\n", r->marked);
-        fprintf(stderr, "    type = %u\n", r->type);
-        //fprintf(stderr, "    _pad = %u\n", r->_pad);
-        auto datap = &r->data[0];
-        fprintf(stderr, "    &value = %p\n", datap);
-        Value v;
-        switch (r->type)
-        {
-            case Reference::Type::Cons:
-                v = Value::wrap_cons(reinterpret_cast<Cons*>(datap));
-                break;
-            case Reference::Type::Object:
-                v = Value::wrap_object(reinterpret_cast<Object*>(datap));
-                break;
-            case Reference::Type::Closure_Reference:
-                v = r->as<Closure_Reference>()->value();
-                break;
-        }
-        fprintf(stderr, "    value = %s\n", repr(v).c_str());
-    }
 
     Value _list()
     {
@@ -5296,7 +5264,6 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
     } while (0)
 
 
-static bool get_global(compiler::Scope *scope, Value symbol_value, Value &out_value);
 static void set_global(compiler::Scope *scope, Value symbol_value, Value value);
 
 namespace primitives
@@ -7150,31 +7117,6 @@ void internal_function(Package *package, const std::string &name, Primitive func
 {
     auto symbol = package->intern_symbol(name);
     symbol.as_object()->symbol()->function(Value::wrap_primitive(func));
-}
-
-static
-void export_macro(Package *package, const std::string &name, Primitive func)
-{
-    auto symbol = package->export_symbol(name).as_object()->symbol();
-    g.macros[symbol] = Value::wrap_primitive(func);
-}
-
-static
-bool get_global(compiler::Scope *scope, Value symbol_value, Value &out_value)
-{
-    if (!symbolp(symbol_value))
-    {
-        fprintf(stderr, "Tried to get global with non-symbol: %s\n", repr(symbol_value).c_str());
-        return false;
-    }
-    auto root = scope->get_root();
-    uint32_t global_idx;
-    if (root->resolve_local(symbol_value.as_object()->symbol(), global_idx))
-    {
-        out_value = g.global_value_slots[global_idx];
-        return true;
-    }
-    return false;
 }
 
 static
