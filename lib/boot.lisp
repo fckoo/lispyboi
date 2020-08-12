@@ -259,7 +259,7 @@
 (defmacro putchar (character &optional (stm *standard-output*))
   (list 'kernel::%file-putchar stm character))
 (defun putchar (character &optional (stm *standard-output*))
-  (putchar stm character))
+  (putchar character stm))
 
 (defun null (obj) (eq nil obj))
 (defun not (obj) (if obj nil t))
