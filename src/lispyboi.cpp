@@ -1538,21 +1538,28 @@ struct GC
         return value;
     }
 
-    void *pin_value(Value value)
+    struct Ptr_Handle
+    {
+        void *ptr;
+    };
+
+    Ptr_Handle pin_value(Value value)
     {
         if (value.is_garbage_collected())
         {
-            return m_pinned_values.push_back(value);
+            return {m_pinned_values.push_back(value)};
         }
-        return nullptr;
+        return {nullptr};
     }
 
-    void unpin_value(void *handle)
+    void unpin_value(Ptr_Handle &handle)
     {
-        if (handle)
+        if (handle.ptr)
         {
-            auto node = static_cast<Pinned_Values_List::Node*>(handle);
+            auto node = static_cast<Pinned_Values_List::Node*>(handle.ptr);
             m_pinned_values.unlink(node);
+            handle.ptr = nullptr;
+            delete node;
         }
     }
 
@@ -1788,6 +1795,14 @@ struct GC
             if (next)
             {
                 next->prev = prev;
+            }
+            if (node == m_head)
+            {
+                m_head = next;
+            }
+            else if (node == m_tail)
+            {
+                m_tail = prev;
             }
         }
 
@@ -5293,11 +5308,19 @@ Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
     auto expr = args[0];
     if (expr.is_cons())
     {
-        auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
-        bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
-        compiler::compile(e, expanded, true);
-        e.lock();
-        bytecode::disassemble(std::cout, "DISASSEMBLY", e);
+        try
+        {
+            auto expanded = macro_expand_impl(expr, *THE_LISP_VM);
+            bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
+            compiler::compile(e, expanded, true);
+            e.lock();
+            bytecode::disassemble(std::cout, "DISASSEMBLY", e);
+        }
+        catch (VM_State::Signal_Exception ex)
+        {
+            raised_signal = true;
+            return ex.what;
+        }
     }
     else if (expr.is_fixnum())
     {
@@ -5978,21 +6001,21 @@ Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
     auto expr = args[0];
     auto expr_handle = gc.pin_value(expr);
 
-    bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
-
-    auto expanded = macro_expand_impl(expr, *vm);
-    gc.unpin_value(expr_handle);
-
-    compiler::compile(e, expanded, true, false);
-    e.emit_halt();
-    e.lock();
-
-    g.resize_globals(compiler::THE_ROOT_SCOPE->locals().size());
-
-    vm->push_frame(nullptr, 0);
-
     try
     {
+        bytecode::Emitter e(compiler::THE_ROOT_SCOPE);
+
+        auto expanded = macro_expand_impl(expr, *vm);
+        gc.unpin_value(expr_handle);
+
+        compiler::compile(e, expanded, true, false);
+        e.emit_halt();
+        e.lock();
+
+        g.resize_globals(compiler::THE_ROOT_SCOPE->locals().size());
+
+        vm->push_frame(nullptr, 0);
+
         vm->execute(e.bytecode().data());
     }
     catch (VM_State::Signal_Exception e)
@@ -7420,44 +7443,28 @@ Value VM_State::call_lisp_function(Value function_or_symbol, Value *args, uint32
         ? function_or_symbol.as_object()->symbol()->function()
         : function_or_symbol;
 
-    if (function.is_lisp_primitive())
+    // What better way to reduce code sync bugs than by just letting the VM handle dispatching the call?
+    if (m_stub.emitter == nullptr)
     {
-        bool raised_signal = false;
-        auto result = function.as_lisp_primitive()(args, nargs, raised_signal);
-        if (raised_signal)
-        {
-            throw Signal_Exception(result);
-        }
-        return result;
+        m_stub.emitter = new bytecode::Emitter(nullptr);
+        m_stub.function_offset = m_stub.emitter->position() + 1;
+        m_stub.emitter->emit_push_literal(function);
+        m_stub.nargs_offset = m_stub.emitter->position() + 1;
+        m_stub.emitter->emit_funcall(nargs);
+        m_stub.emitter->emit_halt();
+        m_stub.emitter->lock();
     }
-
-    if (function.is_type(Object_Type::Closure))
+    else
     {
-        // What better way to reduce code sync bugs than by just letting the VM handle dispatching the call?
-        if (m_stub.emitter == nullptr)
-        {
-            m_stub.emitter = new bytecode::Emitter(nullptr);
-            m_stub.function_offset = m_stub.emitter->position() + 1;
-            m_stub.emitter->emit_push_literal(function);
-            m_stub.nargs_offset = m_stub.emitter->position() + 1;
-            m_stub.emitter->emit_funcall(nargs);
-            m_stub.emitter->emit_halt();
-            m_stub.emitter->lock();
-        }
-        else
-        {
-            m_stub.emitter->set_raw(m_stub.function_offset, function);
-            m_stub.emitter->set_raw(m_stub.nargs_offset, nargs);
-        }
-        for (uint32_t i = 0; i < nargs; ++i)
-        {
-            push_param(args[i]);
-        }
-        execute(m_stub.emitter->bytecode().data());
-        return pop_param();
+        m_stub.emitter->set_raw(m_stub.function_offset, function);
+        m_stub.emitter->set_raw(m_stub.nargs_offset, nargs);
     }
-
-    throw Unhandleable_Exception{ {function}, "Cannot call lisp function because it's not a FUNCTION: "};
+    for (uint32_t i = 0; i < nargs; ++i)
+    {
+        push_param(args[i]);
+    }
+    execute(m_stub.emitter->bytecode().data());
+    return pop_param();
 }
 
 template<typename Function, typename ...ExtraArgs>
