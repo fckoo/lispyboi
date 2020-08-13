@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <list>
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
@@ -1532,10 +1533,28 @@ struct GC
     template<typename... Args>
     Value list(Args... args)
     {
-        auto paused = pause();
-        auto value = _list(args...);
-        set_paused(paused);
-        return value;
+        if constexpr (sizeof...(args) == 0)
+        {
+            return Value::nil();
+        }
+
+        std::array<Ptr_Handle, sizeof...(args)> arg_handles = {pin_value(args)...};
+        std::array<Value, sizeof...(args)> arg_values = {args...};
+
+        auto head = cons(arg_values[0], Value::nil());
+        auto head_handle = pin_value(head);
+        unpin_value(arg_handles[0]);
+        auto curr = head;
+
+        for (size_t i = 1; i < arg_values.size(); ++i)
+        {
+            set_cdr(curr, cons(arg_values[i], Value::nil()));
+            unpin_value(arg_handles[i]);
+            curr = cdr(curr);
+        }
+
+        unpin_value(head_handle);
+        return head;
     }
 
     struct Ptr_Handle
@@ -1557,9 +1576,8 @@ struct GC
         if (handle.ptr)
         {
             auto node = static_cast<Pinned_Values_List::Node*>(handle.ptr);
-            m_pinned_values.unlink(node);
             handle.ptr = nullptr;
-            delete node;
+            m_pinned_values.unlink_and_free(node);
         }
     }
 
@@ -1569,23 +1587,6 @@ struct GC
     }
 
   private:
-
-    Value _list()
-    {
-        return Value::nil();
-    }
-
-    template<typename TFirst>
-    Value _list(TFirst first)
-    {
-        return cons(first, _list());
-    }
-
-    template<typename TFirst, typename... TRest>
-    Value _list(TFirst first, TRest... rest)
-    {
-        return cons(first, _list(rest...));
-    }
 
     Reference *ptr_to_ref(void *ptr)
     {
@@ -1725,7 +1726,14 @@ struct GC
         Pinned_Values_List()
             : m_head(nullptr)
             , m_tail(nullptr)
-        {}
+        {
+            constexpr size_t n = 1000;
+            m_free_node_pool.reserve(n);
+            for (size_t i = 0; i < n; ++i)
+            {
+                m_free_node_pool.push_back(new Node {Value::wrap_fixnum(0), nullptr, nullptr});
+            }
+        }
 
         Node *head()
         {
@@ -1741,18 +1749,18 @@ struct GC
         {
             if (m_head)
             {
-                m_tail->next = new Node {value, nullptr, m_tail};
+                m_tail->next = alloc_node(value, m_tail);
                 m_tail = m_tail->next;
             }
             else
             {
-                m_head = new Node {value, nullptr, nullptr};
+                m_head = alloc_node(value, nullptr);
                 m_tail = m_head;
             }
             return m_tail;
         }
 
-        void unlink(Node *node)
+        void unlink_and_free(Node *node)
         {
             auto prev = node->prev;
             auto next = node->next;
@@ -1772,11 +1780,30 @@ struct GC
             {
                 m_tail = prev;
             }
+            free_node(node);
         }
 
       private:
+        inline Node *alloc_node(Value value, Node *prev)
+        {
+            if (m_free_node_pool.empty())
+            {
+                return new Node {value, nullptr, prev};
+            }
+            auto node = m_free_node_pool.back();
+            new (node) Node{value, nullptr, prev};
+            m_free_node_pool.pop_back();
+            return node;
+        }
+
+        inline void free_node(Node *node)
+        {
+            m_free_node_pool.push_back(node);
+        }
+
         Node *m_head;
         Node *m_tail;
+        std::vector<Node*> m_free_node_pool;
     } m_pinned_values;
     std::vector<Mark_Function> m_mark_functions;
     size_t m_marked;
@@ -3317,8 +3344,8 @@ void Emitter::emit_get_value(Symbol *symbol)
     else
     {
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("Undefined symbol"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("Undefined symbol"),
                                    gc.alloc_string(symbol->qualified_name()));
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
@@ -3562,8 +3589,8 @@ void Emitter::pop_labels()
             vals.push_back(it.tag);
         }
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("No label tag found"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("No label tag found"),
                                    to_list(vals));
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
@@ -3590,8 +3617,8 @@ int32_t Emitter::make_label(Value tag)
     if (m_label_stack.back().find(tag) != m_label_stack.back().end())
     {
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("Label with tag already exists"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("Label with tag already exists"),
                                    tag);
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
@@ -3880,8 +3907,8 @@ void compile_function(bytecode::Emitter &e, Value expr, bool macro, bool topleve
         if (!symbolp(sym))
         {
             GC_GUARD();
-            auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                       gc.alloc_string("Non-symbol parameter in lambda list"), 
+            auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                       gc.alloc_string("Non-symbol parameter in lambda list"),
                                        sym);
             GC_UNGUARD();
             throw VM_State::Signal_Exception(signal_args);
@@ -7622,8 +7649,8 @@ Value make_symbol(const std::string &str)
     if (package == nullptr)
     {
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("Package does not exist"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("Package does not exist"),
                                    gc.alloc_string(package_name));
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
@@ -7632,8 +7659,8 @@ Value make_symbol(const std::string &str)
     if (symbol_name.find(':') != std::string::npos)
     {
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("Too many colons in symbol name"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("Too many colons in symbol name"),
                                    gc.alloc_string(str));
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
@@ -7642,8 +7669,8 @@ Value make_symbol(const std::string &str)
     if (symbol_name.size() == 0)
     {
         GC_GUARD();
-        auto signal_args = gc.list(g.s_SIMPLE_ERROR, 
-                                   gc.alloc_string("A package was specifed with no symbol"), 
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("A package was specifed with no symbol"),
                                    gc.alloc_string(str));
         GC_UNGUARD();
         throw VM_State::Signal_Exception(signal_args);
