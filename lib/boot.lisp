@@ -107,6 +107,7 @@
    fixnump
    listp
    arrayp
+   copy-array
    characterp
    stringp
 
@@ -914,8 +915,8 @@ may be provided or left NIL."
   (let ((array (make-array (length vals)))
         (i 0))
     (while vals
-           (setf (aref array i) (pop vals))
-           (setf i (+ i 1)))
+      (setf (aref array i) (pop vals))
+      (setf i (+ i 1)))
     array))
 
 (defun nth (n list)
@@ -1095,6 +1096,14 @@ may be provided or left NIL."
 (defun parent-directory (path)
   (let ((idx (find-last-of path #\/)))
     (when idx (substring path 0 idx))))
+
+(defun copy-array (array)
+  (let ((copy (make-array (array-length array) (array-type array)))
+        (len (array-length array)))
+    (dotimes (i len)
+      (setf (aref copy i)
+            (aref array i)))
+    copy))
 
 (defun concatenate-arrays (&rest arrays)
   (let* ((lengths (map #'length arrays))
