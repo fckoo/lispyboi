@@ -100,6 +100,7 @@
    until
 
    type-of
+   type-error
    consp
    symbolp
    numberp
@@ -114,6 +115,8 @@
    equal
    string=
    string/=
+   char=
+   char/=
 
    cond
    case
@@ -407,7 +410,6 @@
          (setq length (- length 1))
          (go loop)))
     list))
-
 
 (defun reverse (list)
   (foldl #'cons nil list))
@@ -993,14 +995,28 @@ may be provided or left NIL."
 (defmacro code-char (code) `(kernel::%code-char ,code))
 (defun code-char (code) (code-char code))
 
+(defun characterp (object)
+  (eq 'character (type-of object)))
+
+(defun char= (x y)
+  (unless (characterp x)
+    (signal 'type-error 'character x))
+  (unless (characterp y)
+    (signal 'type-error 'character y))
+  (eql x y))
+
+(defun char/= (x y)
+  (not (char= x y)))
+
 (defun stringp (object)
   (and (arrayp object)
        (eq 'character (array-type object))))
 
-(defun characterp (object)
-  (eq 'character (type-of object)))
-
 (defun string= (x y)
+  (unless (stringp x)
+    (signal 'type-error 'string x))
+  (unless (stringp y)
+    (signal 'type-error 'string y))
   (when (= (length x) (length y))
     (labels ((func (n)
                (cond ((= n (length x)) t)
