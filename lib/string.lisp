@@ -127,6 +127,27 @@ e.g: (array-join \", \" \"1\" \"2\" \"3\" \"4\") ==> \"1, 2, 3, 4\" "
       (setf (aref string i) (char-downcase (aref string i)))))
   string)
 
+(defun string= (string1 string2 &key (start1 0) (end1 (length string1)) (start2 0) (end2 (length string2)))
+  (let ((match nil))
+    (when (<= (- end2 start2)
+              (- end1 start1))
+      (setq match t)
+      (while (and match
+                  (< start1 end1)
+                  (< start2 end2))
+        (setq match (char= (aref string1 start1)
+                           (aref string2 start2)))
+        (incf start1)
+        (incf start2))
+      (setq match (and match
+                       (= start1 end1)
+                       (= start2 end2))))
+    match))
+
+(defun string/= (string1 string2 &key (start1 0) (end1 (length string1)) (start2 0) (end2 (length string2)))
+  (not (string= string1 string2 :start1 start1 :end1 end1 :start2 start2 :end2 end2)))
+
+
 (export '(string-split
           string-trim
           string-trim-left

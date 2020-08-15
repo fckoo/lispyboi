@@ -20,3 +20,11 @@
 (assert-equal '("1" "2" "3" "4") (string-split "1;;2;;3;;4" ";;"))
 
 (assert-equal '("1" "2" "3;;4") (string-split "1;;2;;3;;4" ";;" 2))
+
+
+(assert-true (string= "foo" "foo"))
+(assert-true (string= "foo" "oo" :start1 1))
+(assert-true (string= "hello" "foo hello world" :start2 4 :end2 9))
+(assert-true (string= "this is a test" "foo this is another test"
+                      :start1 3 :start2 7
+                      :end1 8 :end2 12))
