@@ -28,6 +28,12 @@
     (4 'append)
     (5 '(read append))))
 
+(defun file-tellg (file-stream)
+  (kernel::%file-tellg file-stream))
+
+(defun file-seekg (file-stream offset dir)
+  (kernel::%file-seekg file-stream offset dir))
+
 (defun file-read-byte (file-stream &optional eof-error-p eof-value)
   (if (file-eof-p file-stream)
       (if eof-error-p
@@ -60,7 +66,7 @@
   (with-output-to-string (ss)
     (until (or (file-eof-p file-stream)
                (eql #\newline (code-char (file-peek-byte file-stream))))
-           (string-stream-write-char ss (file-read-character file-stream)))
+      (string-stream-write-char ss (file-read-character file-stream t)))
     (when (and (not (file-eof-p file-stream))
                (eql #\newline (code-char (file-peek-byte file-stream))))
       (file-read-byte file-stream))))
@@ -92,6 +98,8 @@
           close
           file-ok-p
           file-eof-p
+          file-seekg
+          file-tellg
           file-path
           file-flush
           file-mode
