@@ -2,59 +2,44 @@
 (provide "string-stream")
 
 (defstruct string-stream
-  (length 0)
-  (index 0)
-  (buffer (make-array 16 'character)))
+  (buffer (make-array 16 'character 0))
+  (read-index 0))
 
-(defun string-copy (destination source n)
-  (dotimes (i n)
-    (setf (aref destination i) (aref source i))))
+(defun string-stream-length (string-stream)
+  (array-length (string-stream-buffer string-stream)))
+
+(defun string-stream-capacity (string-stream)
+  (array-capacity (string-stream-buffer string-stream)))
 
 (defun string-stream-write-char (string-stream character)
-  (labels ((copy-expand-string (str)
-             (let ((new-str (make-array (* 2 (length str)) 'character)))
-               (string-copy new-str str (length str))
-               new-str)))
-    (let ((len (string-stream-length string-stream))
-          (str (string-stream-buffer string-stream)))
-      (when (= len (length str))
-        (setf str (setf (string-stream-buffer string-stream)
-                        (copy-expand-string str))))
-      (setf (aref str len) character)
-      (incf (string-stream-length string-stream))
-      string-stream)))
+  (array-push-back (string-stream-buffer string-stream) character))
 
 (defun string-stream-write-string (string-stream str)
   (dotimes (i (length str))
     (string-stream-write-char string-stream (aref str i))))
 
 (defun string-stream-eof-p (string-stream)
-  (= (string-stream-index string-stream)
-     (string-stream-length string-stream)))
+  (>= (string-stream-read-index string-stream)
+      (array-length (string-stream-buffer string-stream))))
 
 (defun string-stream-peek-char (string-stream &optional eof-error-p eof-value)
-  (if (>= (string-stream-index string-stream)
-          (string-stream-length string-stream))
+  (if (string-stream-eof-p string-stream)
       (if eof-error-p
           (signal 'end-of-file)
           eof-value)
       (aref (string-stream-buffer string-stream)
-            (string-stream-index string-stream))))
+            (string-stream-read-index string-stream))))
 
 (defun string-stream-read-char (string-stream &optional eof-error-p eof-value)
   (let ((c (string-stream-peek-char string-stream eof-error-p eof-value)))
-    (incf (string-stream-index string-stream))
+    (incf (string-stream-read-index string-stream))
     c))
 
 (defun string-stream-empty-p (string-stream)
   (= 0 (string-stream-length string-stream)))
 
 (defun string-stream-str (string-stream)
-  (let ((string (make-array (string-stream-length string-stream) 'character)))
-    (string-copy string
-                 (string-stream-buffer string-stream)
-                 (string-stream-length string-stream))
-    string))
+  (copy-array (string-stream-buffer string-stream)))
 
 (defmacro with-input-from-string ((var string) &body body)
   `(let ((,var (make-string-stream)))

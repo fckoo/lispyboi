@@ -52,6 +52,12 @@
 (defmacro assert-string/= (expected actual)
   (%assert 'string/= expected actual))
 
+(defmacro assert-char= (expected actual)
+  (%assert 'char= expected actual))
+
+(defmacro assert-char/= (expected actual)
+  (%assert 'char/= expected actual))
+
 
 (export '(assert-true
           assert-false
@@ -61,4 +67,6 @@
           assert-=
           assert-/=
           assert-string=
-          assert-string/=))
+          assert-string/=
+          assert-char=
+          assert-char/=))

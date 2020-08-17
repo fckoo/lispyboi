@@ -147,6 +147,9 @@
    array-type
    simple-array
    aref
+   array-length
+   array-capacity
+   array-push-back
 
    nth
    elt
@@ -1116,9 +1119,8 @@ may be provided or left NIL."
     (when idx (substring path 0 idx))))
 
 (defun copy-array (array)
-  (let ((copy (make-array (array-length array) (array-type array)))
-        (len (array-length array)))
-    (dotimes (i len)
+  (let ((copy (make-array (array-length array) (array-type array))))
+    (dotimes (i (array-length array))
       (setf (aref copy i)
             (aref array i)))
     copy))
