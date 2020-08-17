@@ -695,7 +695,15 @@ struct Simple_Array
 {
     Simple_Array(Value element_type, Fixnum capacity)
         : m_element_type(element_type)
-        , m_size(capacity)
+        , m_capacity(capacity)
+        , m_fill_pointer(capacity)
+        , m_buffer(capacity <= 0 ? nullptr : new Value[capacity]{Value(0)})
+    {}
+
+    Simple_Array(Value element_type, Fixnum capacity, Fixnum fill_pointer)
+        : m_element_type(element_type)
+        , m_capacity(capacity)
+        , m_fill_pointer(fill_pointer)
         , m_buffer(capacity <= 0 ? nullptr : new Value[capacity]{Value(0)})
     {}
 
@@ -711,7 +719,12 @@ struct Simple_Array
 
     Fixnum size() const
     {
-        return m_size;
+        return m_fill_pointer;
+    }
+
+    Fixnum capacity() const
+    {
+        return m_capacity;
     }
 
     Value &at(Fixnum n) const
@@ -719,10 +732,30 @@ struct Simple_Array
         return m_buffer[n];
     }
 
+    void push_back(Value value)
+    {
+        if (m_capacity == 0)
+        {
+            m_capacity = 8;
+            m_buffer = new Value[m_capacity]{Value(0)};
+        }
+        else if (m_fill_pointer == m_capacity)
+        {
+            Fixnum new_capacity = m_fill_pointer * 1.5;
+            auto new_buffer = new Value[new_capacity];
+            memcpy(new_buffer, m_buffer, sizeof(Value) * m_fill_pointer);
+            delete[] m_buffer;
+            m_buffer = new_buffer;
+            m_capacity = new_capacity;
+        }
+        m_buffer[m_fill_pointer++] = value;
+    }
+
   private:
     friend struct GC;
     Value m_element_type;
-    Fixnum m_size;
+    Fixnum m_capacity;
+    Fixnum m_fill_pointer;
     Value *m_buffer;
 };
 
@@ -3880,7 +3913,7 @@ bool constantp(Value expr)
 static
 bool effect_free(Value expr)
 {
-    return expr.is_type(Object_Type::Symbol) 
+    return expr.is_type(Object_Type::Symbol)
         || constantp(expr);
 }
 
@@ -6353,20 +6386,58 @@ Value func_signal(Value *args, uint32_t nargs, bool &raised_signal)
 Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
 {
     /***
-        (make-array length &optional type)
+        (make-array length type fill-pointer)
     */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_EXACTLY_N(nargs, 3);
     auto length = args[0];
     CHECK_FIXNUM(length);
-    if (nargs != 1)
+    auto fill_pointer = args[2];
+    CHECK_FIXNUM(fill_pointer);
+    auto type = args[1];
+    if (type == g.s_CHARACTER || type == g.s_FIXNUM)
     {
-        auto type = args[1];
-        if (type == g.s_CHARACTER || type == g.s_FIXNUM)
+        return gc.alloc_object<Simple_Array>(type, length.as_fixnum(), fill_pointer.as_fixnum());
+    }
+    return gc.alloc_object<Simple_Array>(g.s_T, length.as_fixnum(), fill_pointer.as_fixnum());
+}
+
+Value func_array_push_back(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (array-push-back array value)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    auto array_val = args[0];
+    CHECK_SIMPLE_ARRAY(array_val);
+
+    auto value = args[1];
+    auto array = array_val.as_object()->simple_array();
+    auto type = array->element_type();
+    if (type != g.s_T)
+    {
+        if (type == g.s_FIXNUM)
         {
-            return gc.alloc_object<Simple_Array>(type, length.as_fixnum());
+            CHECK_FIXNUM(value);
+        }
+        else if (type == g.s_CHARACTER)
+        {
+            CHECK_CHARACTER(value);
         }
     }
-    return gc.alloc_object<Simple_Array>(g.s_T, length.as_fixnum());
+    array->push_back(value);
+    return value;
+}
+
+Value func_array_capacity(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (array-capacity array)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+
+    auto array = args[0];
+    CHECK_SIMPLE_ARRAY(array);
+    return Value::wrap_fixnum(array.as_object()->simple_array()->capacity());
 }
 
 Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
@@ -7373,6 +7444,8 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     internal_function(kernel, "%MAKE-ARRAY", primitives::func_make_array);
     internal_function(kernel, "%ARRAY-LENGTH", primitives::func_array_length);
     internal_function(kernel, "%ARRAY-TYPE", primitives::func_array_type);
+    internal_function(kernel, "%ARRAY-CAPACITY", primitives::func_array_capacity);
+    internal_function(kernel, "%ARRAY-PUSH-BACK", primitives::func_array_push_back);
 
     internal_function(kernel, "%CHAR-CODE", primitives::func_char_code);
     internal_function(kernel, "%CODE-CHAR", primitives::func_code_char);
