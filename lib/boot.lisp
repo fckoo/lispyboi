@@ -1044,7 +1044,7 @@ may be provided or left NIL."
         str)))
 
 (defun print (object &optional (stm *standard-output*))
-  (if #'print-object
+  (if (kernel::%function-definition 'print-object)
       (print-object object stm)
       (kernel::%file-write stm object))
   object)

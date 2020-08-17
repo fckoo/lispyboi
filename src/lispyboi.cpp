@@ -3849,20 +3849,39 @@ namespace compiler
 static void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position = false);
 
 static
+bool constantp(Value expr)
+{
+    if (expr.is_type(Object_Type::Symbol))
+    {
+        if (expr == g.s_T)
+        {
+            return true;
+        }
+        if (expr.as_object()->symbol()->is_keyword())
+        {
+            return true;
+        }
+        return false;
+    }
+    if (expr.is_cons())
+    {
+        auto f = car(expr);
+        if (f == g.s_QUOTE ||
+            f == g.s_FUNCTION ||
+            f == g.s_pLAMBDA)
+        {
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+static
 bool effect_free(Value expr)
 {
-    if (!expr.is_cons())
-    {
-        return true;
-    }
-    auto f = car(expr);
-    if (f == g.s_QUOTE ||
-        f == g.s_FUNCTION ||
-        f == g.s_pLAMBDA)
-    {
-        return true;
-    }
-    return false;
+    return expr.is_type(Object_Type::Symbol) 
+        || constantp(expr);
 }
 
 static
@@ -4196,26 +4215,40 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             auto test = second(expr);
             auto consequence = third(expr);
             auto alternative = fourth(expr);
-            compile(e, test, toplevel);
-            auto alt_offs = e.emit_pop_jump_if_nil();
-            compile(e, consequence, toplevel, tail_position);
-            if (tail_position)
+            if (constantp(test))
             {
-                e.emit_return();
-                auto label_alt = e.position();
-                compile(e, alternative, toplevel, tail_position);
-
-                e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+                if (test.is_nil())
+                {
+                    compile(e, alternative, toplevel, tail_position);
+                }
+                else
+                {
+                    compile(e, consequence, toplevel, tail_position);
+                }
             }
             else
             {
-                auto out_offs = e.emit_jump();
-                auto label_alt = e.position();
-                compile(e, alternative, toplevel, tail_position);
-                auto label_out = e.position();
+                compile(e, test, toplevel);
+                auto alt_offs = e.emit_pop_jump_if_nil();
+                compile(e, consequence, toplevel, tail_position);
+                if (tail_position)
+                {
+                    e.emit_return();
+                    auto label_alt = e.position();
+                    compile(e, alternative, toplevel, tail_position);
 
-                e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
-                e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+                    e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+                }
+                else
+                {
+                    auto out_offs = e.emit_jump();
+                    auto label_alt = e.position();
+                    compile(e, alternative, toplevel, tail_position);
+                    auto label_out = e.position();
+
+                    e.set_raw<int32_t>(out_offs, label_out - (out_offs-1));
+                    e.set_raw<int32_t>(alt_offs, label_alt - (alt_offs-1));
+                }
             }
         }
         else if (thing == g.s_pDEFINE_MACRO)

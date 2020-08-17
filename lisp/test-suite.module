@@ -23,6 +23,7 @@
            (run-test "tests/test_format.lisp")
            (run-test "tests/test_handler-case.lisp")
            (run-test "tests/test_hash-table.lisp")
+           (run-test "tests/test_if.lisp")
            (run-test "tests/test_lists.lisp")
            (run-test "tests/test_labels.lisp")
            (run-test "tests/test_math.lisp")
