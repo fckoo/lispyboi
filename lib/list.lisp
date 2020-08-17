@@ -11,9 +11,14 @@
 
 (defun nthcdr (n list)
   (while (and list (> n 0))
-         (decf n)
-         (setf list (cdr list)))
+    (decf n)
+    (setf list (cdr list)))
   list)
+
+(defun last (list)
+  (while (cdr list)
+    (setf list (cdr list)))
+  (car list))
 
 (defun only (predicate seq &optional (offset 0))
   (typecase seq
@@ -50,5 +55,6 @@
 (export '(index-of
           nthcdr
           only
+          last
           insert-after
           insert-before))
