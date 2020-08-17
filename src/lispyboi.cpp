@@ -832,6 +832,16 @@ struct File_Stream
         m_stream.flush();
     }
 
+    auto tellg()
+    {
+        return m_stream.tellg();
+    }
+
+    void seekg(Fixnum offset, std::ios_base::seekdir dir)
+    {
+        m_stream.seekg(offset, dir);
+    }
+
   private:
     std::fstream m_stream;
     std::vector<int32_t> m_ungetted;
@@ -2534,6 +2544,9 @@ struct Runtime_Globals
     Value s_APPEND;
     Value s_READ;
     Value s_MARSHAL_ERROR;
+    Value s_BEGINNING;
+    Value s_END;
+    Value s_CURRENT;
 
     Value s_pLAMBDA;
     Value s_pCAR;
@@ -5813,6 +5826,55 @@ Value func_num_greater(Value *args, uint32_t nargs, bool &raised_signal)
     return result ? g.s_T : Value::nil();
 }
 
+Value func_file_tellg(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-tellg stream)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FILE_STREAM(args[0]);
+    auto &stm = args[0].as_object()->file_stream()->stream();
+    auto pos = stm.tellg();
+    return Value::wrap_fixnum(pos);
+}
+
+Value func_file_seekg(Value *args, uint32_t nargs, bool &raised_signal)
+{
+    /***
+        (file-seekg stream offset dir)
+    */
+    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_FILE_STREAM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    CHECK_SYMBOL(args[2]);
+    auto &stm = args[0].as_object()->file_stream()->stream();
+    auto pos = std::ios_base::cur;
+    if (args[2] == g.s_BEGINNING)
+    {
+        pos = std::ios_base::beg;
+    }
+    else if (args[2] == g.s_END)
+    {
+        pos = std::ios_base::end;
+    }
+    else if (args[2] == g.s_CURRENT)
+    {
+        pos = std::ios_base::cur;
+    }
+    else
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                                   gc.alloc_string("Expected one of"),
+                                   gc.list(g.s_BEGINNING, g.s_CURRENT, g.s_END),
+                                   args[2]);
+        GC_UNGUARD();
+        return signal_args;
+    }
+    stm.seekg(args[1].as_fixnum(), pos);
+    return Value::nil();
+}
 
 Value func_file_write(Value *args, uint32_t nargs, bool &raised_signal)
 {
@@ -7233,6 +7295,10 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
 
     g.s_MARSHAL_ERROR    = core->export_symbol("MARSHAL-ERROR");
 
+    g.s_BEGINNING        = core->export_symbol("BEGINNING");
+    g.s_END              = core->export_symbol("END");
+    g.s_CURRENT          = core->export_symbol("CURRENT");
+
     internal_function(core, "%PRINT", primitives::func_print);
 
     internal_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
@@ -7288,6 +7354,8 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     internal_function(kernel, "%FILE-OK-P", primitives::func_file_ok);
     internal_function(kernel, "%FILE-FLUSH", primitives::func_file_flush);
     internal_function(kernel, "%FILE-WRITE", primitives::func_file_write);
+    internal_function(kernel, "%FILE-SEEKG", primitives::func_file_seekg);
+    internal_function(kernel, "%FILE-TELLG", primitives::func_file_tellg);
     internal_function(kernel, "%FILE-PUTCHAR", primitives::func_file_putchar);
     internal_function(kernel, "%FILE-PUTS", primitives::func_file_puts);
     internal_function(kernel, "%FILE-READ-BYTE", primitives::func_file_read_byte);
