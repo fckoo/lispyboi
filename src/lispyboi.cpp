@@ -74,10 +74,6 @@
 #define GC_DIAGNOSTICS 0
 #endif
 
-#if !defined(ENABLE_DEBUGGER) && DEBUG > 0
-#define ENABLE_DEBUGGER 1
-#endif
-
 #if !defined(USE_COMPUTED_GOTOS)
 #define USE_COMPUTED_GOTOS 0
 #endif
@@ -2308,7 +2304,12 @@ struct VM_State
         return m_call_frame_bottom;
     }
 
-    const uint8_t *execute(const uint8_t *ip);
+
+    template<bool debuggable>
+    const uint8_t *execute_impl(const uint8_t *ip);
+
+    inline const uint8_t *execute(const uint8_t *ip);
+
     Value call_lisp_function(Value function_or_symbol, Value *args, uint32_t nargs);
 
     void debug_dump(std::ostream &out, const std::string &tag, const uint8_t *ip, bool full = false) const;
@@ -2628,6 +2629,18 @@ struct Runtime_Globals
     } debugger;
 } g;
 
+inline const uint8_t *VM_State::execute(const uint8_t *ip)
+{
+    #if USE_COMPUTED_GOTOS
+    if (g.debugger.breaking)
+    {
+        return execute_impl<true>(ip);
+    }
+    return execute_impl<false>(ip);
+    #else
+    return execute_impl<true>(ip);
+    #endif
+}
 
 inline void GC::mark_simple_array(Simple_Array *simple_array)
 {
@@ -2640,7 +2653,6 @@ inline void GC::mark_simple_array(Simple_Array *simple_array)
         }
     }
 }
-
 
 static
 std::string repr(Value value)
@@ -4613,31 +4625,21 @@ void VM_State::debug_dump(std::ostream &out, const std::string &tag, const uint8
     }
 }
 
-const uint8_t *VM_State::execute(const uint8_t *ip)
+template<bool debuggable>
+const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 {
 
-#if USE_COMPUTED_GOTOS
 #define BYTECODE_DEF(name, noperands, nargs, size, docstring) &&opcode_ ## name,
     void *computed_gotos[256] =
     {
         #include "bytecode.def"
     };
 
+#define DISPATCH(name) case bytecode::Opcode::op_ ## name: opcode_ ## name:
 
-#define DISPATCH(name) opcode_ ## name:
-#define DISPATCH_NEXT goto *computed_gotos[*ip];
-#define EXEC goto *computed_gotos[*ip];
-#define DISPATCH_LOOP // empty
-
-#else
-
-#define DISPATCH(name) case bytecode::Opcode::op_ ## name:
-
-#define DISPATCH_NEXT break;
+#define DISPATCH_NEXT if constexpr (debuggable) break; else goto *computed_gotos[*ip];
 #define EXEC switch(static_cast<bytecode::Opcode>(*ip))
 #define DISPATCH_LOOP for (;;)
-
-#endif // USE_COMPUTED_GOTOS
 
 #if PROFILE_OPCODE_PAIRS
 #define PREDICTED(name) //empty
@@ -4679,72 +4681,71 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
     uint32_t nargs;
     DISPATCH_LOOP
     {
-#if ENABLE_DEBUGGER && USE_COMPUTED_GOTOS == 0
-        const auto opcode = static_cast<bytecode::Opcode>(*ip);
-        if (g.debugger.breaking)
+        if constexpr (debuggable)
         {
-            // @TODO: Fix debugger step over:
-            // currently it just goes to the next instruction address which is ok in the case of
-            // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
-            if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
-                 (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
-                || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
+            const auto opcode = static_cast<bytecode::Opcode>(*ip);
+            if (g.debugger.breaking)
             {
-                debug_dump(std::cout, "VM EXEC", ip);
-                auto &in = std::cin;
-                bool eat_newline = true;
-                switch (in.peek())
+                // @TODO: Fix debugger step over:
+                // currently it just goes to the next instruction address which is ok in the case of
+                // op_apply or op_funcall but it is incorrect in the case off op_jump and op_pop_jump_if_nil
+                if ((g.debugger.command == Runtime_Globals::Debugger::Command::Step_Over &&
+                     (g.debugger.addr0 == ip || g.debugger.addr1 == ip))
+                    || g.debugger.command == Runtime_Globals::Debugger::Command::Step_Into)
                 {
-                    case 'c':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
-                        in.get();
-                        break;
-                    case 's':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
-                        in.get();
-                        break;
-                    case 'n':
-                        g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
-                        in.get();
-                        break;
-                    case '\n':
-                        in.get();
-                        eat_newline = false;
-                        break;
-                }
+                    debug_dump(std::cout, "VM EXEC", ip);
+                    auto &in = std::cin;
+                    bool eat_newline = true;
+                    switch (in.peek())
+                    {
+                        case 'c':
+                            g.debugger.command = Runtime_Globals::Debugger::Command::Continue;
+                            in.get();
+                            break;
+                        case 's':
+                            g.debugger.command = Runtime_Globals::Debugger::Command::Step_Into;
+                            in.get();
+                            break;
+                        case 'n':
+                            g.debugger.command = Runtime_Globals::Debugger::Command::Step_Over;
+                            in.get();
+                            break;
+                        case '\n':
+                            in.get();
+                            eat_newline = false;
+                            break;
+                    }
 
-                if (eat_newline && in.peek() == '\n')
-                {
-                    in.get();
-                }
+                    if (eat_newline && in.peek() == '\n')
+                    {
+                        in.get();
+                    }
 
-                switch (g.debugger.command)
-                {
-                    case Runtime_Globals::Debugger::Command::Continue:
-                        g.debugger.breaking = false;
-                        break;
-                    case Runtime_Globals::Debugger::Command::Step_Into:
-                        break;
-                    case Runtime_Globals::Debugger::Command::Step_Over:
-                        g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
-                        g.debugger.addr1 = nullptr;
-                        if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
-                        {
-                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-                            g.debugger.addr1 = ip + offset;
-                        }
-                        else if (opcode == bytecode::Opcode::op_jump)
-                        {
-                            auto offset = *reinterpret_cast<const int32_t*>(ip+1);
-                            g.debugger.addr0 = ip + offset;
-                        }
-                        break;
+                    switch (g.debugger.command)
+                    {
+                        case Runtime_Globals::Debugger::Command::Continue:
+                            g.debugger.breaking = false;
+                            break;
+                        case Runtime_Globals::Debugger::Command::Step_Into:
+                            break;
+                        case Runtime_Globals::Debugger::Command::Step_Over:
+                            g.debugger.addr0 = ip + bytecode::opcode_size(opcode);
+                            g.debugger.addr1 = nullptr;
+                            if (opcode == bytecode::Opcode::op_pop_jump_if_nil)
+                            {
+                                auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                                g.debugger.addr1 = ip + offset;
+                            }
+                            else if (opcode == bytecode::Opcode::op_jump)
+                            {
+                                auto offset = *reinterpret_cast<const int32_t*>(ip+1);
+                                g.debugger.addr0 = ip + offset;
+                            }
+                            break;
+                    }
                 }
             }
-        }
-#endif
-        #if PROFILE_OPCODE_PAIRS
-        {
+#if PROFILE_OPCODE_PAIRS
             auto this_opcode = static_cast<bytecode::Opcode>(*ip);
             switch (this_opcode)
             {
@@ -4759,8 +4760,8 @@ const uint8_t *VM_State::execute(const uint8_t *ip)
                     m_opcode_pairs[Opcode_Pair{static_cast<short>(this_opcode), next_opcode}]++;
                 } break;
             }
-        }
-        #endif
+#endif
+        } // if constexpr (debuggable)
 
         EXEC
         {
