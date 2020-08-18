@@ -1889,15 +1889,26 @@ Value to_list(const Value *vals, uint32_t nvals)
         case 7: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6]);
         case 8: return gc.list(vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6], vals[7]);
     }
-    GC_GUARD();
+
+    std::vector<GC::Ptr_Handle> val_handles(nvals);
+    for (uint32_t i = 0; i < nvals; ++i)
+    {
+        val_handles.push_back(gc.pin_value(vals[i]));
+    }
+
     auto head = gc.list(vals[0]);
+    auto head_handle = gc.pin_value(head);
+    gc.unpin_value(val_handles[0]);
     auto current = head;
+
     for (uint32_t i = 1; i < nvals; ++i)
     {
         set_cdr(current, gc.cons(vals[i], Value::nil()));
+        gc.unpin_value(val_handles[i]);
         current = cdr(current);
     }
-    GC_UNGUARD();
+
+    gc.unpin_value(head_handle);
     return head;
 }
 
