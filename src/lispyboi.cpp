@@ -5383,19 +5383,19 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
         }                                                       \
     } while (0)
 
-#define CHECK_AT_LEAST_N(what, n)                                       \
+#define CHECK_NARGS_AT_LEAST(n)                                       \
     do {                                                                \
-        if ((what) < (n)) {                                             \
+        if (nargs < (n)) {                                             \
             raised_signal = true;                                       \
-            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(what)); \
+            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(nargs)); \
         }                                                               \
     } while (0)
 
-#define CHECK_EXACTLY_N(what, n)                                        \
+#define CHECK_NARGS_EXACTLY(n)                                        \
     do {                                                                \
-        if ((what) != (n)) {                                            \
+        if (nargs != (n)) {                                            \
             raised_signal = true;                                       \
-            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(what)); \
+            return gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Argument count mismatch"), Value::wrap_fixnum(n), Value::wrap_fixnum(nargs)); \
         }                                                               \
     } while (0)
 
@@ -5463,7 +5463,7 @@ DEFUN("%PRINT", func_print, g.core(), false)
 
 DEFUN("%DISASSEMBLE", func_disassemble, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto expr = args[0];
     if (expr.is_cons())
     {
@@ -5505,7 +5505,7 @@ DEFUN("%DISASSEMBLE", func_disassemble, g.kernel(), false)
 
 DEFUN("%DEFINE-FUNCTION", func_define_function, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     auto sym = args[0];
     CHECK_SYMBOL(sym);
     auto func = args[1];
@@ -5583,7 +5583,7 @@ bool check_package(Value &arg, Package **out_pkg, Value &out_signal_args)
 
 DEFUN("%PACKAGE-NAME", func_package_name, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     Package *package = nullptr;
     {
         Value res;
@@ -5608,7 +5608,7 @@ DEFUN("%PACKAGE-NAME", func_package_name, g.kernel(), false)
 
 DEFUN("%MAKE-PACKAGE", func_make_package, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     std::string package_name;
     {
         Value signal_args;
@@ -5636,7 +5636,7 @@ DEFUN("%MAKE-PACKAGE", func_make_package, g.kernel(), false)
 
 DEFUN("%FIND-PACKAGE", func_find_package, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     std::string package_name;
     {
         Value signal_args;
@@ -5653,7 +5653,7 @@ DEFUN("%FIND-PACKAGE", func_find_package, g.kernel(), false)
 
 DEFUN("%USE-PACKAGE", func_use_package, g.kernel(), false)
 {
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
 
     std::string package_name;
     {
@@ -5703,8 +5703,7 @@ DEFUN("%USE-PACKAGE", func_use_package, g.kernel(), false)
 
 DEFUN("%IN-PACKAGE", func_in_package, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
-
+    CHECK_NARGS_EXACTLY(1);
 
     Package *package_to_use;
     if (args[0].is_type(Object_Type::Package))
@@ -5807,7 +5806,7 @@ DEFUN("%/", func_divide, g.kernel(), false)
     /***
         (/ x y)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
     auto x = args[0].as_fixnum();
@@ -5825,7 +5824,7 @@ DEFUN("%<", func_num_less, g.kernel(), false)
     /***
         (< a b &rest more-fixnums)
     */
-    CHECK_AT_LEAST_N(nargs, 2);
+    CHECK_NARGS_AT_LEAST(2);
     auto a = args[0];
     CHECK_FIXNUM(a);
     auto b = args[1];
@@ -5854,7 +5853,7 @@ DEFUN("%=", func_num_equal, g.kernel(), false)
     /***
         (= n &rest more-fixnums)
     */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     auto n = args[0];
     CHECK_FIXNUM(n);
     for (uint32_t i = 1; i < nargs; ++i)
@@ -5873,7 +5872,7 @@ DEFUN("%>", func_num_greater, g.kernel(), false)
     /***
         (> a b &rest more-fixnums)
     */
-    CHECK_AT_LEAST_N(nargs, 2);
+    CHECK_NARGS_AT_LEAST(2);
     auto a = args[0];
     CHECK_FIXNUM(a);
     auto b = args[1];
@@ -5902,7 +5901,7 @@ DEFUN("%FILE-TELLG", func_file_tellg, g.kernel(), false)
     /***
         (file-tellg stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_FILE_STREAM(args[0]);
     auto &stm = args[0].as_object()->file_stream()->stream();
     auto pos = stm.tellg();
@@ -5914,7 +5913,7 @@ DEFUN("%FILE-SEEKG", func_file_seekg, g.kernel(), false)
     /***
         (file-seekg stream offset dir)
     */
-    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_NARGS_EXACTLY(3);
     CHECK_FILE_STREAM(args[0]);
     CHECK_FIXNUM(args[1]);
     CHECK_SYMBOL(args[2]);
@@ -5952,7 +5951,7 @@ DEFUN("%FILE-WRITE", func_file_write, g.kernel(), false)
     /***
         (file-write stream object)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FILE_STREAM(args[0]);
     auto &stm = args[0].as_object()->file_stream()->stream();
     auto obj = args[1];
@@ -5969,7 +5968,7 @@ DEFUN("%FILE-PUTCHAR", func_file_putchar, g.kernel(), false)
         (file-putchar stream character)
     */
 
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FILE_STREAM(args[0]);
     auto stm = args[0].as_object()->file_stream();
     CHECK_CHARACTER(args[1]);
@@ -5988,7 +5987,7 @@ DEFUN("%FILE-PUTS", func_file_puts, g.kernel(), false)
         (file-puts stream string)
     */
 
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FILE_STREAM(args[0]);
     CHECK_STRING(args[1]);
     auto &stm = args[0].as_object()->file_stream()->stream();
@@ -6004,7 +6003,7 @@ DEFUN("%TYPE-OF", func_type_of, g.kernel(), false)
     /***
         (type-of object)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     if (it.is_fixnum())
     {
@@ -6112,7 +6111,7 @@ DEFUN("%MACRO-EXPAND", func_macro_expand, g.kernel(), false)
     /***
         (macro-expand expr)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     return macro_expand_impl(args[0], *THE_LISP_VM);
 }
 
@@ -6124,7 +6123,7 @@ DEFUN("%EVAL", func_eval, g.kernel(), false)
     auto vm = THE_LISP_VM;
     auto save = vm->save();
 
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto expr = args[0];
     auto expr_handle = gc.pin_value(expr);
 
@@ -6184,7 +6183,7 @@ DEFUN("%MAKE-SYMBOL", func_make_symbol, g.kernel(), false)
     /***
         (make-symbol symbol-name)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     std::string name;
     CHECK_STRING(args[0]);
     auto array = args[0].as_object()->simple_array();
@@ -6201,7 +6200,7 @@ DEFUN("%SYMBOL-NAME", func_symbol_name, g.kernel(), false)
     /***
         (symbol-name symbol)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYMBOL(args[0]);
     return gc.alloc_string(args[0].as_object()->symbol()->name());
 }
@@ -6211,7 +6210,7 @@ DEFUN("%SYMBOL-PACKAGE", func_symbol_package, g.kernel(), false)
     /***
         (symbol-name symbol)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYMBOL(args[0]);
     auto pkg = args[0].as_object()->symbol()->package();
     return pkg ? pkg->as_lisp_value() : Value::nil();
@@ -6219,7 +6218,7 @@ DEFUN("%SYMBOL-PACKAGE", func_symbol_package, g.kernel(), false)
 
 DEFUN("%EXPORT", func_export, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     auto package = g.packages.current();
     {
         Value res;
@@ -6253,7 +6252,7 @@ DEFUN("%EXPORT", func_export, g.kernel(), false)
 
 DEFUN("%IMPORT", func_import, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     Package *package = nullptr;
     {
         Value res;
@@ -6290,7 +6289,7 @@ DEFUN("%INTERN", func_intern, g.kernel(), false)
     /***
         (intern symbol-name &optional package)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     std::string name;
     CHECK_STRING(args[0]);
     Package *package = nullptr;
@@ -6326,7 +6325,7 @@ DEFUN("%INTERN", func_intern, g.kernel(), false)
 
 DEFUN("%FIND-SYMBOL", func_find_symbol, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     Package *package = nullptr;
     {
         Value res;
@@ -6384,7 +6383,7 @@ DEFUN("%SIGNAL", func_signal, g.kernel(), false)
     /***
         (signal tag &rest args)
     */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     raised_signal = true;
     return to_list(args, nargs);
 }
@@ -6394,7 +6393,7 @@ DEFUN("%MAKE-ARRAY", func_make_array, g.kernel(), false)
     /***
         (make-array length type fill-pointer)
     */
-    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_NARGS_EXACTLY(3);
     auto length = args[0];
     CHECK_FIXNUM(length);
     auto fill_pointer = args[2];
@@ -6412,7 +6411,7 @@ DEFUN("%ARRAY-PUSH-BACK", func_array_push_back, g.kernel(), false)
     /***
         (array-push-back array value)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     auto array_val = args[0];
     CHECK_SIMPLE_ARRAY(array_val);
 
@@ -6439,7 +6438,7 @@ DEFUN("%ARRAY-CAPACITY", func_array_capacity, g.kernel(), false)
     /***
         (array-capacity array)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
 
     auto array = args[0];
     CHECK_SIMPLE_ARRAY(array);
@@ -6451,7 +6450,7 @@ DEFUN("%ARRAY-LENGTH", func_array_length, g.kernel(), false)
     /***
         (array-length array)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
 
     auto array = args[0];
     CHECK_SIMPLE_ARRAY(array);
@@ -6463,7 +6462,7 @@ DEFUN("%ARRAY-TYPE", func_array_type, g.kernel(), false)
     /***
         (array-type array)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
 
     auto array = args[0];
     CHECK_SIMPLE_ARRAY(array);
@@ -6475,7 +6474,7 @@ DEFUN("%BITS-OF", func_bits_of, g.kernel(), false)
     /***
         (bits-of object)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
 
     auto obj = args[0];
     auto ret = gc.alloc_object<Simple_Array>(g.s_BIT, 64);
@@ -6494,7 +6493,7 @@ DEFUN("%CODE-CHAR", func_code_char, g.kernel(), false)
     /***
         (code-char integer)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_FIXNUM(args[0]);
     auto char_code = args[0].as_fixnum();
     return Value::wrap_character(char_code);
@@ -6505,7 +6504,7 @@ DEFUN("%CHAR-CODE", func_char_code, g.kernel(), false)
     /***
         (char-code character)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_CHARACTER(args[0]);
     auto character = args[0].as_character();
     return Value::wrap_fixnum(character);
@@ -6534,7 +6533,7 @@ DEFUN("%OPEN", func_open, g.kernel(), false)
     /***
         (open file-path direction)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
 
     CHECK_STRING(args[0]);
 
@@ -6568,7 +6567,7 @@ DEFUN("%CLOSE", func_close, g.kernel(), false)
     /***
         (close file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     it.as_object()->file_stream()->stream().close();
@@ -6580,7 +6579,7 @@ DEFUN("%FILE-PATH", func_file_path, g.kernel(), false)
     /***
         (file-path file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     return gc.alloc_string(it.as_object()->file_stream()->path());
 }
@@ -6590,7 +6589,7 @@ DEFUN("%FILE-OK-P", func_file_ok_p, g.kernel(), false)
     /***
         (file-ok-p file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     if (it.is_nil()) return it;
     CHECK_FILE_STREAM(it);
@@ -6602,7 +6601,7 @@ DEFUN("%FILE-EOF-P", func_file_eof_p, g.kernel(), false)
     /***
         (file-eof-p file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     if (it.is_nil()) return it;
     CHECK_FILE_STREAM(it);
@@ -6614,7 +6613,7 @@ DEFUN("%FILE-MODE", func_file_mode, g.kernel(), false)
     /***
         (file-mode file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto mode = it.as_object()->file_stream()->mode();
@@ -6639,7 +6638,7 @@ DEFUN("%FILE-FLUSH", func_file_flush, g.kernel(), false)
     /***
         (file-flush file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     it.as_object()->file_stream()->stream().flush();
@@ -6651,7 +6650,7 @@ DEFUN("%FILE-READ-BYTE", func_file_read_byte, g.kernel(), false)
     /***
         (file-read-byte file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto &stm = it.as_object()->file_stream()->stream();
@@ -6668,7 +6667,7 @@ DEFUN("%FILE-PEEK-BYTE", func_file_peek_byte, g.kernel(), false)
     /***
         (file-peek-byte file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto &stm = it.as_object()->file_stream()->stream();
@@ -6685,7 +6684,7 @@ DEFUN("%FILE-PEEK-CHARACTER", func_file_peek_character, g.kernel(), false)
     /***
         (file-peek-character file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto fs = it.as_object()->file_stream();
@@ -6702,7 +6701,7 @@ DEFUN("%FILE-READ-CHARACTER", func_file_read_character, g.kernel(), false)
     /***
         (file-read-character file-stream)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto it = args[0];
     CHECK_FILE_STREAM(it);
     auto fs = it.as_object()->file_stream();
@@ -6719,7 +6718,7 @@ DEFUN("%FUNCTION-DEFINITION", func_function_definition, g.kernel(), false)
     /***
         (function-definition symbol)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto sym = args[0];
     CHECK_SYMBOL(sym);
     return sym.as_object()->symbol()->function();
@@ -6730,7 +6729,7 @@ DEFUN("%STRUCTURE-DEFINITION", func_structure_definition, g.kernel(), false)
     /***
         (structure-definition object)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_STRUCT(args[0]);
     return args[0].as_object()->structure()->type();
 }
@@ -6740,7 +6739,7 @@ DEFUN("%CREATE-INSTANCE", func_create_instance, g.kernel(), false)
     /***
         (create-instance type &rest slots)
      */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     auto instance_val = gc.alloc_object<Structure>(args[0], nargs-1);
     if (nargs > 1)
     {
@@ -6758,7 +6757,7 @@ DEFUN("%GET-SLOT", func_get_slot, g.kernel(), false)
     /***
         (get-slot object n)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_STRUCT(args[0]);
     CHECK_FIXNUM(args[1]);
     auto index = args[1].as_fixnum();
@@ -6770,7 +6769,7 @@ DEFUN("%SET-SLOT", func_set_slot, g.kernel(), false)
     /***
         (set-slot object n value)
      */
-    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_NARGS_EXACTLY(3);
     CHECK_STRUCT(args[0]);
     CHECK_FIXNUM(args[1]);
     auto index = args[1].as_fixnum();
@@ -6781,19 +6780,19 @@ DEFUN("%SET-SLOT", func_set_slot, g.kernel(), false)
 
 DEFUN("%GC-PAUSE", func_gc_pause, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     return gc.pause() ? g.s_T : Value::nil();
 }
 
 DEFUN("%GC-PAUSED-P", func_gc_paused_p, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     return gc.paused() ? g.s_T : Value::nil();
 }
 
 DEFUN("%GC-SET-PAUSED", func_gc_set_paused, g.kernel(), false)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     gc.set_paused(!args[0].is_nil());
     return args[0];
 }
@@ -6826,7 +6825,7 @@ DEFUN("BIT-NOT", func_bit_not, g.kernel(), true)
     /***
         (bit-not x)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_FIXNUM(args[0]);
     auto x = args[0].as_fixnum();
     return Value::wrap_fixnum(~x);
@@ -6837,7 +6836,7 @@ DEFUN("BIT-AND", func_bit_and, g.kernel(), true)
     /***
         (bit-and x y)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
     auto x = args[0].as_fixnum();
@@ -6850,7 +6849,7 @@ DEFUN("BIT-IOR", func_bit_ior, g.kernel(), true)
     /***
         (bit-or x y &rest z)
     */
-    CHECK_AT_LEAST_N(nargs, 2);
+    CHECK_NARGS_AT_LEAST(2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
 
@@ -6868,7 +6867,7 @@ DEFUN("BIT-XOR", func_bit_xor, g.kernel(), true)
     /***
         (bit-xor x y)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
     auto x = args[0].as_fixnum();
@@ -6881,7 +6880,7 @@ DEFUN("BIT-SHIFT", func_bit_shift, g.kernel(), true)
     /***
         (bit-shift integer count)
     */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_FIXNUM(args[0]);
     CHECK_FIXNUM(args[1]);
     auto integer = args[0].as_fixnum();
@@ -6908,7 +6907,7 @@ DEFUN("CHANGE-DIRECTORY", func_change_directory, g.kernel(), true)
     /***
         (change-directory path)
     */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_STRING(args[0]);
     auto new_path = lisp_string_to_native_string(args[0]);
     std::error_code error;
@@ -6928,7 +6927,7 @@ DEFUN("GET-EXECUTABLE-PATH", func_get_executable_path, g.kernel(), true)
     /***
         (get-executable-path)
     */
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     return gc.alloc_string(plat::get_executable_path());
 }
 
@@ -6937,7 +6936,7 @@ DEFUN("GET-CLOCK-TICKS", func_get_clock_ticks, g.kernel(), true)
     /***
         (get-clock-ticks)
     */
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration);
@@ -6949,7 +6948,7 @@ DEFUN("CLOCKS-PER-SECOND", func_clocks_per_second, g.kernel(), true)
     /***
         (clocks-per-second)
     */
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     return Value::wrap_fixnum(1000000); // @FIXME use something better than costant number
 }
 
@@ -7040,7 +7039,7 @@ DEFUN("FFI-OPEN", func_ffi_open, g.kernel(), true)
     /***
         (ffi-open dll-path)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     auto lib = args[0];
     CHECK_STRING(lib);
     auto lib_str = lisp_string_to_native_string(lib);
@@ -7053,7 +7052,7 @@ DEFUN("FFI-CLOSE", func_ffi_close, g.kernel(), true)
     /***
         (ffi-close dll-handle)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     ffi::close(args[0].as_object()->system_pointer());
     return Value::nil();
@@ -7064,7 +7063,7 @@ DEFUN("FFI-GET-SYMBOL", func_ffi_get_symbol, g.kernel(), true)
     /***
         (ffi-get-symbol dll-handle symbol-name)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_SYSTEM_POINTER(args[0]);
     CHECK_STRING(args[1]);
 
@@ -7081,7 +7080,7 @@ DEFUN("FFI-CALL", func_ffi_call, g.kernel(), true)
     /***
         (ffi-call c-function &rest args)
      */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto func = args[0].as_object()->system_pointer();
     std::vector<void *> marshalled;
@@ -7110,7 +7109,7 @@ DEFUN("FFI-NULLPTR", func_ffi_nullptr, g.kernel(), true)
     /***
         (ffi-nullptr)
      */
-    CHECK_EXACTLY_N(nargs, 0);
+    CHECK_NARGS_EXACTLY(0);
     return gc.alloc_object<System_Pointer>(nullptr);
 }
 
@@ -7119,7 +7118,7 @@ DEFUN("FFI-ALLOC", func_ffi_alloc, g.kernel(), true)
     /***
         (ffi-alloc size)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_FIXNUM(args[0]);
     auto size = args[0].as_fixnum();
     return gc.alloc_object<System_Pointer>(ffi::alloc_mem(size));
@@ -7130,7 +7129,7 @@ DEFUN("FFI-ZERO-ALLOC", func_ffi_zero_alloc, g.kernel(), true)
     /***
         (ffi-zero-alloc size)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_FIXNUM(args[0]);
     auto size = args[0].as_fixnum();
     return gc.alloc_object<System_Pointer>(ffi::calloc_mem(size));
@@ -7141,7 +7140,7 @@ DEFUN("FFI-FREE", func_ffi_free, g.kernel(), true)
     /***
         (ffi-free pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = args[0].as_object()->system_pointer();
     ffi::free_mem(ptr);
@@ -7154,7 +7153,7 @@ DEFUN("FFI-REF", func_ffi_ref, g.kernel(), true)
     /***
         (ffi-ref pointer &optional offset)
      */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     CHECK_SYSTEM_POINTER(args[0]);
     if (nargs == 1)
     {
@@ -7175,7 +7174,7 @@ DEFUN("FFI-REF-8", func_ffi_ref_8, g.kernel(), true)
     /***
         (ffi-ref-8 pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(*ptr);
@@ -7186,7 +7185,7 @@ DEFUN("FFI-REF-16", func_ffi_ref_16, g.kernel(), true)
     /***
         (ffi-ref-16 pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint16_t*>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(*ptr);
@@ -7197,7 +7196,7 @@ DEFUN("FFI-REF-32", func_ffi_ref_32, g.kernel(), true)
     /***
         (ffi-ref-32 pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint32_t*>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(*ptr);
@@ -7208,7 +7207,7 @@ DEFUN("FFI-REF-64", func_ffi_ref_64, g.kernel(), true)
     /***
         (ffi-ref-64 pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint64_t*>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(*ptr);
@@ -7219,7 +7218,7 @@ DEFUN("FFI-SET-REF", func_ffi_set_ref, g.kernel(), true)
     /***
         (ffi-set-ref pointer value value-size)
      */
-    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_NARGS_EXACTLY(3);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<uint8_t*>(args[0].as_object()->system_pointer());
     CHECK_SYSTEM_POINTER(args[1]);
@@ -7236,7 +7235,7 @@ DEFUN("FFI-SET-REF-8", func_ffi_set_ref_8, g.kernel(), true)
     /***
         (ffi-set-ref-8 pointer value)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_SYSTEM_POINTER(args[0]);
     uint8_t value;
     auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
@@ -7259,7 +7258,7 @@ DEFUN("FFI-SET-REF-16", func_ffi_set_16, g.kernel(), true)
     /***
         (ffi-set-ref-16 pointer value)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_SYSTEM_POINTER(args[0]);
     uint16_t value;
     auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
@@ -7282,7 +7281,7 @@ DEFUN("FFI-SET-REF-32", func_ffi_set_32, g.kernel(), true)
     /***
         (ffi-set-ref-32 pointer value)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_SYSTEM_POINTER(args[0]);
     uint32_t value;
     auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
@@ -7305,7 +7304,7 @@ DEFUN("FFI-SET-REF-64", func_ffi_set_64, g.kernel(), true)
     /***
         (ffi-set-ref-64 pointer value)
      */
-    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_NARGS_EXACTLY(2);
     CHECK_SYSTEM_POINTER(args[0]);
     uint64_t value;
     auto ptr = reinterpret_cast<decltype(value)*>(args[0].as_object()->system_pointer());
@@ -7328,7 +7327,7 @@ DEFUN("FFI-MARSHAL", func_ffi_marshal, g.kernel(), true)
     /***
         (ffi-marshal object)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     void *result = nullptr;
     if (ffi_try_marshal(args[0], &result))
     {
@@ -7343,7 +7342,7 @@ DEFUN("FFI-MARSHAL", func_ffi_marshal, g.kernel(), true)
 
 DEFUN("FFI-STRLEN", func_ffi_strlen, g.kernel(), true)
 {
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<const char*>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(strlen(ptr));
@@ -7354,7 +7353,7 @@ DEFUN("FFI-COERCE-FIXNUM", func_ffi_coerce_fixnum, g.kernel(), true)
     /***
         (ffi-coerce-fixnum system-pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<Fixnum>(args[0].as_object()->system_pointer());
     return Value::wrap_fixnum(ptr);
@@ -7365,7 +7364,7 @@ DEFUN("FFI-COERCE-INT", func_ffi_coerce_int, g.kernel(), true)
     /***
         (ffi-coerce-int system-pointer)
      */
-    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_NARGS_EXACTLY(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = static_cast<int>(reinterpret_cast<uintptr_t>(args[0].as_object()->system_pointer()));
     return Value::wrap_fixnum(ptr);
@@ -7376,7 +7375,7 @@ DEFUN("FFI-COERCE-STRING", func_ffi_coerce_string, g.kernel(), true)
     /***
         (ffi-coerce-string system-pointer &optional length)
      */
-    CHECK_AT_LEAST_N(nargs, 1);
+    CHECK_NARGS_AT_LEAST(1);
     CHECK_SYSTEM_POINTER(args[0]);
     auto ptr = reinterpret_cast<const char*>(args[0].as_object()->system_pointer());
     if (nargs == 1)
