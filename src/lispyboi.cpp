@@ -1233,6 +1233,8 @@ struct GC
     GC()
         : m_marked(0)
         , m_total_consed(0)
+        , m_time_spent_in_gc(0)
+        , m_times_gc_has_run(0)
         , m_is_paused(true)
         , m_is_warmed_up(false)
     {
@@ -1624,6 +1626,16 @@ struct GC
         return m_total_consed;
     }
 
+    size_t get_time_spent_in_gc() const
+    {
+        return m_time_spent_in_gc;
+    }
+
+    size_t get_times_gc_has_run() const
+    {
+        return m_times_gc_has_run;
+    }
+
   private:
 
     Reference *ptr_to_ref(void *ptr)
@@ -1664,7 +1676,12 @@ struct GC
             // If a sweep doesn't free enough then to minimize successive garbage collections
             // we'll revert to a no longer warmed-up state which will only switch back when
             // there are enough recent allocations.
+            auto start_time = std::chrono::high_resolution_clock::now();
             m_is_warmed_up = mark_and_sweep() > GC_COOLDOWN_THRESHOLD;
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>( end_time - start_time ).count();
+            m_time_spent_in_gc += duration;
+            m_times_gc_has_run++;
         }
     }
 
@@ -1846,6 +1863,8 @@ struct GC
     std::vector<Mark_Function> m_mark_functions;
     size_t m_marked;
     size_t m_total_consed;
+    size_t m_time_spent_in_gc;
+    size_t m_times_gc_has_run;
     bool m_is_paused;
     bool m_is_warmed_up;
 } gc;
@@ -6778,6 +6797,16 @@ DEFUN("%GC-GET-CONSED", func_gc_get_consed, g.kernel(), false)
     return Value::wrap_fixnum(gc.get_consed());
 }
 
+DEFUN("%GC-GET-TIME-SPENT-IN-GC", func_gc_get_time_spent_in_gc, g.kernel(), false)
+{
+    return Value::wrap_fixnum(gc.get_time_spent_in_gc());
+}
+
+DEFUN("%GC-GET-TIMES-GC-HAS-RUN", func_gc_get_times_gc_has_run, g.kernel(), false)
+{
+    return Value::wrap_fixnum(gc.get_times_gc_has_run());
+}
+
 ///////////////////////////////////////////////////////////////////////
 // Exported Functions
 
@@ -7454,7 +7483,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_BEGINNING        = core->export_symbol("BEGINNING");
     g.s_END              = core->export_symbol("END");
     g.s_CURRENT          = core->export_symbol("CURRENT");
-    
+
     for (auto &init : g_function_initializers)
     {
         if (init.is_exported)
