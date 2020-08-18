@@ -1233,7 +1233,7 @@ struct GC
     GC()
         : m_marked(0)
         , m_total_consed(0)
-        , m_is_paused(false)
+        , m_is_paused(true)
         , m_is_warmed_up(false)
     {
         m_free_small_bins.resize(SMALL_BINS_SIZE);
@@ -1354,7 +1354,6 @@ struct GC
     void set_paused(bool new_val)
     {
         m_is_paused = new_val;
-        //maybe_mark_and_sweep();
     }
 
     using Mark_Function = std::function<void(GC&)>;
@@ -5373,10 +5372,66 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 
 static void set_global(compiler::Scope *scope, Value symbol_value, Value value);
 
+struct Function_Initializer
+{
+    using Cpp_Function = Value (*)(Value *args, uint32_t nargs, bool &raised_signal);
+
+    std::string lisp_name;
+    std::string cpp_name;
+    Package *package;
+    Cpp_Function cpp_function;
+    bool is_exported;
+};
+static std::vector<Function_Initializer> g_function_initializers;
+
+struct Function_Initializer_With_Defun
+{
+    Function_Initializer_With_Defun(const std::string &lisp_name,
+                                    const std::string &cpp_name,
+                                    const std::string &package_name,
+                                    Function_Initializer::Cpp_Function cpp_function,
+                                    bool is_exported)
+    {
+        auto package = g.packages.find_or_create(package_name);
+        g_function_initializers.push_back({lisp_name, cpp_name, package, cpp_function, is_exported});
+    }
+
+    Function_Initializer_With_Defun(const std::string &lisp_name,
+                                    const std::string &cpp_name,
+                                    Package *package,
+                                    Function_Initializer::Cpp_Function cpp_function,
+                                    bool is_exported)
+    {
+        g_function_initializers.push_back({lisp_name, cpp_name, package, cpp_function, is_exported});
+    }
+};
+
 namespace primitives
 {
 
-Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
+#define CONCAT_IMPL(x, y) x ## y
+#define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
+#define GENSYM(pfx) MACRO_CONCAT(pfx, __COUNTER__)
+
+#define DEFUN(lisp_name, cpp_name, package, export)                 \
+    Value cpp_name(Value *args, uint32_t nargs, bool &raised_signal); \
+    static Function_Initializer_With_Defun GENSYM(pfx) (lisp_name, #cpp_name, package, cpp_name, export); \
+    Value cpp_name(Value *args, uint32_t nargs, bool &raised_signal)
+
+///////////////////////////////////////////////////////////////////////
+// Internal Functions
+
+DEFUN("%PRINT", func_print, g.core(), false)
+{
+    for (uint32_t i = 0; i < nargs; ++i)
+    {
+        printf("%s ", repr(args[i]).c_str());
+    }
+    printf("\n");
+    return Value::nil();
+}
+
+DEFUN("%DISASSEMBLE", func_disassemble, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 1);
     auto expr = args[0];
@@ -5418,7 +5473,7 @@ Value func_disassemble(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::nil();
 }
 
-Value func_define_function(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%DEFINE-FUNCTION", func_define_function, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 2);
     auto sym = args[0];
@@ -5433,6 +5488,7 @@ Value func_define_function(Value *args, uint32_t nargs, bool &raised_signal)
     return sym;
 }
 
+static
 bool check_string_like(Value &arg, Value &out_signal_args, std::string &out_string)
 {
     // Helper to check if arg is a string-like, storing the string representation in out_string.
@@ -5495,7 +5551,7 @@ bool check_package(Value &arg, Package **out_pkg, Value &out_signal_args)
     return false;
 }
 
-Value func_package_name(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%PACKAGE-NAME", func_package_name, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 1);
     Package *package = nullptr;
@@ -5520,7 +5576,7 @@ Value func_package_name(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(args[0].as_object()->package()->name());
 }
 
-Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%MAKE-PACKAGE", func_make_package, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 1);
     std::string package_name;
@@ -5548,7 +5604,7 @@ Value func_make_package(Value *args, uint32_t nargs, bool &raised_signal)
     return package->as_lisp_value();
 }
 
-Value func_find_package(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FIND-PACKAGE", func_find_package, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 1);
     std::string package_name;
@@ -5565,7 +5621,7 @@ Value func_find_package(Value *args, uint32_t nargs, bool &raised_signal)
     return pkg ? pkg->as_lisp_value() : Value::nil();
 }
 
-Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%USE-PACKAGE", func_use_package, g.kernel(), false)
 {
     CHECK_AT_LEAST_N(nargs, 1);
 
@@ -5615,7 +5671,7 @@ Value func_use_package(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%IN-PACKAGE", func_in_package, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 1);
 
@@ -5658,17 +5714,7 @@ Value func_in_package(Value *args, uint32_t nargs, bool &raised_signal)
     return package_to_use->as_lisp_value();
 }
 
-Value func_print(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    for (uint32_t i = 0; i < nargs; ++i)
-    {
-        printf("%s ", repr(args[i]).c_str());
-    }
-    printf("\n");
-    return Value::nil();
-}
-
-Value func_plus(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%+", func_plus, g.kernel(), false)
 {
     /***
         (+ &rest fixnums)
@@ -5683,7 +5729,7 @@ Value func_plus(Value *args, uint32_t nargs, bool &raised_signal)
     return result;
 }
 
-Value func_minus(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%-", func_minus, g.kernel(), false)
 {
     /***
         (- &rest fixnums)
@@ -5711,7 +5757,7 @@ Value func_minus(Value *args, uint32_t nargs, bool &raised_signal)
     return result;
 }
 
-Value func_multiply(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%*", func_multiply, g.kernel(), false)
 {
     /***
         (* &rest fixnums)
@@ -5726,7 +5772,7 @@ Value func_multiply(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(result);
 }
 
-Value func_divide(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%/", func_divide, g.kernel(), false)
 {
     /***
         (/ x y)
@@ -5744,79 +5790,7 @@ Value func_divide(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(x / y);
 }
 
-Value func_bit_not(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (bit-not x)
-    */
-    CHECK_EXACTLY_N(nargs, 1);
-    CHECK_FIXNUM(args[0]);
-    auto x = args[0].as_fixnum();
-    return Value::wrap_fixnum(~x);
-}
-
-Value func_bit_and(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (bit-and x y)
-    */
-    CHECK_EXACTLY_N(nargs, 2);
-    CHECK_FIXNUM(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto x = args[0].as_fixnum();
-    auto y = args[1].as_fixnum();
-    return Value::wrap_fixnum(x & y);
-}
-
-Value func_bit_ior(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (bit-or x y &rest z)
-    */
-    CHECK_AT_LEAST_N(nargs, 2);
-    CHECK_FIXNUM(args[0]);
-    CHECK_FIXNUM(args[1]);
-
-    auto res = args[0] | args[1];
-    for (uint32_t i = 2; i < nargs; ++i)
-    {
-        CHECK_FIXNUM(args[i]);
-        res |= args[i];
-    }
-    return res;
-}
-
-Value func_bit_xor(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (bit-xor x y)
-    */
-    CHECK_EXACTLY_N(nargs, 2);
-    CHECK_FIXNUM(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto x = args[0].as_fixnum();
-    auto y = args[1].as_fixnum();
-    return Value::wrap_fixnum(x ^ y);
-}
-
-Value func_bit_shift(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (bit-shift integer count)
-    */
-    CHECK_EXACTLY_N(nargs, 2);
-    CHECK_FIXNUM(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto integer = args[0].as_fixnum();
-    auto count = args[1].as_fixnum();
-    if (count > 0)
-    {
-        return Value::wrap_fixnum(integer << count);
-    }
-    return Value::wrap_fixnum(integer >> -count);
-}
-
-Value func_num_less(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%<", func_num_less, g.kernel(), false)
 {
     /***
         (< a b &rest more-fixnums)
@@ -5845,7 +5819,7 @@ Value func_num_less(Value *args, uint32_t nargs, bool &raised_signal)
     return result ? g.s_T : Value::nil();
 }
 
-Value func_num_equal(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%=", func_num_equal, g.kernel(), false)
 {
     /***
         (= n &rest more-fixnums)
@@ -5864,7 +5838,7 @@ Value func_num_equal(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_num_greater(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%>", func_num_greater, g.kernel(), false)
 {
     /***
         (> a b &rest more-fixnums)
@@ -5893,7 +5867,7 @@ Value func_num_greater(Value *args, uint32_t nargs, bool &raised_signal)
     return result ? g.s_T : Value::nil();
 }
 
-Value func_file_tellg(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-TELLG", func_file_tellg, g.kernel(), false)
 {
     /***
         (file-tellg stream)
@@ -5905,7 +5879,7 @@ Value func_file_tellg(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(pos);
 }
 
-Value func_file_seekg(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-SEEKG", func_file_seekg, g.kernel(), false)
 {
     /***
         (file-seekg stream offset dir)
@@ -5943,7 +5917,7 @@ Value func_file_seekg(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::nil();
 }
 
-Value func_file_write(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-WRITE", func_file_write, g.kernel(), false)
 {
     /***
         (file-write stream object)
@@ -5959,7 +5933,7 @@ Value func_file_write(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(bytes_written);
 }
 
-Value func_file_putchar(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-PUTCHAR", func_file_putchar, g.kernel(), false)
 {
     /***
         (file-putchar stream character)
@@ -5978,7 +5952,7 @@ Value func_file_putchar(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(bytes_written);
 }
 
-Value func_file_puts(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-PUTS", func_file_puts, g.kernel(), false)
 {
     /***
         (file-puts stream string)
@@ -5995,7 +5969,7 @@ Value func_file_puts(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(bytes_written);
 }
 
-Value func_type_of(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%TYPE-OF", func_type_of, g.kernel(), false)
 {
     /***
         (type-of object)
@@ -6053,7 +6027,7 @@ Value func_type_of(Value *args, uint32_t nargs, bool &raised_signal)
     return res;
 }
 
-Value func_read(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%READ", func_read, g.kernel(), false)
 {
     /***
         (read &optional file-stream eof-error-p eof-value)
@@ -6103,7 +6077,7 @@ Value func_read(Value *args, uint32_t nargs, bool &raised_signal)
     }
 }
 
-Value func_macro_expand(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%MACRO-EXPAND", func_macro_expand, g.kernel(), false)
 {
     /***
         (macro-expand expr)
@@ -6112,7 +6086,7 @@ Value func_macro_expand(Value *args, uint32_t nargs, bool &raised_signal)
     return macro_expand_impl(args[0], *THE_LISP_VM);
 }
 
-Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%EVAL", func_eval, g.kernel(), false)
 {
     /***
         (eval expr)
@@ -6153,7 +6127,7 @@ Value func_eval(Value *args, uint32_t nargs, bool &raised_signal)
     return result;
 }
 
-Value func_gensym(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%GENSYM", func_gensym, g.kernel(), false)
 {
     /***
         (gensym &optional hint)
@@ -6175,7 +6149,7 @@ Value func_gensym(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<Symbol>(sym_name);
 }
 
-Value func_make_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%MAKE-SYMBOL", func_make_symbol, g.kernel(), false)
 {
     /***
         (make-symbol symbol-name)
@@ -6192,7 +6166,7 @@ Value func_make_symbol(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<Symbol>(name);
 }
 
-Value func_symbol_name(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%SYMBOL-NAME", func_symbol_name, g.kernel(), false)
 {
     /***
         (symbol-name symbol)
@@ -6202,7 +6176,7 @@ Value func_symbol_name(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(args[0].as_object()->symbol()->name());
 }
 
-Value func_symbol_package(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%SYMBOL-PACKAGE", func_symbol_package, g.kernel(), false)
 {
     /***
         (symbol-name symbol)
@@ -6213,7 +6187,7 @@ Value func_symbol_package(Value *args, uint32_t nargs, bool &raised_signal)
     return pkg ? pkg->as_lisp_value() : Value::nil();
 }
 
-Value func_export(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%EXPORT", func_export, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 2);
     auto package = g.packages.current();
@@ -6247,7 +6221,80 @@ Value func_export(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_find_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%IMPORT", func_import, g.kernel(), false)
+{
+    CHECK_EXACTLY_N(nargs, 2);
+    Package *package = nullptr;
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+
+    auto list_of_symbols = args[0];
+    CHECK_LIST(list_of_symbols);
+    while (!list_of_symbols.is_nil())
+    {
+        auto sym = car(list_of_symbols);
+        CHECK_SYMBOL(sym);
+        package->import_symbol(sym);
+        list_of_symbols = cdr(list_of_symbols);
+    }
+    return g.s_T;
+}
+
+DEFUN("%INTERN", func_intern, g.kernel(), false)
+{
+    /***
+        (intern symbol-name &optional package)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    std::string name;
+    CHECK_STRING(args[0]);
+    Package *package = nullptr;
+
+    {
+        Value res;
+        raised_signal = check_package(args[1], &package, res);
+        if (raised_signal)
+        {
+            return res;
+        }
+    }
+
+    if (package == nullptr)
+    {
+        raised_signal = true;
+        GC_GUARD();
+        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
+        GC_UNGUARD();
+        return res;
+    }
+
+    auto array = args[0].as_object()->simple_array();
+    for (Fixnum i = 0; i < array->size(); ++i)
+    {
+        auto codepoint = array->at(i).as_character();
+        name += reinterpret_cast<const char*>(&codepoint);
+    }
+
+    auto sym = package->intern_symbol(name);
+    return sym;
+}
+
+DEFUN("%FIND-SYMBOL", func_find_symbol, g.kernel(), false)
 {
     CHECK_EXACTLY_N(nargs, 2);
     Package *package = nullptr;
@@ -6287,80 +6334,8 @@ Value func_find_symbol(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.list(Value::nil(), Value::nil());
 }
 
-Value func_import(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    CHECK_EXACTLY_N(nargs, 2);
-    Package *package = nullptr;
-    {
-        Value res;
-        raised_signal = check_package(args[1], &package, res);
-        if (raised_signal)
-        {
-            return res;
-        }
-    }
 
-    if (package == nullptr)
-    {
-        raised_signal = true;
-        GC_GUARD();
-        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
-        GC_UNGUARD();
-        return res;
-    }
-
-    auto list_of_symbols = args[0];
-    CHECK_LIST(list_of_symbols);
-    while (!list_of_symbols.is_nil())
-    {
-        auto sym = car(list_of_symbols);
-        CHECK_SYMBOL(sym);
-        package->import_symbol(sym);
-        list_of_symbols = cdr(list_of_symbols);
-    }
-    return g.s_T;
-}
-
-Value func_intern(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (intern symbol-name &optional package)
-    */
-    CHECK_EXACTLY_N(nargs, 2);
-    std::string name;
-    CHECK_STRING(args[0]);
-    Package *package = nullptr;
-
-    {
-        Value res;
-        raised_signal = check_package(args[1], &package, res);
-        if (raised_signal)
-        {
-            return res;
-        }
-    }
-
-    if (package == nullptr)
-    {
-        raised_signal = true;
-        GC_GUARD();
-        auto res = gc.list(g.s_SIMPLE_ERROR, gc.alloc_string("Package does not exist"), args[1]);
-        GC_UNGUARD();
-        return res;
-    }
-
-    auto array = args[0].as_object()->simple_array();
-    for (Fixnum i = 0; i < array->size(); ++i)
-    {
-        auto codepoint = array->at(i).as_character();
-        name += reinterpret_cast<const char*>(&codepoint);
-    }
-
-    auto sym = package->intern_symbol(name);
-    return sym;
-}
-
-Value func_exit(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%EXIT", func_exit, g.kernel(), false)
 {
     /***
         (exit &optional n)
@@ -6374,7 +6349,7 @@ Value func_exit(Value *args, uint32_t nargs, bool &raised_signal)
     exit(code);
 }
 
-Value func_signal(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%SIGNAL", func_signal, g.kernel(), false)
 {
     /***
         (signal tag &rest args)
@@ -6384,7 +6359,7 @@ Value func_signal(Value *args, uint32_t nargs, bool &raised_signal)
     return to_list(args, nargs);
 }
 
-Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%MAKE-ARRAY", func_make_array, g.kernel(), false)
 {
     /***
         (make-array length type fill-pointer)
@@ -6402,7 +6377,7 @@ Value func_make_array(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<Simple_Array>(g.s_T, length.as_fixnum(), fill_pointer.as_fixnum());
 }
 
-Value func_array_push_back(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%ARRAY-PUSH-BACK", func_array_push_back, g.kernel(), false)
 {
     /***
         (array-push-back array value)
@@ -6429,7 +6404,7 @@ Value func_array_push_back(Value *args, uint32_t nargs, bool &raised_signal)
     return value;
 }
 
-Value func_array_capacity(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%ARRAY-CAPACITY", func_array_capacity, g.kernel(), false)
 {
     /***
         (array-capacity array)
@@ -6441,7 +6416,7 @@ Value func_array_capacity(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(array.as_object()->simple_array()->capacity());
 }
 
-Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%ARRAY-LENGTH", func_array_length, g.kernel(), false)
 {
     /***
         (array-length array)
@@ -6453,7 +6428,7 @@ Value func_array_length(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(array.as_object()->simple_array()->size());
 }
 
-Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%ARRAY-TYPE", func_array_type, g.kernel(), false)
 {
     /***
         (array-type array)
@@ -6465,7 +6440,7 @@ Value func_array_type(Value *args, uint32_t nargs, bool &raised_signal)
     return array.as_object()->simple_array()->element_type();
 }
 
-Value func_bits_of(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%BITS-OF", func_bits_of, g.kernel(), false)
 {
     /***
         (bits-of object)
@@ -6484,7 +6459,7 @@ Value func_bits_of(Value *args, uint32_t nargs, bool &raised_signal)
     return ret;
 }
 
-Value func_code_char(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%CODE-CHAR", func_code_char, g.kernel(), false)
 {
     /***
         (code-char integer)
@@ -6495,7 +6470,7 @@ Value func_code_char(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_character(char_code);
 }
 
-Value func_char_code(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%CHAR-CODE", func_char_code, g.kernel(), false)
 {
     /***
         (char-code character)
@@ -6524,7 +6499,7 @@ std::ios_base::openmode get_mode(Value v)
     return static_cast<std::ios_base::openmode>(0);
 }
 
-Value func_open(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%OPEN", func_open, g.kernel(), false)
 {
     /***
         (open file-path direction)
@@ -6558,7 +6533,7 @@ Value func_open(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::nil();
 }
 
-Value func_close(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%CLOSE", func_close, g.kernel(), false)
 {
     /***
         (close file-stream)
@@ -6570,7 +6545,7 @@ Value func_close(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_file_path(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-PATH", func_file_path, g.kernel(), false)
 {
     /***
         (file-path file-stream)
@@ -6580,10 +6555,10 @@ Value func_file_path(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(it.as_object()->file_stream()->path());
 }
 
-Value func_file_ok(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-OK-P", func_file_ok_p, g.kernel(), false)
 {
     /***
-        (file-ok file-stream)
+        (file-ok-p file-stream)
     */
     CHECK_EXACTLY_N(nargs, 1);
     auto it = args[0];
@@ -6592,7 +6567,7 @@ Value func_file_ok(Value *args, uint32_t nargs, bool &raised_signal)
     return it.as_object()->file_stream()->stream().good() ? g.s_T : Value::nil();
 }
 
-Value func_file_eof(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-EOF-P", func_file_eof_p, g.kernel(), false)
 {
     /***
         (file-eof-p file-stream)
@@ -6604,7 +6579,7 @@ Value func_file_eof(Value *args, uint32_t nargs, bool &raised_signal)
     return it.as_object()->file_stream()->stream().eof() ? g.s_T : Value::nil();
 }
 
-Value func_file_mode(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-MODE", func_file_mode, g.kernel(), false)
 {
     /***
         (file-mode file-stream)
@@ -6629,7 +6604,7 @@ Value func_file_mode(Value *args, uint32_t nargs, bool &raised_signal)
     return to_list(vals);
 }
 
-Value func_file_flush(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-FLUSH", func_file_flush, g.kernel(), false)
 {
     /***
         (file-flush file-stream)
@@ -6641,7 +6616,7 @@ Value func_file_flush(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_file_read_byte(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-READ-BYTE", func_file_read_byte, g.kernel(), false)
 {
     /***
         (file-read-byte file-stream)
@@ -6658,7 +6633,7 @@ Value func_file_read_byte(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(stm.get());
 }
 
-Value func_file_peek_byte(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-PEEK-BYTE", func_file_peek_byte, g.kernel(), false)
 {
     /***
         (file-peek-byte file-stream)
@@ -6675,7 +6650,7 @@ Value func_file_peek_byte(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(stm.peek());
 }
 
-Value func_file_peek_character(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-PEEK-CHARACTER", func_file_peek_character, g.kernel(), false)
 {
     /***
         (file-peek-character file-stream)
@@ -6692,7 +6667,7 @@ Value func_file_peek_character(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_character(fs->peek_character());
 }
 
-Value func_file_read_character(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("%FILE-READ-CHARACTER", func_file_read_character, g.kernel(), false)
 {
     /***
         (file-read-character file-stream)
@@ -6709,7 +6684,176 @@ Value func_file_read_character(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_character(fs->read_character());
 }
 
-Value func_get_working_directory(Value*, uint32_t, bool &raised_signal)
+DEFUN("%FUNCTION-DEFINITION", func_function_definition, g.kernel(), false)
+{
+    /***
+        (function-definition symbol)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    auto sym = args[0];
+    CHECK_SYMBOL(sym);
+    return sym.as_object()->symbol()->function();
+}
+
+DEFUN("%STRUCTURE-DEFINITION", func_structure_definition, g.kernel(), false)
+{
+    /***
+        (structure-definition object)
+     */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_STRUCT(args[0]);
+    return args[0].as_object()->structure()->type();
+}
+
+DEFUN("%CREATE-INSTANCE", func_create_instance, g.kernel(), false)
+{
+    /***
+        (create-instance type &rest slots)
+     */
+    CHECK_AT_LEAST_N(nargs, 1);
+    auto instance_val = gc.alloc_object<Structure>(args[0], nargs-1);
+    if (nargs > 1)
+    {
+        auto inst = instance_val.as_object()->structure();
+        for (uint32_t i = 1; i < nargs; ++i)
+        {
+            inst->slot_value(i-1) = args[i];
+        }
+    }
+    return instance_val;
+}
+
+DEFUN("%GET-SLOT", func_get_slot, g.kernel(), false)
+{
+    /***
+        (get-slot object n)
+     */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_STRUCT(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    return args[0].as_object()->structure()->slot_value(index);
+}
+
+DEFUN("%SET-SLOT", func_set_slot, g.kernel(), false)
+{
+    /***
+        (set-slot object n value)
+     */
+    CHECK_EXACTLY_N(nargs, 3);
+    CHECK_STRUCT(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto index = args[1].as_fixnum();
+    auto value = args[2];
+    args[0].as_object()->structure()->slot_value(index) = value;
+    return value;
+}
+
+DEFUN("%GC-PAUSE", func_gc_pause, g.kernel(), false)
+{
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.pause() ? g.s_T : Value::nil();
+}
+
+DEFUN("%GC-PAUSED-P", func_gc_paused_p, g.kernel(), false)
+{
+    CHECK_EXACTLY_N(nargs, 0);
+    return gc.paused() ? g.s_T : Value::nil();
+}
+
+DEFUN("%GC-SET-PAUSED", func_gc_set_paused, g.kernel(), false)
+{
+    CHECK_EXACTLY_N(nargs, 1);
+    gc.set_paused(!args[0].is_nil());
+    return args[0];
+}
+
+DEFUN("%GC-COLLECT", func_gc_collect, g.kernel(), false)
+{
+    return Value::wrap_fixnum(gc.mark_and_sweep());
+}
+
+DEFUN("%GC-GET-CONSED", func_gc_get_consed, g.kernel(), false)
+{
+    return Value::wrap_fixnum(gc.get_consed());
+}
+
+///////////////////////////////////////////////////////////////////////
+// Exported Functions
+
+DEFUN("BIT-NOT", func_bit_not, g.kernel(), true)
+{
+    /***
+        (bit-not x)
+    */
+    CHECK_EXACTLY_N(nargs, 1);
+    CHECK_FIXNUM(args[0]);
+    auto x = args[0].as_fixnum();
+    return Value::wrap_fixnum(~x);
+}
+
+DEFUN("BIT-AND", func_bit_and, g.kernel(), true)
+{
+    /***
+        (bit-and x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return Value::wrap_fixnum(x & y);
+}
+
+DEFUN("BIT-IOR", func_bit_ior, g.kernel(), true)
+{
+    /***
+        (bit-or x y &rest z)
+    */
+    CHECK_AT_LEAST_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+
+    auto res = args[0] | args[1];
+    for (uint32_t i = 2; i < nargs; ++i)
+    {
+        CHECK_FIXNUM(args[i]);
+        res |= args[i];
+    }
+    return res;
+}
+
+DEFUN("BIT-XOR", func_bit_xor, g.kernel(), true)
+{
+    /***
+        (bit-xor x y)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto x = args[0].as_fixnum();
+    auto y = args[1].as_fixnum();
+    return Value::wrap_fixnum(x ^ y);
+}
+
+DEFUN("BIT-SHIFT", func_bit_shift, g.kernel(), true)
+{
+    /***
+        (bit-shift integer count)
+    */
+    CHECK_EXACTLY_N(nargs, 2);
+    CHECK_FIXNUM(args[0]);
+    CHECK_FIXNUM(args[1]);
+    auto integer = args[0].as_fixnum();
+    auto count = args[1].as_fixnum();
+    if (count > 0)
+    {
+        return Value::wrap_fixnum(integer << count);
+    }
+    return Value::wrap_fixnum(integer >> -count);
+}
+
+DEFUN("GET-WORKING-DIRECTORY", func_get_working_directory, g.kernel(), true)
 {
     /***
         (get-working-directory)
@@ -6719,7 +6863,7 @@ Value func_get_working_directory(Value*, uint32_t, bool &raised_signal)
     return error.value() != 0 ? Value::nil() : gc.alloc_string(current_path);
 }
 
-Value func_change_directory(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("CHANGE-DIRECTORY", func_change_directory, g.kernel(), true)
 {
     /***
         (change-directory path)
@@ -6739,7 +6883,7 @@ Value func_change_directory(Value *args, uint32_t nargs, bool &raised_signal)
     return error.value() != 0 ? Value::nil() : gc.alloc_string(current_path);
 }
 
-Value func_get_executable_path(Value*, uint32_t nargs, bool &raised_signal)
+DEFUN("GET-EXECUTABLE-PATH", func_get_executable_path, g.kernel(), true)
 {
     /***
         (get-executable-path)
@@ -6748,7 +6892,7 @@ Value func_get_executable_path(Value*, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(plat::get_executable_path());
 }
 
-Value func_get_clock_ticks(Value*, uint32_t nargs, bool &raised_signal)
+DEFUN("GET-CLOCK-TICKS", func_get_clock_ticks, g.kernel(), true)
 {
     /***
         (get-clock-ticks)
@@ -6760,7 +6904,7 @@ Value func_get_clock_ticks(Value*, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(microseconds.count());
 }
 
-Value func_clocks_per_second(Value*, uint32_t nargs, bool &raised_signal)
+DEFUN("CLOCKS-PER-SECOND", func_clocks_per_second, g.kernel(), true)
 {
     /***
         (clocks-per-second)
@@ -6769,7 +6913,7 @@ Value func_clocks_per_second(Value*, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(1000000); // @FIXME use something better than costant number
 }
 
-Value func_operating_system(Value*, uint32_t nargs, bool &raised_signal)
+DEFUN("OPERATING-SYSTEM", func_operating_system, g.kernel(), true)
 {
     /***
         (operating-system)
@@ -6783,17 +6927,6 @@ Value func_operating_system(Value*, uint32_t nargs, bool &raised_signal)
 #else
     return g.core()->export_symbol("UNKNOWN-OS");
 #endif
-}
-
-Value func_function_definition(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (function-definition symbol)
-    */
-    CHECK_EXACTLY_N(nargs, 1);
-    auto sym = args[0];
-    CHECK_SYMBOL(sym);
-    return sym.as_object()->symbol()->function();
 }
 
 static
@@ -6833,7 +6966,7 @@ bool ffi_try_marshal(Value val, void **out_ptr)
     return false;
 }
 
-Value func_errno(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("ERRNO", func_errno, g.kernel(), true)
 {
     /***
         (errno)
@@ -6841,7 +6974,7 @@ Value func_errno(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(errno);
 }
 
-Value func_errno_str(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("ERRNO-STR", func_errno_str, g.kernel(), true)
 {
     /***
         (errno-str)
@@ -6854,7 +6987,7 @@ Value func_errno_str(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_string(strerror(errno));
 }
 
-Value func_ffi_machine_pointer_size(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-MACHINE-POINTER-SIZE", func_ffi_machine_pointer_size, g.kernel(), true)
 {
     /***
         (ffi-machine-pointer-size)
@@ -6862,7 +6995,7 @@ Value func_ffi_machine_pointer_size(Value *args, uint32_t nargs, bool &raised_si
     return Value::wrap_fixnum(sizeof(void*));
 }
 
-Value func_ffi_open(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-OPEN", func_ffi_open, g.kernel(), true)
 {
     /***
         (ffi-open dll-path)
@@ -6875,7 +7008,7 @@ Value func_ffi_open(Value *args, uint32_t nargs, bool &raised_signal)
     return handle ? gc.alloc_object<System_Pointer>(handle) : Value::nil();
 }
 
-Value func_ffi_close(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-CLOSE", func_ffi_close, g.kernel(), true)
 {
     /***
         (ffi-close dll-handle)
@@ -6886,7 +7019,7 @@ Value func_ffi_close(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::nil();
 }
 
-Value func_ffi_get_symbol(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-GET-SYMBOL", func_ffi_get_symbol, g.kernel(), true)
 {
     /***
         (ffi-get-symbol dll-handle symbol-name)
@@ -6903,7 +7036,7 @@ Value func_ffi_get_symbol(Value *args, uint32_t nargs, bool &raised_signal)
     return ptr ? gc.alloc_object<System_Pointer>(ptr) : Value::nil();
 }
 
-Value func_ffi_call(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-CALL", func_ffi_call, g.kernel(), true)
 {
     /***
         (ffi-call c-function &rest args)
@@ -6932,7 +7065,7 @@ Value func_ffi_call(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<System_Pointer>(result);
 }
 
-Value func_ffi_nullptr(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-NULLPTR", func_ffi_nullptr, g.kernel(), true)
 {
     /***
         (ffi-nullptr)
@@ -6941,7 +7074,7 @@ Value func_ffi_nullptr(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<System_Pointer>(nullptr);
 }
 
-Value func_ffi_alloc(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-ALLOC", func_ffi_alloc, g.kernel(), true)
 {
     /***
         (ffi-alloc size)
@@ -6952,7 +7085,7 @@ Value func_ffi_alloc(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<System_Pointer>(ffi::alloc_mem(size));
 }
 
-Value func_ffi_zero_alloc(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-ZERO-ALLOC", func_ffi_zero_alloc, g.kernel(), true)
 {
     /***
         (ffi-zero-alloc size)
@@ -6963,7 +7096,7 @@ Value func_ffi_zero_alloc(Value *args, uint32_t nargs, bool &raised_signal)
     return gc.alloc_object<System_Pointer>(ffi::calloc_mem(size));
 }
 
-Value func_ffi_free(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-FREE", func_ffi_free, g.kernel(), true)
 {
     /***
         (ffi-free pointer)
@@ -6976,7 +7109,7 @@ Value func_ffi_free(Value *args, uint32_t nargs, bool &raised_signal)
     return g.s_T;
 }
 
-Value func_ffi_ref(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-REF", func_ffi_ref, g.kernel(), true)
 {
     /***
         (ffi-ref pointer &optional offset)
@@ -6997,7 +7130,7 @@ Value func_ffi_ref(Value *args, uint32_t nargs, bool &raised_signal)
     }
 }
 
-Value func_ffi_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-REF-8", func_ffi_ref_8, g.kernel(), true)
 {
     /***
         (ffi-ref-8 pointer)
@@ -7008,7 +7141,7 @@ Value func_ffi_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(*ptr);
 }
 
-Value func_ffi_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-REF-16", func_ffi_ref_16, g.kernel(), true)
 {
     /***
         (ffi-ref-16 pointer)
@@ -7019,7 +7152,7 @@ Value func_ffi_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(*ptr);
 }
 
-Value func_ffi_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-REF-32", func_ffi_ref_32, g.kernel(), true)
 {
     /***
         (ffi-ref-32 pointer)
@@ -7030,7 +7163,7 @@ Value func_ffi_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(*ptr);
 }
 
-Value func_ffi_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-REF-64", func_ffi_ref_64, g.kernel(), true)
 {
     /***
         (ffi-ref-64 pointer)
@@ -7041,7 +7174,7 @@ Value func_ffi_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(*ptr);
 }
 
-Value func_ffi_set_ref(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-SET-REF", func_ffi_set_ref, g.kernel(), true)
 {
     /***
         (ffi-set-ref pointer value value-size)
@@ -7058,7 +7191,7 @@ Value func_ffi_set_ref(Value *args, uint32_t nargs, bool &raised_signal)
     return args[2];
 }
 
-Value func_ffi_set_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-SET-REF-8", func_ffi_set_ref_8, g.kernel(), true)
 {
     /***
         (ffi-set-ref-8 pointer value)
@@ -7081,7 +7214,7 @@ Value func_ffi_set_ref_8(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(value);
 }
 
-Value func_ffi_set_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-SET-REF-16", func_ffi_set_16, g.kernel(), true)
 {
     /***
         (ffi-set-ref-16 pointer value)
@@ -7104,7 +7237,7 @@ Value func_ffi_set_ref_16(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(value);
 }
 
-Value func_ffi_set_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-SET-REF-32", func_ffi_set_32, g.kernel(), true)
 {
     /***
         (ffi-set-ref-32 pointer value)
@@ -7127,7 +7260,7 @@ Value func_ffi_set_ref_32(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(value);
 }
 
-Value func_ffi_set_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-SET-REF-64", func_ffi_set_64, g.kernel(), true)
 {
     /***
         (ffi-set-ref-64 pointer value)
@@ -7150,7 +7283,7 @@ Value func_ffi_set_ref_64(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(value);
 }
 
-Value func_ffi_marshal(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-MARSHAL", func_ffi_marshal, g.kernel(), true)
 {
     /***
         (ffi-marshal object)
@@ -7167,7 +7300,8 @@ Value func_ffi_marshal(Value *args, uint32_t nargs, bool &raised_signal)
     GC_UNGUARD();
     return res;
 }
-Value func_ffi_strlen(Value *args, uint32_t nargs, bool &raised_signal)
+
+DEFUN("FFI-STRLEN", func_ffi_strlen, g.kernel(), true)
 {
     CHECK_EXACTLY_N(nargs, 1);
     CHECK_SYSTEM_POINTER(args[0]);
@@ -7175,7 +7309,7 @@ Value func_ffi_strlen(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(strlen(ptr));
 }
 
-Value func_ffi_coerce_fixnum(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-COERCE-FIXNUM", func_ffi_coerce_fixnum, g.kernel(), true)
 {
     /***
         (ffi-coerce-fixnum system-pointer)
@@ -7186,7 +7320,7 @@ Value func_ffi_coerce_fixnum(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(ptr);
 }
 
-Value func_ffi_coerce_int(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-COERCE-INT", func_ffi_coerce_int, g.kernel(), true)
 {
     /***
         (ffi-coerce-int system-pointer)
@@ -7197,7 +7331,7 @@ Value func_ffi_coerce_int(Value *args, uint32_t nargs, bool &raised_signal)
     return Value::wrap_fixnum(ptr);
 }
 
-Value func_ffi_coerce_string(Value *args, uint32_t nargs, bool &raised_signal)
+DEFUN("FFI-COERCE-STRING", func_ffi_coerce_string, g.kernel(), true)
 {
     /***
         (ffi-coerce-string system-pointer &optional length)
@@ -7212,89 +7346,6 @@ Value func_ffi_coerce_string(Value *args, uint32_t nargs, bool &raised_signal)
     CHECK_FIXNUM(args[1]);
     auto len = args[1].as_fixnum();
     return gc.alloc_string(ptr, len);
-}
-
-Value func_structure_definition(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (structure-definition object)
-     */
-    CHECK_EXACTLY_N(nargs, 1);
-    CHECK_STRUCT(args[0]);
-    return args[0].as_object()->structure()->type();
-}
-
-Value func_create_instance(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (create-instance type &rest slots)
-     */
-    CHECK_AT_LEAST_N(nargs, 1);
-    auto instance_val = gc.alloc_object<Structure>(args[0], nargs-1);
-    if (nargs > 1)
-    {
-        auto inst = instance_val.as_object()->structure();
-        for (uint32_t i = 1; i < nargs; ++i)
-        {
-            inst->slot_value(i-1) = args[i];
-        }
-    }
-    return instance_val;
-}
-
-Value func_get_slot(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (get-slot object n)
-     */
-    CHECK_EXACTLY_N(nargs, 2);
-    CHECK_STRUCT(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto index = args[1].as_fixnum();
-    return args[0].as_object()->structure()->slot_value(index);
-}
-
-Value func_set_slot(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    /***
-        (set-slot object n value)
-     */
-    CHECK_EXACTLY_N(nargs, 3);
-    CHECK_STRUCT(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto index = args[1].as_fixnum();
-    auto value = args[2];
-    args[0].as_object()->structure()->slot_value(index) = value;
-    return value;
-}
-
-Value func_gc_pause(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    CHECK_EXACTLY_N(nargs, 0);
-    return gc.pause() ? g.s_T : Value::nil();
-}
-
-Value func_gc_paused_p(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    CHECK_EXACTLY_N(nargs, 0);
-    return gc.paused() ? g.s_T : Value::nil();
-}
-
-Value func_gc_set_paused(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    CHECK_EXACTLY_N(nargs, 1);
-    gc.set_paused(!args[0].is_nil());
-    return args[0];
-}
-
-Value func_gc_collect(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    return Value::wrap_fixnum(gc.mark_and_sweep());
-}
-
-Value func_gc_get_consed(Value *args, uint32_t nargs, bool &raised_signal)
-{
-    return Value::wrap_fixnum(gc.get_consed());
 }
 
 }
@@ -7403,121 +7454,18 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_BEGINNING        = core->export_symbol("BEGINNING");
     g.s_END              = core->export_symbol("END");
     g.s_CURRENT          = core->export_symbol("CURRENT");
-
-    internal_function(core, "%PRINT", primitives::func_print);
-
-    internal_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
-    internal_function(kernel, "%PACKAGE-NAME", primitives::func_package_name);
-    internal_function(kernel, "%USE-PACKAGE", primitives::func_use_package);
-    internal_function(kernel, "%IN-PACKAGE", primitives::func_in_package);
-    internal_function(kernel, "%MAKE-PACKAGE", primitives::func_make_package);
-    internal_function(kernel, "%FIND-PACKAGE", primitives::func_find_package);
-    internal_function(kernel, "%DISASSEMBLE", primitives::func_disassemble);
-
-    internal_function(kernel, "%GC-PAUSE", primitives::func_gc_pause);
-    internal_function(kernel, "%GC-PAUSED-P", primitives::func_gc_paused_p);
-    internal_function(kernel, "%GC-SET-PAUSED", primitives::func_gc_set_paused);
-    internal_function(kernel, "%GC-COLLECT", primitives::func_gc_collect);
-    internal_function(kernel, "%GC-GET-CONSED", primitives::func_gc_get_consed);
-
-    internal_function(kernel, "%+", primitives::func_plus);
-    internal_function(kernel, "%-", primitives::func_minus);
-    internal_function(kernel, "%*", primitives::func_multiply);
-    internal_function(kernel, "%/", primitives::func_divide);
-    internal_function(kernel, "%<", primitives::func_num_less);
-    internal_function(kernel, "%=", primitives::func_num_equal);
-    internal_function(kernel, "%>", primitives::func_num_greater);
-    internal_function(kernel, "%TYPE-OF", primitives::func_type_of);
-    internal_function(kernel, "%READ", primitives::func_read);
-    internal_function(kernel, "%MACRO-EXPAND", primitives::func_macro_expand);
-    internal_function(kernel, "%EVAL", primitives::func_eval);
-    internal_function(kernel, "%GENSYM", primitives::func_gensym);
-    internal_function(kernel, "%MAKE-SYMBOL", primitives::func_make_symbol);
-    internal_function(kernel, "%SYMBOL-NAME", primitives::func_symbol_name);
-    internal_function(kernel, "%SYMBOL-PACKAGE", primitives::func_symbol_package);
-    internal_function(kernel, "%EXPORT", primitives::func_export);
-    internal_function(kernel, "%IMPORT", primitives::func_import);
-    internal_function(kernel, "%INTERN", primitives::func_intern);
-    internal_function(kernel, "%FIND-SYMBOL", primitives::func_find_symbol);
-    internal_function(kernel, "%EXIT", primitives::func_exit);
-    internal_function(kernel, "%SIGNAL", primitives::func_signal);
-
-    internal_function(kernel, "%MAKE-ARRAY", primitives::func_make_array);
-    internal_function(kernel, "%ARRAY-LENGTH", primitives::func_array_length);
-    internal_function(kernel, "%ARRAY-TYPE", primitives::func_array_type);
-    internal_function(kernel, "%ARRAY-CAPACITY", primitives::func_array_capacity);
-    internal_function(kernel, "%ARRAY-PUSH-BACK", primitives::func_array_push_back);
-
-    internal_function(kernel, "%CHAR-CODE", primitives::func_char_code);
-    internal_function(kernel, "%CODE-CHAR", primitives::func_code_char);
-
-    internal_function(kernel, "%BITS-OF", primitives::func_bits_of);
-
-    internal_function(kernel, "%OPEN", primitives::func_open);
-    internal_function(kernel, "%CLOSE", primitives::func_close);
-    internal_function(kernel, "%FILE-PATH", primitives::func_file_path);
-    internal_function(kernel, "%FILE-MODE", primitives::func_file_mode);
-    internal_function(kernel, "%FILE-EOF-P", primitives::func_file_eof);
-    internal_function(kernel, "%FILE-OK-P", primitives::func_file_ok);
-    internal_function(kernel, "%FILE-FLUSH", primitives::func_file_flush);
-    internal_function(kernel, "%FILE-WRITE", primitives::func_file_write);
-    internal_function(kernel, "%FILE-SEEKG", primitives::func_file_seekg);
-    internal_function(kernel, "%FILE-TELLG", primitives::func_file_tellg);
-    internal_function(kernel, "%FILE-PUTCHAR", primitives::func_file_putchar);
-    internal_function(kernel, "%FILE-PUTS", primitives::func_file_puts);
-    internal_function(kernel, "%FILE-READ-BYTE", primitives::func_file_read_byte);
-    internal_function(kernel, "%FILE-PEEK-BYTE", primitives::func_file_peek_byte);
-    internal_function(kernel, "%FILE-READ-CHARACTER", primitives::func_file_read_character);
-    internal_function(kernel, "%FILE-PEEK-CHARACTER", primitives::func_file_peek_character);
-
-    internal_function(kernel, "%DEFINE-FUNCTION", primitives::func_define_function);
-    internal_function(kernel, "%FUNCTION-DEFINITION", primitives::func_function_definition);
-    internal_function(kernel, "%STRUCTURE-DEFINITION", primitives::func_structure_definition);
-    internal_function(kernel, "%CREATE-INSTANCE", primitives::func_create_instance);
-    internal_function(kernel, "%GET-SLOT", primitives::func_get_slot);
-    internal_function(kernel, "%SET-SLOT", primitives::func_set_slot);
-
-    export_function(kernel, "GET-WORKING-DIRECTORY", primitives::func_get_working_directory);
-    export_function(kernel, "CHANGE-DIRECTORY", primitives::func_change_directory);
-    export_function(kernel, "GET-EXECUTABLE-PATH", primitives::func_get_executable_path);
-
-    export_function(kernel, "GET-CLOCK-TICKS", primitives::func_get_clock_ticks);
-    export_function(kernel, "CLOCKS-PER-SECOND", primitives::func_clocks_per_second);
-
-    export_function(kernel, "OPERATING-SYSTEM", primitives::func_operating_system);
-
-    export_function(kernel, "ERRNO", primitives::func_errno);
-    export_function(kernel, "ERRNO-STR", primitives::func_errno_str);
-    export_function(kernel, "FFI-MACHINE-POINTER-SIZE", primitives::func_ffi_machine_pointer_size);
-    export_function(kernel, "FFI-OPEN", primitives::func_ffi_open);
-    export_function(kernel, "FFI-CLOSE", primitives::func_ffi_close);
-    export_function(kernel, "FFI-GET-SYMBOL", primitives::func_ffi_get_symbol);
-    export_function(kernel, "FFI-CALL", primitives::func_ffi_call);
-    export_function(kernel, "FFI-NULLPTR", primitives::func_ffi_nullptr);
-    export_function(kernel, "FFI-ALLOC", primitives::func_ffi_alloc);
-    export_function(kernel, "FFI-ZERO-ALLOC", primitives::func_ffi_zero_alloc);
-    export_function(kernel, "FFI-FREE", primitives::func_ffi_free);
-    export_function(kernel, "FFI-MARSHAL", primitives::func_ffi_marshal);
-    export_function(kernel, "FFI-STRLEN", primitives::func_ffi_strlen);
-    export_function(kernel, "FFI-COERCE-FIXNUM", primitives::func_ffi_coerce_fixnum);
-    export_function(kernel, "FFI-COERCE-INT", primitives::func_ffi_coerce_int);
-    export_function(kernel, "FFI-COERCE-STRING", primitives::func_ffi_coerce_string);
-    export_function(kernel, "FFI-REF", primitives::func_ffi_ref);
-    export_function(kernel, "FFI-REF-8", primitives::func_ffi_ref_8);
-    export_function(kernel, "FFI-REF-16", primitives::func_ffi_ref_16);
-    export_function(kernel, "FFI-REF-32", primitives::func_ffi_ref_32);
-    export_function(kernel, "FFI-REF-64", primitives::func_ffi_ref_64);
-    export_function(kernel, "FFI-SET-REF", primitives::func_ffi_set_ref);
-    export_function(kernel, "FFI-SET-REF-8", primitives::func_ffi_set_ref_8);
-    export_function(kernel, "FFI-SET-REF-16", primitives::func_ffi_set_ref_16);
-    export_function(kernel, "FFI-SET-REF-32", primitives::func_ffi_set_ref_32);
-    export_function(kernel, "FFI-SET-REF-64", primitives::func_ffi_set_ref_64);
-
-    export_function(kernel, "BIT-NOT", primitives::func_bit_not);
-    export_function(kernel, "BIT-AND", primitives::func_bit_and);
-    export_function(kernel, "BIT-IOR", primitives::func_bit_ior);
-    export_function(kernel, "BIT-XOR", primitives::func_bit_xor);
-    export_function(kernel, "BIT-SHIFT", primitives::func_bit_shift);
+    
+    for (auto &init : g_function_initializers)
+    {
+        if (init.is_exported)
+        {
+            export_function(init.package, init.lisp_name, init.cpp_function);
+        }
+        else
+        {
+            internal_function(init.package, init.lisp_name, init.cpp_function);
+        }
+    }
 
 #if defined(__unix__) || defined(__unix)
     set_global(root_scope,
@@ -8319,15 +8267,14 @@ int main(int argc, char **argv)
 
     repl = repl || !file;
 
-    GC_GUARD();
     compiler::THE_ROOT_SCOPE = new compiler::Scope;
     initialize_globals(compiler::THE_ROOT_SCOPE, argv+i);
 
     g.packages.in_package(g.user());
 
     auto vm = THE_LISP_VM = new VM_State;
-    GC_UNGUARD();
 
+    gc.set_paused(false);
     if (use_boot)
     {
         auto exe_dir = plat::get_executable_path().parent_path();
