@@ -7433,24 +7433,25 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     kernel->inherit(core);
     user->inherit(core);
 
-    g.s_pCAR             = kernel->export_symbol("%CAR");
-    g.s_pCDR             = kernel->export_symbol("%CDR");
-    g.s_pCONS            = kernel->export_symbol("%CONS");
-    g.s_pEQ              = kernel->export_symbol("%EQ");
-    g.s_pRPLACA          = kernel->export_symbol("%RPLACA");
-    g.s_pRPLACD          = kernel->export_symbol("%RPLACD");
-    g.s_pSETQ            = kernel->export_symbol("%SETQ");
-    g.s_pAREF            = kernel->export_symbol("%AREF");
-    g.s_pASET            = kernel->export_symbol("%ASET");
-    g.s_pDEBUGGER        = kernel->export_symbol("%DEBUGGER");
-    g.s_pAPPLY           = kernel->export_symbol("%APPLY");
+    g.s_pCAR             = kernel->intern_symbol("%CAR");
+    g.s_pCDR             = kernel->intern_symbol("%CDR");
+    g.s_pCONS            = kernel->intern_symbol("%CONS");
+    g.s_pEQ              = kernel->intern_symbol("%EQ");
+    g.s_pRPLACA          = kernel->intern_symbol("%RPLACA");
+    g.s_pRPLACD          = kernel->intern_symbol("%RPLACD");
+    g.s_pSETQ            = kernel->intern_symbol("%SETQ");
+    g.s_pAREF            = kernel->intern_symbol("%AREF");
+    g.s_pASET            = kernel->intern_symbol("%ASET");
+    g.s_pDEBUGGER        = kernel->intern_symbol("%DEBUGGER");
+    g.s_pAPPLY           = kernel->intern_symbol("%APPLY");
+    g.s_pTAGBODY         = kernel->intern_symbol("%TAGBODY");
+    g.s_pGO              = kernel->intern_symbol("%GO");
+    g.s_pSIGNAL          = kernel->intern_symbol("%SIGNAL");
+    g.s_pHANDLER_CASE    = kernel->intern_symbol("%HANDLER-CASE");
+    g.s_pDEFINE_MACRO    = kernel->intern_symbol("%DEFINE-MACRO");
+    g.s_pLAMBDA          = kernel->intern_symbol("%LAMBDA");
+
     g.s_pFUNCALL         = kernel->export_symbol("FUNCALL");
-    g.s_pTAGBODY         = kernel->export_symbol("%TAGBODY");
-    g.s_pGO              = kernel->export_symbol("%GO");
-    g.s_pSIGNAL          = kernel->export_symbol("%SIGNAL");
-    g.s_pHANDLER_CASE    = kernel->export_symbol("%HANDLER-CASE");
-    g.s_pDEFINE_MACRO    = kernel->export_symbol("%DEFINE-MACRO");
-    g.s_pLAMBDA           = kernel->export_symbol("%LAMBDA");
 
     g.s_T                = core->export_symbol("T");
     g.s_IF               = core->export_symbol("IF");

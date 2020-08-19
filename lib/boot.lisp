@@ -196,13 +196,13 @@
 (defmacro defun (name argslist &rest body)
   (list 'kernel::%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
 
-(defmacro car (obj) (list '%car obj))
+(defmacro car (obj) (list 'kernel::%car obj))
 (defun car (obj) (car obj))
 
-(defmacro cdr (obj) (list '%cdr obj))
+(defmacro cdr (obj) (list 'kernel::%cdr obj))
 (defun cdr (obj) (cdr obj))
 
-(defmacro eq (x y) (list '%eq x y))
+(defmacro eq (x y) (list 'kernel::%eq x y))
 (defun eq (x y) (eq x y))
 
 (defmacro setq (x y &rest documentation) (list 'kernel::%setq x y))
