@@ -6,8 +6,8 @@
 
 (defun floor (n &optional d)
   (if d
-      (/ n d)
-      n))
+      (kernel::%floor n d)
+      (kernel::%floor n)))
 
 (defun rem (n d)
   (- n (* d (floor n d))))
@@ -31,6 +31,13 @@
 (defun evenp (n) (= 0 (rem n 2)))
 (defun oddp (n) (/= 0 (rem n 2)))
 
+(defun fdiv (x y) (kernel::%float-divide x y))
+
+(defun ieee-754-float-parts (n)
+  "Returns the IEEE-754 double precision float components for N 
+as the list (negative-p exponent mantissa)."
+  (kernel::%float-components n))
+
 (export '(+most-positive-fixnum+
           +most-negative-fixnum+
           floor
@@ -39,4 +46,6 @@
           min
           abs
           evenp
-          oddp))
+          oddp
+          fdiv
+          ieee-754-float-parts))

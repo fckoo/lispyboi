@@ -5795,7 +5795,7 @@ DEFUN("%+", func_plus, g.kernel(), false)
     /***
         (+ &rest fixnums)
     */
-    
+
     if (only_fixnums(args, nargs))
     {
         auto result = Value::wrap_fixnum(0);
@@ -5999,6 +5999,117 @@ DEFUN("%/", func_divide, g.kernel(), false)
     }
 }
 
+DEFUN("%FLOAT-STRING", func_float_string, g.kernel(), false)
+{
+    CHECK_NARGS_EXACTLY(1);
+    double f;
+    if (args[0].is_fixnum())
+    {
+        f = args[0].as_fixnum();
+    }
+    else if (args[0].is_type(Object_Type::Float))
+    {
+        f = args[0].as_object()->to_float();
+    }
+    else
+    {
+        raised_signal = true;
+        return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+    }
+
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(15) << f;
+    std::string result_str = ss.str();
+    result_str.erase(std::find_if(result_str.rbegin(),
+                         result_str.rend(),
+                         [](int ch) {
+                             return ch != '0';
+                         }).base()+1,
+            result_str.end());
+    return gc.alloc_string(result_str);
+}
+
+DEFUN("%FLOAT-COMPONENTS", func_float_components, g.kernel(), false)
+{
+    CHECK_NARGS_EXACTLY(1);
+    union {
+        double f;
+        uint64_t i;
+    } u;
+    if (args[0].is_fixnum())
+    {
+        u.f = args[0].as_fixnum();
+    }
+    else if (args[0].is_type(Object_Type::Float))
+    {
+        u.f = args[0].as_object()->to_float();
+    }
+    else
+    {
+        raised_signal = true;
+        return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+    }
+
+    auto negp = (u.i >> 63) & 1;
+    auto expt = (u.i >> 51) & 0x7ff;
+    auto mant =  u.i & 0x000fffffffffffff;
+    return gc.list((negp ? g.s_T : Value::nil()), Value::wrap_fixnum(expt), Value::wrap_fixnum(mant));
+}
+
+DEFUN("%FLOOR", func_floor, g.kernel(), false)
+{
+    CHECK_NARGS_AT_LEAST(1);
+    if (nargs == 1)
+    {
+        if (args[0].is_fixnum())
+        {
+            return args[0];
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            return Value::wrap_fixnum(args[0].as_object()->to_float());
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+    }
+    else
+    {
+        CHECK_NARGS_EXACTLY(2);
+        Float x, y;
+        if (args[0].is_fixnum())
+        {
+            x = args[0].as_fixnum();
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            x = args[0].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+        if (args[1].is_fixnum())
+        {
+            y = args[1].as_fixnum();
+        }
+        else if (args[1].is_type(Object_Type::Float))
+        {
+            y = args[1].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[1]);
+        }
+
+        return Value::wrap_fixnum(x / y);
+    }
+}
+
 DEFUN("%FLOAT-DIVIDE", func_float_divide, g.kernel(), false)
 {
     /***
@@ -6069,7 +6180,7 @@ DEFUN("%=", func_num_equal, g.kernel(), false)
             raised_signal = true;
             return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
         }
-        
+
         for (uint32_t i = 1; i < nargs; ++i)
         {
             if (args[i].is_fixnum())
@@ -8249,7 +8360,7 @@ bool read(std::istream &source, Value &out_result)
         while (!source.eof() && (is_digit(source.peek()) || source.peek() == '.'))
         {
             decimal_count += (source.peek() == '.');
-                
+
             str += source.get();
         }
         bool is_number = source.eof() || !is_symbol_char(source.peek());

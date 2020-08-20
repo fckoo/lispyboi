@@ -73,6 +73,11 @@ OBJECT should be returned")
               (output-stream-write-char stream c))))))
   n)
 
+(defmethod print-object ((n float) stream)
+  ;; FIXME: we just cheat and use the c++ implementation of float-string...
+  (output-stream-write-string stream (kernel::%float-string n))
+  n)
+
 (defmethod print-object ((o cons) stream)
   (if (and (eq 'quote (car o))
            (consp (cdr o))
