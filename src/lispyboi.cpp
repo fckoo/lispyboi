@@ -5999,6 +5999,42 @@ DEFUN("%/", func_divide, g.kernel(), false)
     }
 }
 
+DEFUN("%FLOAT-DIVIDE", func_float_divide, g.kernel(), false)
+{
+    /***
+        (float-divide x y)
+    */
+    CHECK_NARGS_EXACTLY(2);
+    Float x, y;
+    if (args[0].is_fixnum())
+    {
+        x = args[0].as_fixnum();
+    }
+    else if (args[0].is_type(Object_Type::Float))
+    {
+        x = args[0].as_object()->to_float();
+    }
+    else
+    {
+        raised_signal = true;
+        return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+    }
+    if (args[1].is_fixnum())
+    {
+        y = args[1].as_fixnum();
+    }
+    else if (args[1].is_type(Object_Type::Float))
+    {
+        y = args[1].as_object()->to_float();
+    }
+    else
+    {
+        raised_signal = true;
+        return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[1]);
+    }
+    return gc.alloc_object<Float>(x / y);
+}
+
 DEFUN("%=", func_num_equal, g.kernel(), false)
 {
     /***
