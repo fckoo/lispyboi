@@ -126,6 +126,7 @@ namespace lisp
 {
 
 using Fixnum = int64_t;
+using Float = double;
 
 struct Cons;
 struct Object;
@@ -152,6 +153,7 @@ enum class Object_Type
     Simple_Array,
     System_Pointer,
     Structure,
+    Float
 };
 
 struct Value
@@ -482,8 +484,8 @@ struct Value
     static constexpr Bits_Type TAG_CONS      = 0b101ULL;
     static constexpr Bits_Type TAG_PRIM_FUNC = 0b111ULL;
 
-    static constexpr Bits_Type WTAG_NIL       = (0b00000ULL << 3) | TAG_OTHER_IMM;
-    static constexpr Bits_Type WTAG_CHAR      = (0b00001ULL << 3) | TAG_OTHER_IMM;
+    static constexpr Bits_Type WTAG_NIL      = (0b00000ULL << 3) | TAG_OTHER_IMM;
+    static constexpr Bits_Type WTAG_CHAR     = (0b00001ULL << 3) | TAG_OTHER_IMM;
 
     Bits_Type m_bits;
 };
@@ -1099,6 +1101,11 @@ struct Object
         return as<Structure>();
     }
 
+    Float to_float()
+    {
+        return *as<Float>();
+    }
+
     System_Pointer system_pointer()
     {
         return *as<System_Pointer>();
@@ -1156,6 +1163,10 @@ struct Object
         {
             m_type = Object_Type::Structure;
         }
+        else if constexpr (std::is_same<T, Float>::value)
+        {
+            m_type = Object_Type::Float;
+        }
         else
         {
             static_assert(always_false<T>);
@@ -1175,6 +1186,7 @@ struct Object
             case Object_Type::Simple_Array: simple_array()->~Simple_Array(); break;
             case Object_Type::System_Pointer: break;
             case Object_Type::Structure: structure()->~Structure(); break;
+            case Object_Type::Float: break;
         }
     }
 
@@ -1224,6 +1236,12 @@ FORCE_INLINE
 bool symbolp(Value v)
 {
     return v.is_type(Object_Type::Symbol);
+}
+
+FORCE_INLINE
+bool numberp(Value v)
+{
+    return v.is_fixnum() || v.is_type(Object_Type::Float);
 }
 
 bool stringp(Value v);
@@ -1487,6 +1505,8 @@ struct GC
                     break;
                 case Object_Type::Structure:
                     mark_structure(obj->structure());
+                    break;
+                case Object_Type::Float:
                     break;
             }
         }
@@ -2576,6 +2596,7 @@ struct Runtime_Globals
     Value s_IF;
     Value s_OR;
     Value s_FIXNUM;
+    Value s_FLOAT;
     Value s_CONS;
     Value s_LIST;
     Value s_CHARACTER;
@@ -2824,6 +2845,10 @@ std::string repr(Value value)
                 return ss.str();
             }
             case Object_Type::Structure: return "#<STRUCTURE>";
+            case Object_Type::Float:
+            {
+                return std::to_string(obj->to_float());
+            }
         }
     }
 
@@ -5383,6 +5408,14 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
         }                                                       \
     } while (0)
 
+#define CHECK_NUMBER(what)                                      \
+    do {                                                        \
+        if (!numberp(what)) {                                   \
+            raised_signal = true;                               \
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), (what)); \
+        }                                                       \
+    } while (0)
+
 #define CHECK_NARGS_AT_LEAST(n)                                       \
     do {                                                                \
         if (nargs < (n)) {                                             \
@@ -5743,19 +5776,58 @@ DEFUN("%IN-PACKAGE", func_in_package, g.kernel(), false)
     return package_to_use->as_lisp_value();
 }
 
+static
+bool only_fixnums(const Value *args, uint32_t nargs)
+{
+    // This also returns true for an empty list.
+    for (uint32_t i = 0; i < nargs; ++i)
+    {
+        if (!args[i].is_fixnum())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 DEFUN("%+", func_plus, g.kernel(), false)
 {
     /***
         (+ &rest fixnums)
     */
-    auto result = Value::wrap_fixnum(0);
-    for (uint32_t i = 0; i < nargs; ++i)
+    
+    if (only_fixnums(args, nargs))
     {
-        auto tmp = args[i];
-        CHECK_FIXNUM(tmp);
-        result += tmp;
+        auto result = Value::wrap_fixnum(0);
+        for (uint32_t i = 0; i < nargs; ++i)
+        {
+            auto tmp = args[i];
+            result += tmp;
+        }
+        return result;
     }
-    return result;
+    else
+    {
+        Float result = 0.0;
+        for (uint32_t i = 0; i < nargs; ++i)
+        {
+            auto tmp = args[i];
+            if (tmp.is_fixnum())
+            {
+                result += tmp.as_fixnum();
+            }
+            else if (tmp.is_type(Object_Type::Float))
+            {
+                result += tmp.as_object()->to_float();
+            }
+            else
+            {
+                raised_signal = true;
+                return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), tmp);
+            }
+        }
+        return gc.alloc_object<Float>(result);
+    }
 }
 
 DEFUN("%-", func_minus, g.kernel(), false)
@@ -5763,27 +5835,78 @@ DEFUN("%-", func_minus, g.kernel(), false)
     /***
         (- &rest fixnums)
     */
-    auto result = Value::wrap_fixnum(0);
-    if (nargs == 0)
+    if (only_fixnums(args, nargs))
     {
-        ;
-    }
-    else if (nargs == 1)
-    {
-        CHECK_FIXNUM(args[0]);
-        result -= args[0];
+        auto result = Value::wrap_fixnum(0);
+        if (nargs == 0)
+        {
+            ;
+        }
+        else if (nargs == 1)
+        {
+            result -= args[0];
+        }
+        else
+        {
+            result = args[0];
+            for (uint32_t i = 1; i < nargs; ++i)
+            {
+                result -= args[i];
+            }
+        }
+        return result;
     }
     else
     {
-        CHECK_FIXNUM(args[0]);
-        result = args[0];
-        for (uint32_t i = 1; i < nargs; ++i)
+        Float result = 0.0;
+        if (nargs == 1)
         {
-            CHECK_FIXNUM(args[i]);
-            result -= args[i];
+            // No need to check for fixnum because one arg that's a fixnum executes the
+            // previous branch.
+            if (args[0].is_type(Object_Type::Float))
+            {
+                result -= args[0].as_object()->to_float();
+            }
+            else
+            {
+                raised_signal = true;
+                return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+            }
         }
+        else
+        {
+            if (args[0].is_fixnum())
+            {
+                result = args[0].as_fixnum();
+            }
+            else if (args[0].is_type(Object_Type::Float))
+            {
+                result = args[0].as_object()->to_float();
+            }
+            else
+            {
+                raised_signal = true;
+                return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+            }
+            for (uint32_t i = 1; i < nargs; ++i)
+            {
+                if (args[i].is_fixnum())
+                {
+                    result -= args[i].as_fixnum();
+                }
+                else if (args[i].is_type(Object_Type::Float))
+                {
+                    result -= args[i].as_object()->to_float();
+                }
+                else
+                {
+                    raised_signal = true;
+                    return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+                }
+            }
+        }
+        return gc.alloc_object<Float>(result);
     }
-    return result;
 }
 
 DEFUN("%*", func_multiply, g.kernel(), false)
@@ -5791,14 +5914,38 @@ DEFUN("%*", func_multiply, g.kernel(), false)
     /***
         (* &rest fixnums)
     */
-    int64_t result = 1;
-    for (uint32_t i = 0; i < nargs; ++i)
+    if (only_fixnums(args, nargs))
     {
-        auto tmp = args[i];
-        CHECK_FIXNUM(tmp);
-        result *= tmp.as_fixnum();
+        Fixnum result = 1;
+        for (uint32_t i = 0; i < nargs; ++i)
+        {
+            auto tmp = args[i];
+            result *= tmp.as_fixnum();
+        }
+        return Value::wrap_fixnum(result);
     }
-    return Value::wrap_fixnum(result);
+    else
+    {
+        Float result = 1.0;
+        for (uint32_t i = 0; i < nargs; ++i)
+        {
+            auto tmp = args[i];
+            if (tmp.is_fixnum())
+            {
+                result *= tmp.as_fixnum();
+            }
+            else if (tmp.is_type(Object_Type::Float))
+            {
+                result *= tmp.as_object()->to_float();
+            }
+            else
+            {
+                raised_signal = true;
+                return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), tmp);
+            }
+        }
+        return gc.alloc_object<Float>(result);
+    }
 }
 
 DEFUN("%/", func_divide, g.kernel(), false)
@@ -5807,45 +5954,49 @@ DEFUN("%/", func_divide, g.kernel(), false)
         (/ x y)
     */
     CHECK_NARGS_EXACTLY(2);
-    CHECK_FIXNUM(args[0]);
-    CHECK_FIXNUM(args[1]);
-    auto x = args[0].as_fixnum();
-    auto y = args[1].as_fixnum();
-    if (y == 0)
+    if (only_fixnums(args, nargs))
     {
-        raised_signal = true;
-        return gc.list(g.s_DIVIDE_BY_ZERO_ERROR, args[0], args[1]);
-    }
-    return Value::wrap_fixnum(x / y);
-}
-
-DEFUN("%<", func_num_less, g.kernel(), false)
-{
-    /***
-        (< a b &rest more-fixnums)
-    */
-    CHECK_NARGS_AT_LEAST(2);
-    auto a = args[0];
-    CHECK_FIXNUM(a);
-    auto b = args[1];
-    CHECK_FIXNUM(b);
-    bool result = a.as_fixnum() < b.as_fixnum();
-    if (result)
-    {
-        a = b;
-        for (uint32_t i = 2; i < nargs; ++i)
+        auto x = args[0].as_fixnum();
+        auto y = args[1].as_fixnum();
+        if (y == 0)
         {
-            b = args[i];
-            CHECK_FIXNUM(b);
-            result = a.as_fixnum() < b.as_fixnum();
-            if (result == false)
-            {
-                break;
-            }
-            a = b;
+            raised_signal = true;
+            return gc.list(g.s_DIVIDE_BY_ZERO_ERROR, args[0], args[1]);
         }
+        return Value::wrap_fixnum(x / y);
     }
-    return result ? g.s_T : Value::nil();
+    else
+    {
+        Float x, y;
+        if (args[0].is_fixnum())
+        {
+            x = args[0].as_fixnum();
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            x = args[0].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+        if (args[1].is_fixnum())
+        {
+            y = args[1].as_fixnum();
+        }
+        else if (args[1].is_type(Object_Type::Float))
+        {
+            y = args[1].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[1]);
+        }
+
+        return gc.alloc_object<Float>(x / y);
+    }
 }
 
 DEFUN("%=", func_num_equal, g.kernel(), false)
@@ -5854,17 +6005,148 @@ DEFUN("%=", func_num_equal, g.kernel(), false)
         (= n &rest more-fixnums)
     */
     CHECK_NARGS_AT_LEAST(1);
-    auto n = args[0];
-    CHECK_FIXNUM(n);
-    for (uint32_t i = 1; i < nargs; ++i)
+    if (only_fixnums(args, nargs))
     {
-        CHECK_FIXNUM(args[i]);
-        if (args[i] != n)
+        auto n = args[0];
+        for (uint32_t i = 1; i < nargs; ++i)
         {
-            return Value::nil();
+            if (args[i] != n)
+            {
+                return Value::nil();
+            }
         }
+        return g.s_T;
     }
-    return g.s_T;
+    else
+    {
+        Float n;
+        if (args[0].is_fixnum())
+        {
+            n = args[0].as_fixnum();
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            n = args[0].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+        
+        for (uint32_t i = 1; i < nargs; ++i)
+        {
+            if (args[i].is_fixnum())
+            {
+                if (args[i].as_fixnum() != n)
+                {
+                    return Value::nil();
+                }
+            }
+            else if (args[i].is_type(Object_Type::Float))
+            {
+                if (args[i].as_object()->to_float() != n)
+                {
+                    return Value::nil();
+                }
+            }
+            else
+            {
+                raised_signal = true;
+                return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[i]);
+            }
+        }
+        return g.s_T;
+    }
+}
+
+DEFUN("%<", func_num_less, g.kernel(), false)
+{
+    /***
+        (< a b &rest more-fixnums)
+    */
+    CHECK_NARGS_AT_LEAST(2);
+    if (only_fixnums(args, nargs))
+    {
+        auto a = args[0];
+        auto b = args[1];
+        bool result = a.as_fixnum() < b.as_fixnum();
+        if (result)
+        {
+            a = b;
+            for (uint32_t i = 2; i < nargs; ++i)
+            {
+                b = args[i];
+                result = a.as_fixnum() < b.as_fixnum();
+                if (result == false)
+                {
+                    break;
+                }
+                a = b;
+            }
+        }
+        return result ? g.s_T : Value::nil();
+    }
+    else
+    {
+        Float a, b;
+        if (args[0].is_fixnum())
+        {
+            a = args[0].as_fixnum();
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            a = args[0].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+        if (args[1].is_fixnum())
+        {
+            b = args[1].as_fixnum();
+        }
+        else if (args[1].is_type(Object_Type::Float))
+        {
+            b = args[1].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[1]);
+        }
+
+        bool result = a < b;
+        if (result)
+        {
+            a = b;
+            for (uint32_t i = 2; i < nargs; ++i)
+            {
+                if (args[i].is_fixnum())
+                {
+                    b = args[i].as_fixnum();
+                }
+                else if (args[i].is_type(Object_Type::Float))
+                {
+                    b = args[i].as_object()->to_float();
+                }
+                else
+                {
+                    raised_signal = true;
+                    return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[i]);
+                }
+
+                result = a < b;
+                if (result == false)
+                {
+                    break;
+                }
+                a = b;
+            }
+        }
+        return result ? g.s_T : Value::nil();
+    }
 }
 
 DEFUN("%>", func_num_greater, g.kernel(), false)
@@ -5873,27 +6155,87 @@ DEFUN("%>", func_num_greater, g.kernel(), false)
         (> a b &rest more-fixnums)
     */
     CHECK_NARGS_AT_LEAST(2);
-    auto a = args[0];
-    CHECK_FIXNUM(a);
-    auto b = args[1];
-    CHECK_FIXNUM(b);
-    bool result = a.as_fixnum() > b.as_fixnum();
-    if (result)
+    if (only_fixnums(args, nargs))
     {
-        a = b;
-        for (uint32_t i = 2; i < nargs; ++i)
+        auto a = args[0];
+        auto b = args[1];
+        bool result = a.as_fixnum() > b.as_fixnum();
+        if (result)
         {
-            b = args[i];
-            CHECK_FIXNUM(b);
-            result = a.as_fixnum() > b.as_fixnum();
-            if (result == false)
-            {
-                break;
-            }
             a = b;
+            for (uint32_t i = 2; i < nargs; ++i)
+            {
+                b = args[i];
+                result = a.as_fixnum() > b.as_fixnum();
+                if (result == false)
+                {
+                    break;
+                }
+                a = b;
+            }
         }
+        return result ? g.s_T : Value::nil();
     }
-    return result ? g.s_T : Value::nil();
+    else
+    {
+        Float a, b;
+        if (args[0].is_fixnum())
+        {
+            a = args[0].as_fixnum();
+        }
+        else if (args[0].is_type(Object_Type::Float))
+        {
+            a = args[0].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[0]);
+        }
+        if (args[1].is_fixnum())
+        {
+            b = args[1].as_fixnum();
+        }
+        else if (args[1].is_type(Object_Type::Float))
+        {
+            b = args[1].as_object()->to_float();
+        }
+        else
+        {
+            raised_signal = true;
+            return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[1]);
+        }
+
+        bool result = a > b;
+        if (result)
+        {
+            a = b;
+            for (uint32_t i = 2; i < nargs; ++i)
+            {
+                if (args[i].is_fixnum())
+                {
+                    b = args[i].as_fixnum();
+                }
+                else if (args[i].is_type(Object_Type::Float))
+                {
+                    b = args[i].as_object()->to_float();
+                }
+                else
+                {
+                    raised_signal = true;
+                    return gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), args[i]);
+                }
+
+                result = a > b;
+                if (result == false)
+                {
+                    break;
+                }
+                a = b;
+            }
+        }
+        return result ? g.s_T : Value::nil();
+    }
 }
 
 DEFUN("%FILE-TELLG", func_file_tellg, g.kernel(), false)
@@ -6038,6 +6380,7 @@ DEFUN("%TYPE-OF", func_type_of, g.kernel(), false)
             case Object_Type::System_Pointer: return g.s_SYSTEM_POINTER;
             case Object_Type::Structure: return it.as_object()->structure()->type_name();
             case Object_Type::Package: return g.s_PACKAGE;
+            case Object_Type::Float: return g.s_FLOAT;
         }
         return Value::nil();
     }
@@ -7457,6 +7800,7 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     g.s_IF               = core->export_symbol("IF");
     g.s_OR               = core->export_symbol("OR");
     g.s_FIXNUM           = core->export_symbol("FIXNUM");
+    g.s_FLOAT            = core->export_symbol("FLOAT");
     g.s_CONS             = core->export_symbol("CONS");
     g.s_NULL             = core->export_symbol("NULL");
     g.s_LIST             = core->export_symbol("LIST");
@@ -7865,8 +8209,11 @@ bool read(std::istream &source, Value &out_result)
         std::string str;
         str += c;
         source.get();
-        while (!source.eof() && is_digit(source.peek()))
+        int decimal_count = 0;
+        while (!source.eof() && (is_digit(source.peek()) || source.peek() == '.'))
         {
+            decimal_count += (source.peek() == '.');
+                
             str += source.get();
         }
         bool is_number = source.eof() || !is_symbol_char(source.peek());
@@ -7878,10 +8225,18 @@ bool read(std::istream &source, Value &out_result)
         {
             is_number = false;
         }
-        if (is_number)
+        if (is_number && decimal_count < 2)
         {
-            out_result = Value::wrap_fixnum(std::stoll(str));
-            return true;
+            if (decimal_count != 0)
+            {
+                out_result = gc.alloc_object<Float>(std::stod(str));
+                return true;
+            }
+            else
+            {
+                out_result = Value::wrap_fixnum(std::stoll(str));
+                return true;
+            }
         }
         out_result = make_symbol(str_upper(str));
         return true;
