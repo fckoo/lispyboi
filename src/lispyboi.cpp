@@ -4552,7 +4552,7 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             {
                 compile(e, car(args), toplevel);
                 nargs++;
-                args = cdr(args)
+                args = cdr(args);
             }
             compile(e, second(expr), toplevel);
             e.emit_apply(nargs);
@@ -5492,17 +5492,62 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 
             DISPATCH(add)
             {
-                if (only_fixnums(m_stack_top-2, 2))
+                /*
+                  This is a type deduction algorithm with minimal branching
+                  // good types
+                  int, int = 3
+                  flo, int = 6
+                  int, flo = 9
+                  flo, flo = 12
+
+                  // fail types
+                  no, no = 0
+                  int, no = 1
+                  flo, no = 4
+                  no, int = 2
+                  no, flo = 8
+                 */
+                auto b = pop_param();
+                auto a = pop_param();
+
+                char a_t = 0;
+                a_t += a.is_fixnum();
+                a_t += a.is_type(Object_Type::Float) * 4;
+
+                char b_t = 0;
+                b_t += b.is_fixnum() * 2;
+                b_t += b.is_type(Object_Type::Float) * 8;
+
+                char c_t = a_t + b_t;
+
+                if (c_t == 3)
                 {
-                    auto b = pop_param();
-                    auto a = pop_param();
                     push_param(a + b);
+                }
+                else if (c_t == 6)
+                {
+                    Float f = b.as_fixnum();
+                    f += a.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
+                }
+                else if (c_t == 9)
+                {
+                    Float f = a.as_fixnum();
+                    f += b.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
+                }
+                else if (c_t == 12)
+                {
+                    Float f = a.as_object()->to_float();
+                    f += b.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
                 }
                 else
                 {
-                    func = g.s_pplus;
-                    nargs = 2;
-                    goto do_funcall;
+                    GC_GUARD();
+                    signal_args = gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), a, b);
+                    GC_UNGUARD();
+                    goto raise_signal;
                 }
                 ip += 1;
                 DISPATCH_NEXT;
@@ -5510,18 +5555,14 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 
             DISPATCH(add_1)
             {
-                auto a = pop_param();
-                if (a.is_fixnum())
+                if (param_top().is_fixnum())
                 {
-                    push_param(a + Value::wrap_fixnum(1));
+                    param_top() += Value::wrap_fixnum(1);
                 }
-                else
+                else if (param_top().is_type(Object_Type::Float))
                 {
-                    push_param(a);
-                    push_param(Value::wrap_fixnum(1));
-                    func = g.s_pplus;
-                    nargs = 2;
-                    goto do_funcall;
+                    Float f = pop_param().as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f + 1.0));
                 }
                 ip += 1;
                 DISPATCH_NEXT;
@@ -5529,17 +5570,62 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 
             DISPATCH(sub)
             {
-                if (only_fixnums(m_stack_top-2, 2))
+                /*
+                  This is a type deduction algorithm with minimal branching
+                  // good types
+                  int, int = 3
+                  flo, int = 6
+                  int, flo = 9
+                  flo, flo = 12
+
+                  // fail types
+                  no, no = 0
+                  int, no = 1
+                  flo, no = 4
+                  no, int = 2
+                  no, flo = 8
+                 */
+                auto b = pop_param();
+                auto a = pop_param();
+
+                char a_t = 0;
+                a_t += a.is_fixnum();
+                a_t += a.is_type(Object_Type::Float) * 4;
+
+                char b_t = 0;
+                b_t += b.is_fixnum() * 2;
+                b_t += b.is_type(Object_Type::Float) * 8;
+
+                char c_t = a_t + b_t;
+
+                if (c_t == 3)
                 {
-                    auto b = pop_param();
-                    auto a = pop_param();
                     push_param(a - b);
+                }
+                else if (c_t == 6)
+                {
+                    Float f = b.as_fixnum();
+                    f -= a.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
+                }
+                else if (c_t == 9)
+                {
+                    Float f = a.as_fixnum();
+                    f -= b.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
+                }
+                else if (c_t == 12)
+                {
+                    Float f = a.as_object()->to_float();
+                    f -= b.as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f));
                 }
                 else
                 {
-                    func = g.s_pminus;
-                    nargs = 2;
-                    goto do_funcall;
+                    GC_GUARD();
+                    signal_args = gc.list(g.s_TYPE_ERROR, gc.list(g.s_OR, g.s_FIXNUM, g.s_FLOAT), a, b);
+                    GC_UNGUARD();
+                    goto raise_signal;
                 }
                 ip += 1;
                 DISPATCH_NEXT;
@@ -5547,18 +5633,14 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
 
             DISPATCH(sub_1)
             {
-                auto a = pop_param();
-                if (a.is_fixnum())
+                if (param_top().is_fixnum())
                 {
-                    push_param(a - Value::wrap_fixnum(1));
+                    param_top() -= Value::wrap_fixnum(1);
                 }
-                else
+                else if (param_top().is_type(Object_Type::Float))
                 {
-                    push_param(a);
-                    push_param(Value::wrap_fixnum(1));
-                    func = g.s_pminus;
-                    nargs = 2;
-                    goto do_funcall;
+                    Float f = pop_param().as_object()->to_float();
+                    push_param(gc.alloc_object<Float>(f - 1.0));
                 }
                 ip += 1;
                 DISPATCH_NEXT;
@@ -8435,6 +8517,7 @@ Value make_symbol(const std::string &str)
     auto package = g.packages.current();
     std::string symbol_name;
     std::string package_name;
+    bool external = false;
     if (str.size() > 2 && str[0] == ':' && str[1] == ':')
     {
         package = g.keyword();
@@ -8464,6 +8547,7 @@ Value make_symbol(const std::string &str)
             package_name = str.substr(0, i);
             package = g.packages.find(package_name);
             symbol_name = str.substr(i+1);
+            external = true;
         }
     }
 
@@ -8497,7 +8581,25 @@ Value make_symbol(const std::string &str)
         throw VM_State::Signal_Exception(signal_args);
     }
 
-    return package->intern_symbol(symbol_name);
+    if (!external)
+    {
+        return package->intern_symbol(symbol_name);
+    }
+
+    Value symbol;
+    Package::Symbol_Location_Type location;
+    if (package->find_symbol(symbol_name, symbol, &location)
+        && location == Package::Symbol_Location_Type::External)
+    {
+        return symbol;
+    }
+    GC_GUARD();
+    auto signal_args = gc.list(g.s_SIMPLE_ERROR,
+                               gc.alloc_string("No external symbol in package"),
+                               gc.alloc_string(symbol_name),
+                               gc.alloc_string(package_name));
+    GC_UNGUARD();
+    throw VM_State::Signal_Exception(signal_args);
 }
 
 static
@@ -8892,44 +8994,51 @@ void run_repl(VM_State &vm, compiler::Scope &root_scope)
     {
         printf("%s> ", g.packages.current()->name().c_str());
         Value out;
-        if (read_gc_paused(stm, out))
-        {
-            auto out_handle = gc.pin_value(out);
-            try
+        try {
+            if (read_gc_paused(stm, out))
             {
-                auto expanded = macro_expand_impl(out, vm);
-                gc.unpin_value(out_handle);
+                auto out_handle = gc.pin_value(out);
+                try
+                {
+                    auto expanded = macro_expand_impl(out, vm);
+                    gc.unpin_value(out_handle);
 
-                bytecode::Emitter e(&root_scope);
-                compiler::compile(e, expanded, true, false);
-                e.emit_halt();
-                e.lock();
+                    bytecode::Emitter e(&root_scope);
+                    compiler::compile(e, expanded, true, false);
+                    e.emit_halt();
+                    e.lock();
 
-                g.resize_globals(root_scope.locals().size());
+                    g.resize_globals(root_scope.locals().size());
 
-                vm.push_frame(nullptr, 0);
-                vm.execute(e.bytecode().data());
+                    vm.push_frame(nullptr, 0);
+                    vm.execute(e.bytecode().data());
+                }
+                catch (VM_State::Signal_Exception e)
+                {
+                    gc.unpin_value(out_handle);
+                    trace_signal_exception(vm, e);
+                    continue;
+                }
+                if (vm.stack_top() != vm.stack_bottom())
+                {
+                    auto result = vm.pop_param();
+                    printf("==> %s\n", repr(result).c_str());
+                }
+
+                if (vm.call_frame_top() != vm.call_frame_bottom())
+                {
+                    vm.set_frame(vm.pop_frame());
+                }
             }
-            catch (VM_State::Signal_Exception e)
+            else if (stm.eof())
             {
-                gc.unpin_value(out_handle);
-                trace_signal_exception(vm, e);
-                continue;
-            }
-            if (vm.stack_top() != vm.stack_bottom())
-            {
-                auto result = vm.pop_param();
-                printf("==> %s\n", repr(result).c_str());
-            }
-
-            if (vm.call_frame_top() != vm.call_frame_bottom())
-            {
-                vm.set_frame(vm.pop_frame());
+                break;
             }
         }
-        else if (stm.eof())
+        catch (VM_State::Signal_Exception e)
         {
-            break;
+            trace_signal_exception(vm, e);
+            continue;
         }
     }
 }

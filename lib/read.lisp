@@ -308,7 +308,15 @@
          (destructuring-bind (pkg-name symbol-name interned-p)
              (%has-package-p string)
            (if pkg-name
-               (intern symbol-name pkg-name)
+               (if interned-p
+                   (intern symbol-name pkg-name)
+                   (destructuring-bind (symbol place)
+                       (find-symbol symbol-name pkg-name)
+                     (if (and symbol (eq place :external))
+                         symbol
+                         (signal 'simple-error "No external symbol in package"
+                                 symbol-name
+                                 pkg-name))))
                (intern string *package*))))))
 
 
