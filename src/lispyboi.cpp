@@ -1232,16 +1232,42 @@ bool Value::is_type(Object_Type type) const noexcept
     return is_object() && as_object()->type() == type;
 }
 
-FORCE_INLINE
+static FORCE_INLINE
 bool symbolp(Value v)
 {
     return v.is_type(Object_Type::Symbol);
 }
 
-FORCE_INLINE
+static FORCE_INLINE
 bool numberp(Value v)
 {
     return v.is_fixnum() || v.is_type(Object_Type::Float);
+}
+
+static FORCE_INLINE
+bool only_fixnums(const Value *args, uint32_t nargs)
+{
+    // This also returns true for an empty list.
+    for (uint32_t i = 0; i < nargs; ++i)
+    {
+        if (!args[i].is_fixnum())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static
+Fixnum length(Value v)
+{
+    Fixnum len = 0;
+    while (!v.is_nil())
+    {
+        ++len;
+        v = cdr(v);
+    }
+    return len;
 }
 
 bool stringp(Value v);
@@ -2632,6 +2658,8 @@ struct Runtime_Globals
     Value s_END;
     Value s_CURRENT;
 
+    Value s_pplus;
+    Value s_pminus;
     Value s_pLAMBDA;
     Value s_pCAR;
     Value s_pCDR;
@@ -3284,6 +3312,11 @@ struct Emitter
     void emit_aref();
     void emit_aset();
 
+    void emit_add();
+    void emit_add_1();
+    void emit_sub();
+    void emit_sub_1();
+
     void emit_debug_trap();
 
     template<typename T>
@@ -3623,6 +3656,26 @@ void Emitter::emit_aset()
     append(Opcode::op_aset);
 }
 
+void Emitter::emit_add()
+{
+    append(Opcode::op_add);
+}
+
+void Emitter::emit_add_1()
+{
+    append(Opcode::op_add_1);
+}
+
+void Emitter::emit_sub()
+{
+    append(Opcode::op_sub);
+}
+
+void Emitter::emit_sub_1()
+{
+    append(Opcode::op_sub_1);
+}
+
 void Emitter::emit_debug_trap()
 {
     append(Opcode::op_debug_trap);
@@ -3871,6 +3924,10 @@ const uint8_t *disassemble1(std::ostream &out, const uint8_t *ip, bool here)
         case Opcode::op_aref:
         case Opcode::op_aset:
         case Opcode::op_debug_trap:
+        case Opcode::op_add:
+        case Opcode::op_add_1:
+        case Opcode::op_sub:
+        case Opcode::op_sub_1:
         {
             put_bytes(out, ip, size);
             out << name;
@@ -4495,14 +4552,62 @@ void compile(bytecode::Emitter &e, Value expr, bool toplevel, bool tail_position
             {
                 compile(e, car(args), toplevel);
                 nargs++;
-                args = cdr(args);
+                args = cdr(args)
             }
             compile(e, second(expr), toplevel);
             e.emit_apply(nargs);
         }
         else
         {
-            compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
+            if (thing == g.s_pplus && length(expr) == 3) // add a, b
+            {
+                auto a = second(expr);
+                auto b = third(expr);
+                if (a.is_fixnum() && b.is_fixnum())
+                {
+                    e.emit_push_literal(a + b);
+                }
+                else if (a == Value::wrap_fixnum(1))
+                {
+                    compile(e, b, toplevel);
+                    e.emit_add_1();
+                }
+                else if (b == Value::wrap_fixnum(1))
+                {
+                    compile(e, a, toplevel);
+                    e.emit_add_1();
+                }
+                else
+                {
+                    compile(e, a, toplevel);
+                    compile(e, b, toplevel);
+                    e.emit_add();
+                }
+            }
+            else if (thing == g.s_pminus && length(expr) == 3) // sub a, b
+            {
+                auto a = second(expr);
+                auto b = third(expr);
+                if (a.is_fixnum() && b.is_fixnum())
+                {
+                    e.emit_push_literal(a - b);
+                }
+                else if (b == Value::wrap_fixnum(1))
+                {
+                    compile(e, a, toplevel);
+                    e.emit_sub_1();
+                }
+                else
+                {
+                    compile(e, a, toplevel);
+                    compile(e, b, toplevel);
+                    e.emit_sub();
+                }
+            }
+            else
+            {
+                compile_function_call(e, first(expr), rest(expr), toplevel, tail_position, false);
+            }
         }
         if (thing != g.s_QUOTE && thing != g.s_FUNCTION)
         {
@@ -5384,6 +5489,80 @@ const uint8_t *VM_State::execute_impl(const uint8_t *ip)
                 ip += 1;
                 DISPATCH_NEXT;
             }
+
+            DISPATCH(add)
+            {
+                if (only_fixnums(m_stack_top-2, 2))
+                {
+                    auto b = pop_param();
+                    auto a = pop_param();
+                    push_param(a + b);
+                }
+                else
+                {
+                    func = g.s_pplus;
+                    nargs = 2;
+                    goto do_funcall;
+                }
+                ip += 1;
+                DISPATCH_NEXT;
+            }
+
+            DISPATCH(add_1)
+            {
+                auto a = pop_param();
+                if (a.is_fixnum())
+                {
+                    push_param(a + Value::wrap_fixnum(1));
+                }
+                else
+                {
+                    push_param(a);
+                    push_param(Value::wrap_fixnum(1));
+                    func = g.s_pplus;
+                    nargs = 2;
+                    goto do_funcall;
+                }
+                ip += 1;
+                DISPATCH_NEXT;
+            }
+
+            DISPATCH(sub)
+            {
+                if (only_fixnums(m_stack_top-2, 2))
+                {
+                    auto b = pop_param();
+                    auto a = pop_param();
+                    push_param(a - b);
+                }
+                else
+                {
+                    func = g.s_pminus;
+                    nargs = 2;
+                    goto do_funcall;
+                }
+                ip += 1;
+                DISPATCH_NEXT;
+            }
+
+            DISPATCH(sub_1)
+            {
+                auto a = pop_param();
+                if (a.is_fixnum())
+                {
+                    push_param(a - Value::wrap_fixnum(1));
+                }
+                else
+                {
+                    push_param(a);
+                    push_param(Value::wrap_fixnum(1));
+                    func = g.s_pminus;
+                    nargs = 2;
+                    goto do_funcall;
+                }
+                ip += 1;
+                DISPATCH_NEXT;
+            }
         }
     }
     done:
@@ -5776,20 +5955,6 @@ DEFUN("%IN-PACKAGE", func_in_package, g.kernel(), false)
     return package_to_use->as_lisp_value();
 }
 
-static
-bool only_fixnums(const Value *args, uint32_t nargs)
-{
-    // This also returns true for an empty list.
-    for (uint32_t i = 0; i < nargs; ++i)
-    {
-        if (!args[i].is_fixnum())
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 DEFUN("%+", func_plus, g.kernel(), false)
 {
     /***
@@ -6002,7 +6167,7 @@ DEFUN("%/", func_divide, g.kernel(), false)
 DEFUN("%FLOAT-STRING", func_float_string, g.kernel(), false)
 {
     CHECK_NARGS_EXACTLY(1);
-    double f;
+    Float f;
     if (args[0].is_fixnum())
     {
         f = args[0].as_fixnum();
@@ -7923,6 +8088,8 @@ void initialize_globals(compiler::Scope *root_scope, char **argv)
     kernel->inherit(core);
     user->inherit(core);
 
+    g.s_pplus            = kernel->intern_symbol("%+");
+    g.s_pminus           = kernel->intern_symbol("%-");
     g.s_pCAR             = kernel->intern_symbol("%CAR");
     g.s_pCDR             = kernel->intern_symbol("%CDR");
     g.s_pCONS            = kernel->intern_symbol("%CONS");
