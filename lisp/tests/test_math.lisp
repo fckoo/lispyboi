@@ -75,3 +75,15 @@
 (assert-= +most-negative-fixnum+ (bit-not +most-positive-fixnum+))
 
 (assert-= 15 (bit-ior 1 2 4 8))
+
+(assert-= 6.0 (+ 2.1 3.9))
+(assert-= 0.0 (- 0.75 0.75))
+(assert-= 3.0 (/ 6.0 2))
+(assert-= 10.0 (* 5.0 2))
+
+(assert-= 0 (- 0.75 0.75))
+(assert-= 3 (/ 6.0 2))
+(assert-= 10 (* 5.0 2))
+
+(assert-true (< 0.5 0.75 1))
+(assert-true (> 0.5 0.25 0))

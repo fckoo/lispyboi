@@ -304,5 +304,30 @@ BYTECODE_DEF(debug_trap,
 1, // size
 "Pop top of P-stack, if it's NIL disable debugger, otherwise enable it.")
 
+BYTECODE_DEF(add,
+0, // noperands
+2, // nargs
+1, // size
+"Pop two off P-stack, add them together and push result to P-stack")
+
+BYTECODE_DEF(add_1,
+0, // noperands
+1, // nargs
+1, // size
+"Add 1 to the top of the P-stack")
+
+BYTECODE_DEF(sub,
+0, // noperands
+2, // nargs
+1, // size
+"B = Pop from P-stack\n"
+"A = Pop from P-stack\n"
+"Push A - B to P-stack\n")
+
+BYTECODE_DEF(sub_1,
+0, // noperands
+1, // nargs
+1, // size
+"Subtract 1 from the top of the P-stack")
 
 #undef BYTECODE_DEF

@@ -147,6 +147,9 @@
    array-type
    simple-array
    aref
+   array-length
+   array-capacity
+   array-push-back
 
    nth
    elt
@@ -193,13 +196,13 @@
 (defmacro defun (name argslist &rest body)
   (list 'kernel::%define-function (list 'quote name) (cons 'lambda (cons argslist body))))
 
-(defmacro car (obj) (list '%car obj))
+(defmacro car (obj) (list 'kernel::%car obj))
 (defun car (obj) (car obj))
 
-(defmacro cdr (obj) (list '%cdr obj))
+(defmacro cdr (obj) (list 'kernel::%cdr obj))
 (defun cdr (obj) (cdr obj))
 
-(defmacro eq (x y) (list '%eq x y))
+(defmacro eq (x y) (list 'kernel::%eq x y))
 (defun eq (x y) (eq x y))
 
 (defmacro setq (x y &rest documentation) (list 'kernel::%setq x y))
@@ -883,25 +886,43 @@ may be provided or left NIL."
     (setf (cdr place) (cddr place))
     val))
 
-(defmacro make-array (length &optional (element-type t))
-  (list 'kernel::%make-array length element-type))
+(defmacro make-array (length &optional (element-type t) (fill-pointer length))
+  (list 'kernel::%make-array length element-type fill-pointer))
 
-(defun make-array (length &optional (element-type t))
-  (make-array length element-type))
+(defun make-array (length &optional (element-type t) (fill-pointer length))
+  (make-array length element-type fill-pointer))
 
-(defmacro array-type (array) (list 'kernel::%array-type array))
+(defmacro array-type (array)
+  (list 'kernel::%array-type array))
 
-(defun array-type (array) (array-type array))
+(defun array-type (array)
+  (array-type array))
 
-(defmacro aref (array subscript) (list 'kernel::%aref array subscript))
+(defmacro aref (array subscript)
+  (list 'kernel::%aref array subscript))
 
-(defun aref (array subscript) (aref array subscript))
+(defun aref (array subscript)
+  (aref array subscript))
 
 (defsetf aref kernel::%aset)
 
-(defmacro array-length (array) (list 'kernel::%array-length array))
+(defmacro array-length (array)
+  (list 'kernel::%array-length array))
 
-(defun array-length (array) (array-length array))
+(defun array-length (array)
+  (array-length array))
+
+(defmacro array-capacity (array)
+  (list 'kernel::%array-capacity array))
+
+(defun array-capacity (array)
+  (array-capacity array))
+
+(defmacro array-push-back (array value)
+  (list 'kernel::%array-push-back array value))
+
+(defun array-push-back (array value)
+  (array-push-back array value))
 
 (defun arrayp (obj)
   (let ((type (type-of obj)))
@@ -1044,7 +1065,7 @@ may be provided or left NIL."
         str)))
 
 (defun print (object &optional (stm *standard-output*))
-  (if #'print-object
+  (if (kernel::%function-definition 'print-object)
       (print-object object stm)
       (kernel::%file-write stm object))
   object)
@@ -1098,9 +1119,8 @@ may be provided or left NIL."
     (when idx (substring path 0 idx))))
 
 (defun copy-array (array)
-  (let ((copy (make-array (array-length array) (array-type array)))
-        (len (array-length array)))
-    (dotimes (i len)
+  (let ((copy (make-array (array-length array) (array-type array))))
+    (dotimes (i (array-length array))
       (setf (aref copy i)
             (aref array i)))
     copy))
